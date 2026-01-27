@@ -1,0 +1,224 @@
+# ========================================
+# Unity Generated Files & Folders
+# ========================================
+/[Ll]ibrary/
+/[Tt]emp/
+/[Oo]bj/
+/[Bb]uild/
+/[Bb]uilds/
+/[Ll]ogs/
+/[Uu]ser[Ss]ettings/
+/[Mm]emoryCaptures/
+/[Rr]ecordings/
+
+# Unity cache directories
+.vs/
+.vscode/
+.idea/
+*.pidb
+*.pdb
+*.mdb
+*.opendb
+*.db
+*.db-wal
+*.db-shm
+
+# ========================================
+# Generated Files
+# ========================================
+[Aa]ssembly-CSharp.csproj
+[Aa]ssembly-CSharp-Editor.csproj
+ProjectSettings/AudioManager.asset.backup
+
+# Auto-generated protobuf code
+Assets/Generated/
+Assets/Scripts/Generated/
+
+# ========================================
+# Build Artifacts & Compiled Objects
+# ========================================
+*.o
+*.obj
+*.exe
+*.so
+*.dylib
+*.dll
+*.elf
+*.out
+*.a
+*.lib
+
+# CMake build directories
+/cmake-build-debug/
+/cmake-build-release/
+/cmake-build-*/
+/build/
+/dist/
+
+# ========================================
+# IDE & Editor Files
+# ========================================
+*.sln
+*.csproj
+!*.csproj
+.vscode/
+.vs/
+.idea/
+*.sublime-project
+*.sublime-workspace
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+
+# ========================================
+# Temporary & Backup Files
+# ========================================
+*.tmp
+*.bak
+*.backup
+*.swp
+*.swo
+*~
+.#*
+\#*\#
+
+# ========================================
+# Log Files & Debug Output
+# ========================================
+/Log/
+/Logs/
+*.log
+[Ll]og[0-9]*
+Logs/
+Temp/
+DebugLog.txt
+RunLog.txt
+ProfilerCaptures/
+
+# ========================================
+# Package Management
+# ========================================
+packages/
+.packages/
+node_modules/
+npm-debug.log
+yarn-error.log
+
+# NuGet-specific
+*.nupkg
+*.snupkg
+.nuget/
+packages/*
+!packages/repositories.config
+.paket/paket.exe
+paket-files/
+
+# ========================================
+# Visual Studio & Rider Cache
+# ========================================
+.vs/
+.vscode/
+.idea/
+.rider/
+*.user
+*.suo
+*.sln.docstates
+
+# ========================================
+# OS-specific Files
+# ========================================
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+*.[Ll]nk
+
+# ========================================
+# Project-specific Directories (Mock/Test)
+# ========================================
+/Assets/MockServerCpp/build/
+/Assets/MockServerCpp/cmake-build-*/
+*.so
+*.dylib
+
+# ========================================
+# Python-related (if applicable)
+# ========================================
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+dist/
+build/
+
+# ========================================
+# Documentation Build Artifacts
+# ========================================
+/docs/_build/
+/site/
+
+# ========================================
+# Network & Configuration Files (Sensitive)
+# ========================================
+# Uncomment if you have sensitive configs
+# *.key
+# *.pem
+# *.cert
+# config.local.json
+
+# ========================================
+# Recovery & Temp Files
+# ========================================
+_Recovery/
+*Recovery*/
+.git-rebase-merge/
+.git-rebase-apply/
+
+# ========================================
+# Miscellaneous
+# ========================================
+.gradle/
+.gradle/wrapper/
+gradle/wrapper/
+*.gradle
+.m2/
+settings.gradle
+local.properties
+
+# Protocol Buffer intermediate files
+*.pb.go
+*.pb.cc
+*.pb.h
+
+# ========================================
+# IDE Metadata & Cache
+# ========================================
+.classpath
+.c9/
+*.launch
+.settings/
+*.sublime-workspace
+
+# LSP Cache
+.pylsp/
+.pylint-venv/
+
+# ========================================
+# Architecture & Build Specific
+# ========================================
+# Keep these if needed for reproducibility
+# !Library/
+# !Temp/
+
+# But ignore generated scenes/assets
+Library/ArtifactDB*
+Library/SourceAssetDB*
+Library/StateCache/
+Library/ShaderCache/
+Library/BurstCache/
+Library/Search/

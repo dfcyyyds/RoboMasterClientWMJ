@@ -1,0 +1,15 @@
+﻿{
+  "dataPort": 3333,
+  "decoderOutputHeight": 1080,
+  "decoderOutputWidth": 1920,
+  "decoderQueueSize": 8,
+  "initialFileQueueSize": 8,
+  "ip": "127.0.0.1",
+  "logBufferSize": 4,
+  "maxDrainPerUpdate": 2,
+  "maxFileQueueSize": 64,
+  "mqttReconnectInterval": 2,
+  "RobotID": 1,
+  "RobotNum": 10,
+  "videoPort": 3334
+}
