@@ -37,6 +37,12 @@ struct NvdecContext {
   bool gl_failed = false;
   bool cuda_gl_failed = false;
 
+  // 异步同步优化：CUDA Event + GL Fence
+  cudaEvent_t cudaWriteEvent[2] = {nullptr,
+                                   nullptr};  // 每个 PBO 的 CUDA 写入完成事件
+  bool pbo_cuda_pending[2] = {false, false};  // PBO 是否有待处理的 CUDA 写入
+  void* glFence = nullptr;  // GLsync fence (存储为 void* 避免头文件依赖)
+
   // Vulkan 路径 (主要)
 #if defined(NVP_HAS_VULKAN)
   VulkanInteropContext vkCtx;

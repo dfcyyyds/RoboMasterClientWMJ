@@ -1,8 +1,8 @@
 ┌─────────────────────────────────────────────────────────────────┐
-│                      Unity (Vulkan 渲染后端)                     │
+│                      Unity (Vulkan 渲染后端)                                                                                                         │
 │  ┌──────────────────────────────────────────────────────────┐   │
-│  │  VideoStreamService.cs                                   │   │
-│  │    - 检测 Vulkan 模式 (NativeVideoBridge.IsVulkanEnabled) │   │
+│  │  VideoStreamService.cs                                                                                                                     │   │
+│  │    - 检测 Vulkan 模式 (NativeVideoBridge.IsVulkanEnabled)                                                         │   │
 │  │    - 获取 VkImage 句柄 (NativeVideoBridge.GetVulkanImage) │   │
 │  │    - Texture2D.CreateExternalTexture (RGBA32)            │   │
 │  └──────────────────────────────────────────────────────────┘   │

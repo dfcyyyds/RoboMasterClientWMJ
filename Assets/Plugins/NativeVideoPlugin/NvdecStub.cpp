@@ -366,11 +366,15 @@ static int CUDAAPI HandlePictureDisplay(void* pUserData,
 
       LaunchNV12ToRGB(y_plane, uv_plane, reinterpret_cast<uint8_t*>(dpPbo),
                       ctx->width, ctx->height, pitch, pitch, ctx->stream);
-      cudaError_t cuda_err = cudaStreamSynchronize(ctx->stream);
-      if (cuda_err != cudaSuccess) {
-        fprintf(stderr, "[NVDEC] cudaStreamSynchronize failed: %d (%s)\n",
-                (int)cuda_err, cudaGetErrorString(cuda_err));
+
+      // 异步优化：使用 cudaEvent 代替 cudaStreamSynchronize
+      // 只在 Unmap 前记录事件，让 GPU 继续执行
+      if (ctx->cudaWriteEvent[write_idx]) {
+        cudaEventRecord(ctx->cudaWriteEvent[write_idx], ctx->stream);
+        ctx->pbo_cuda_pending[write_idx] = true;
       }
+
+      // Unmap 必须在同一个 stream 上，CUDA driver 会自动排序
       cuGraphicsUnmapResources(1, &ctx->cuPbo[write_idx], ctx->stream);
 
       // 双缓冲：交换写入索引，标记读取索引
@@ -412,6 +416,12 @@ static void destroy_gl_objects(NvdecContext& ctx) {
           "[NVDEC] Destroying GL objects: pbo[0]=%u, pbo[1]=%u, tex=%u\n",
           ctx.pbo[0], ctx.pbo[1], ctx.tex);
 
+  // 清理 GL Fence
+  if (ctx.glFence) {
+    glDeleteSync(static_cast<GLsync>(ctx.glFence));
+    ctx.glFence = nullptr;
+  }
+
   // 需要正确的 CUDA 上下文来注销资源
   CUcontext currentCtx = nullptr;
   cuCtxGetCurrent(&currentCtx);
@@ -431,6 +441,8 @@ static void destroy_gl_objects(NvdecContext& ctx) {
       }
       ctx.cuPbo[i] = nullptr;
     }
+    // 重置 CUDA pending 状态
+    ctx.pbo_cuda_pending[i] = false;
   }
 
   if (needPush && ctx.cuCtx) {
@@ -561,6 +573,20 @@ bool nvdec_init(NvdecContext& ctx, int width, int height) {
     return false;
   }
 
+  // 创建 CUDA Events 用于异步同步（双缓冲）
+  for (int i = 0; i < 2; i++) {
+    cudaError_t ev_err = cudaEventCreateWithFlags(&ctx.cudaWriteEvent[i],
+                                                  cudaEventDisableTiming);
+    if (ev_err != cudaSuccess) {
+      fprintf(stderr, "[NVDEC] cudaEventCreate[%d] failed: %d\n", i,
+              (int)ev_err);
+      // 非致命错误，继续但禁用异步优化
+      ctx.cudaWriteEvent[i] = nullptr;
+    }
+    ctx.pbo_cuda_pending[i] = false;
+  }
+  printf("[NVDEC] CUDA Events created for async optimization\n");
+
   CUVIDPARSERPARAMS vpp = {};
   vpp.CodecType = cudaVideoCodec_HEVC;
   vpp.ulMaxNumDecodeSurfaces = 4;
@@ -575,10 +601,11 @@ bool nvdec_init(NvdecContext& ctx, int width, int height) {
     return false;
   }
 
-  ctx.width = width;
-  ctx.height = height;
+  // 使用传入的尺寸，若为0则默认 2K (2560x1440) 以减少启动时 PBO 重建
+  ctx.width = (width > 0) ? width : 2560;
+  ctx.height = (height > 0) ? height : 1440;
 
-  printf("[NVDEC] Initialized: %dx%d\n", width, height);
+  printf("[NVDEC] Initialized: %dx%d\n", ctx.width, ctx.height);
   return true;
 #else
   (void)ctx;
@@ -702,9 +729,47 @@ int nvdec_get_texture(const NvdecContext& ctx) {
     }
   }
 
-  // 上传 PBO 到纹理 (使用读取缓冲)
+  // 上传 PBO 到纹理 (使用读取缓冲) - 带异步同步优化
   int read_idx = mut_ctx.pbo_read_idx;
   if (mut_ctx.cuPbo[read_idx] && mut_ctx.frame_ready) {
+    // 异步优化：检查 CUDA 写入是否完成
+    // 使用非阻塞查询，如果未完成则跳过本次上传，下一帧再试
+    if (mut_ctx.pbo_cuda_pending[read_idx] &&
+        mut_ctx.cudaWriteEvent[read_idx]) {
+      cudaError_t event_status =
+          cudaEventQuery(mut_ctx.cudaWriteEvent[read_idx]);
+      if (event_status == cudaErrorNotReady) {
+        // CUDA 写入尚未完成，跳过本次上传，避免阻塞
+        static int skip_async = 0;
+        if (++skip_async <= 5) {
+          fprintf(stderr,
+                  "[NVDEC] CUDA write not ready, skipping upload (async "
+                  "optimization)\n");
+        }
+        return static_cast<int>(mut_ctx.tex);  // 返回旧纹理
+      } else if (event_status == cudaSuccess) {
+        mut_ctx.pbo_cuda_pending[read_idx] = false;
+      }
+    }
+
+    // 删除旧的 GL Fence（如果存在）
+    GLsync oldFence = static_cast<GLsync>(mut_ctx.glFence);
+    if (oldFence) {
+      // 等待上一次纹理上传完成（非阻塞检查）
+      GLenum waitResult =
+          glClientWaitSync(oldFence, GL_SYNC_FLUSH_COMMANDS_BIT, 0);
+      if (waitResult == GL_TIMEOUT_EXPIRED) {
+        // 上一次上传还未完成，跳过
+        static int fence_skip = 0;
+        if (++fence_skip <= 5) {
+          fprintf(stderr, "[NVDEC] GL fence not ready, skipping upload\n");
+        }
+        return static_cast<int>(mut_ctx.tex);
+      }
+      glDeleteSync(oldFence);
+      mut_ctx.glFence = nullptr;
+    }
+
     static int tex_upload_count = 0;
     glBindBuffer(GL_PIXEL_UNPACK_BUFFER, mut_ctx.pbo[read_idx]);
     glBindTexture(GL_TEXTURE_2D, mut_ctx.tex);
@@ -715,6 +780,11 @@ int nvdec_get_texture(const NvdecContext& ctx) {
       fprintf(stderr, "[NVDEC] glTexSubImage2D error: 0x%x (size=%dx%d)\n",
               gl_err, mut_ctx.gl_width, mut_ctx.gl_height);
     }
+
+    // 创建 GL Fence 追踪上传完成
+    mut_ctx.glFence =
+        static_cast<void*>(glFenceSync(GL_SYNC_GPU_COMMANDS_COMPLETE, 0));
+
     glBindBuffer(GL_PIXEL_UNPACK_BUFFER, 0);
     glBindTexture(GL_TEXTURE_2D, 0);
     mut_ctx.frame_ready = false;
@@ -722,7 +792,7 @@ int nvdec_get_texture(const NvdecContext& ctx) {
     if (tex_upload_count <= 10 || tex_upload_count % 60 == 0) {
       fprintf(stderr,
               "[NVDEC] Texture uploaded (count=%d, read_idx=%d, decoded=%d, "
-              "displayed=%d)\n",
+              "displayed=%d, async=true)\n",
               tex_upload_count, read_idx, mut_ctx.frames_decoded.load(),
               mut_ctx.frames_displayed.load());
     }
@@ -748,6 +818,21 @@ void nvdec_shutdown(NvdecContext& ctx) {
     vulkan_interop_shutdown(ctx.vkCtx);
   }
 #endif
+
+  // 清理 GL Fence
+  if (ctx.glFence) {
+    glDeleteSync(static_cast<GLsync>(ctx.glFence));
+    ctx.glFence = nullptr;
+  }
+
+  // 清理 CUDA Events
+  for (int i = 0; i < 2; i++) {
+    if (ctx.cudaWriteEvent[i]) {
+      cudaEventDestroy(ctx.cudaWriteEvent[i]);
+      ctx.cudaWriteEvent[i] = nullptr;
+    }
+    ctx.pbo_cuda_pending[i] = false;
+  }
 
   // 清理双缓冲资源
   for (int i = 0; i < 2; i++) {
@@ -783,8 +868,8 @@ bool nvdec_init_vulkan(NvdecContext& ctx, void* vkDevice, void* vkPhysDevice,
   VkPhysicalDevice physDevice = static_cast<VkPhysicalDevice>(vkPhysDevice);
   VkQueue queue = static_cast<VkQueue>(vkQueue);
 
-  int w = ctx.width > 0 ? ctx.width : 1920;
-  int h = ctx.height > 0 ? ctx.height : 1080;
+  int w = ctx.width > 0 ? ctx.width : 2560;
+  int h = ctx.height > 0 ? ctx.height : 1440;
 
   if (!vulkan_interop_init(ctx.vkCtx, device, physDevice, queue,
                            queueFamilyIndex, w, h)) {
