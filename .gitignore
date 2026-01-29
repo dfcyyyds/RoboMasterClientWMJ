@@ -143,6 +143,9 @@ Thumbs.db
 # ========================================
 /Assets/MockServerCpp/build/
 /Assets/MockServerCpp/cmake-build-*/
+/Assets/MockServerCpp/run/*.log
+/Assets/MockServerCpp/run/pids.*
+/Assets/MockServerCpp/run/mosquitto_mock.conf
 *.so
 *.dylib
 
@@ -196,6 +199,34 @@ local.properties
 *.pb.h
 
 # ========================================
+# Mono/Unity Crash Dumps
+# ========================================
+mono_crash.*.blob
+crash.dmp
+*.dmp
+hs_err_pid*.log
+
+# ========================================
+# Native Plugin Build Artifacts
+# ========================================
+/Assets/Plugins/NativeVideoPlugin/build/
+/Assets/Plugins/x86_64/*.so
+/Assets/Plugins/x86_64/*.meta
+
+# ========================================
+# MockServer Runtime Files
+# ========================================
+/Assets/MockServerCpp/run/*.log
+/Assets/MockServerCpp/run/pids.*
+/Assets/MockServerCpp/run/mosquitto_mock.conf
+/Assets/MockServerCpp/build/
+/Assets/MockServerCpp/log/
+
+# Large Video Test Files (optional - uncomment if needed)
+# /Assets/MockServerCpp/*.mp4
+# /Assets/MockServerCpp/*.avi
+
+# ========================================
 # IDE Metadata & Cache
 # ========================================
 .classpath
@@ -222,3 +253,36 @@ Library/StateCache/
 Library/ShaderCache/
 Library/BurstCache/
 Library/Search/
+
+# ========================================
+# Large Binary Files
+# ========================================
+*.mp4
+*.avi
+*.mkv
+*.mov
+*.wmv
+# Uncomment specific files to track if needed
+# !Assets/StreamingAssets/*.mp4
+
+# ========================================
+# Temporary Shell Scripts (local utilities)
+# ========================================
+run_unity_*.sh
+*.sh.bak
+
+# ========================================
+# Backup and Old Source Files
+# ========================================
+*_old.cpp
+*_old.h
+*_old.cpp.meta
+*_old.h.meta
+*_backup.*
+*.bak
+*.orig
+*.BACKUP.*
+*.BASE.*
+*.LOCAL.*
+*.REMOTE.*
+*~

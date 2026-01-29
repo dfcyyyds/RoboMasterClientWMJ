@@ -25,9 +25,9 @@ namespace Framework.Video
         private readonly int maxBufferedFrames;
         private readonly bool verbose;
 
-        public AnnexBFrameAssembler(float timeoutSec = 0.2f, int maxBufferedFrames = 8, bool verbose = false, float bytesPerSecForTimeout = 300000f)
+        public AnnexBFrameAssembler(float timeoutSec = 0.1f, int maxBufferedFrames = 8, bool verbose = false, float bytesPerSecForTimeout = 800000f)
         {
-            this.baseTimeoutSec = Mathf.Max(0.05f, timeoutSec);
+            this.baseTimeoutSec = Mathf.Max(0.03f, timeoutSec);
             this.bytesPerSecForTimeout = Mathf.Max(50000f, bytesPerSecForTimeout);
             this.maxBufferedFrames = maxBufferedFrames;
             this.verbose = verbose;

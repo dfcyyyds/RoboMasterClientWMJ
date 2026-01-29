@@ -42,7 +42,7 @@ namespace Framework.Video
         private readonly bool forceHevc; // 强制HEVC模式，不允许切换到其他codec
         // 解码队列限长与计数
         private int queueCount = 0;
-        private int maxQueueSize = 8;
+        private int maxQueueSize = 3;
 
         private enum AccelMode { AutoCuda, Vaapi, Software }
         private AccelMode accelMode = AccelMode.AutoCuda;

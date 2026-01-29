@@ -3,23 +3,31 @@ using System.Net.Sockets;
 using System.Net;
 using System.Collections.Concurrent;
 using System.Threading;
+using System.Buffers;
 
 /// <summary>
 /// UDP图传接收
 /// </summary>
 public class UdpClientService
 {
+    private struct PooledPacket
+    {
+        public string Remote;
+        public byte[] Buffer;
+        public int Length;
+    }
     // 创建UDP客户端
     private UdpClient udpClient;
-    // 是否正在接收数据
+    private const int MaxUdpPacketSize = 65535;
     private bool isReceiving = false;
-    // 异步接收队列（线程安全）
-    private readonly ConcurrentQueue<Tuple<string, byte[]>> recvQueue = new ConcurrentQueue<Tuple<string, byte[]>>();
+    private readonly ConcurrentQueue<PooledPacket> recvQueue = new ConcurrentQueue<PooledPacket>();
     // 首次启动后是否已开启队列耗尽协程
     private bool drainCoroutineStarted = false;
     // 阻塞接收线程（双保险）
     private Thread recvThread;
-    // 消息接收事件
+    // 消息接收事件（零拷贝优先，调用方不得持有 segment 生命周期）
+    public event Action<string, ArraySegment<byte>> OnMessageReceivedSegment;
+    // 兼容旧逻辑：仍支持 byte[] 事件（会复制一份）
     public event Action<string, byte[]> OnMessageReceived;
     // 启动和停止事件
     public event Action OnStarted;
@@ -133,43 +141,56 @@ public class UdpClientService
     // 阻塞接收循环（运行于后台线程）
     private void BlockingReceiveLoop()
     {
+        var socket = udpClient?.Client;
+        if (socket == null) return;
+
         while (isReceiving && udpClient != null)
         {
+            byte[] buffer = null;
             try
             {
-                IPEndPoint remote = new IPEndPoint(IPAddress.Any, 0);
-                byte[] data = udpClient.Receive(ref remote); // 阻塞直到有数据
-                if (data != null && data.Length > 0)
+                buffer = ArrayPool<byte>.Shared.Rent(MaxUdpPacketSize);
+                // 根据Socket的AddressFamily选择正确的EndPoint类型，避免IPv6/IPv4不匹配
+                EndPoint remote = socket.AddressFamily == AddressFamily.InterNetworkV6
+                    ? new IPEndPoint(IPAddress.IPv6Any, 0)
+                    : new IPEndPoint(IPAddress.Any, 0);
+                int received = socket.ReceiveFrom(buffer, 0, MaxUdpPacketSize, SocketFlags.None, ref remote);
+                if (received > 0)
                 {
-                    // 仅更新计数与来源，日志在主线程协程里统一输出
+                    var pkt = new PooledPacket { Remote = remote.ToString(), Buffer = buffer, Length = received };
 #if UNITY_EDITOR || DIAGNOSE_UDP
                     diagPacketsReceived++;
-                    diagBytesReceived += (uint)data.Length;
-                    diagLastRemote = remote.ToString();
+                    diagBytesReceived += (uint)received;
+                    diagLastRemote = pkt.Remote;
                     if (!diagFirstPacketAnnounced)
                     {
-                        wmj.DebugTools.Info($"[UdpClientService] ✅ 首个UDP包已到达: 来自 {diagLastRemote}, 长度={data.Length}");
+                        wmj.DebugTools.Info($"[UdpClientService] ✅ 首个UDP包已到达: 来自 {diagLastRemote}, 长度={received}");
                         diagFirstPacketAnnounced = true;
                     }
 #endif
-                    recvQueue.Enqueue(new Tuple<string, byte[]>(remote.ToString(), data));
+                    recvQueue.Enqueue(pkt);
+                    buffer = null; // 交由队列消费归还
                 }
             }
             catch (ObjectDisposedException)
             {
+                buffer = null;
                 break;
             }
             catch (SocketException sex)
             {
-                // 在后台线程避免调用 Unity API，记录到 DebugTools
                 wmj.DebugTools.Warn($"[UdpClientService] Receive异常: {sex.Message} (code={sex.ErrorCode})");
-                // 小睡避免紧循环
                 Thread.Sleep(1);
             }
             catch (System.Exception ex)
             {
                 wmj.DebugTools.Warn($"[UdpClientService] Receive异常: {ex.Message}");
                 Thread.Sleep(1);
+            }
+            finally
+            {
+                if (buffer != null)
+                    ArrayPool<byte>.Shared.Return(buffer);
             }
         }
     }
@@ -183,13 +204,25 @@ public class UdpClientService
             {
                 try
                 {
+                    var seg = new ArraySegment<byte>(item.Buffer, 0, item.Length);
                     // 主线程统一输出日志，遵守 Unity 线程约束
 #if UNITY_EDITOR
-                    wmj.DebugTools.Info($"[UdpClientService] 收到UDP包: 来自 {item.Item1}, 长度={item.Item2?.Length}", wmj.DebugTools.LogCategory.Network);
-                    wmj.DebugTools.WriteDebugLog("[UdpClientService] 收到UDP包: 来自 " + item.Item1 + ", 长度=" + item.Item2?.Length, "INFO");
+                    wmj.DebugTools.Info($"[UdpClientService] 收到UDP包: 来自 {item.Remote}, 长度={item.Length}", wmj.DebugTools.LogCategory.Network);
+                    wmj.DebugTools.WriteDebugLog("[UdpClientService] 收到UDP包: 来自 " + item.Remote + ", 长度=" + item.Length, "INFO");
 #endif
-                    wmj.DebugTools.WriteRunLog("[UdpClientService] 收到UDP包: 来自 " + item.Item1 + ", 长度=" + item.Item2?.Length, "INFO");
-                    OnMessageReceived?.Invoke(item.Item1, item.Item2);
+                    wmj.DebugTools.WriteRunLog("[UdpClientService] 收到UDP包: 来自 " + item.Remote + ", 长度=" + item.Length, "INFO");
+
+                    // 优先使用零拷贝的Segment版本，避免重复分发
+                    if (OnMessageReceivedSegment != null)
+                    {
+                        OnMessageReceivedSegment.Invoke(item.Remote, seg);
+                    }
+                    else if (OnMessageReceived != null)
+                    {
+                        var copy = new byte[item.Length];
+                        Buffer.BlockCopy(item.Buffer, 0, copy, 0, item.Length);
+                        OnMessageReceived.Invoke(item.Remote, copy);
+                    }
                 }
                 catch (System.Exception ex)
                 {
@@ -198,6 +231,11 @@ public class UdpClientService
                     wmj.DebugTools.WriteDebugLog("[UdpClientService] 分发UDP消息异常: " + ex.Message, "ERROR");
 #endif
                     wmj.DebugTools.WriteRunLog("[UdpClientService] 分发UDP消息异常: " + ex.Message, "ERROR");
+                }
+                finally
+                {
+                    if (item.Buffer != null)
+                        ArrayPool<byte>.Shared.Return(item.Buffer);
                 }
             }
 

@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Concurrent;
 using UnityEngine;
 using Framework.Video;
@@ -14,6 +15,7 @@ public class VideoStreamService : MonoBehaviour
 
     // 编辑器可见的传输模式开关
     public enum TransportMode { UdpAnnexB = 0, RtspSkeleton = 1 }
+    public enum DecodeBackend { FfmpegPipe = 0, NativeNvdec = 1 }
     [Tooltip("仿真/适配开关：UDP AnnexB（仿真）或 RTSP 骨架（官方兼容适配入口）")]
     [SerializeField] private TransportMode transportMode = TransportMode.UdpAnnexB;
     [Tooltip("RTSP 源地址（仅在 RtspSkeleton 模式下使用）")]
@@ -24,6 +26,9 @@ public class VideoStreamService : MonoBehaviour
     [SerializeField] private RtspTransportProto rtspTransportProto = RtspTransportProto.Tcp;
     [Tooltip("RTSP 编解码器（Auto/HEVC/H264），用于选择正确的 AnnexB 过滤器")]
     [SerializeField] private RtspCodec rtspCodec = RtspCodec.Auto;
+    [Header("Decode Backend")]
+    [Tooltip("解码后端：Ffmpeg 管道或原生 NVDEC（可零拷贝输出纹理）")]
+    [SerializeField] private DecodeBackend decodeBackend = DecodeBackend.NativeNvdec;
 
     private IVideoTransport transport;
     private IVideoDecoder decoder;
@@ -34,12 +39,19 @@ public class VideoStreamService : MonoBehaviour
     private int statTexturesApplied;
     private float statLastReport;
     [Tooltip("限制主线程纹理上传的频率(帧/秒)，降低卡顿")]
-    [SerializeField] private int maxApplyFps = 60;
+    [SerializeField] private int maxApplyFps = 120;  // 提升到120fps以消除上传瓶颈
     [Tooltip("是否启用逐帧日志（大量IO，默认关闭）")]
     [SerializeField] private bool verbosePerFrameLog = false;
     private float lastApplyTime;
     private float startTime;
     private float lastDiagTime;
+    // 原生解码输出的纹理句柄跟踪
+    private int nativeTextureId;
+    private int nativeTexWidth;
+    private int nativeTexHeight;
+    private float nvdecStartTime;
+    private float nvdecLastStatLog;
+    private bool nvdecFallbackTriggered;
     // 动态应急：若持续出现 applied≈1 且 decoded 正常，短期取消限频以排查外部限制
     private bool applyOverrideUnlimited;
     private float applyOverrideUntil;
@@ -50,13 +62,18 @@ public class VideoStreamService : MonoBehaviour
     [Tooltip("未检测到IDR时的超时放开门控秒数（>0）")]
     [SerializeField] private float gateTimeoutSec = 0.8f;
     [Tooltip("追帧最小积压帧数阈值")]
-    [SerializeField] private int backlogMinFrames = 4;
+    [SerializeField] private int backlogMinFrames = 2;  // 降低阈值，更早追帧
     [Tooltip("追帧阈值分母（effectiveFps/分母）")]
     [SerializeField] private int backlogDivisor = 10;
     [Tooltip("临时取消限频的窗口秒数")]
     [SerializeField] private float overrideWindowSec = 1.5f;
     [Tooltip("每次Update最多消耗解码帧数（防止一次性清空队列导致 applied≈1）")]
-    [SerializeField] private int maxDrainPerUpdate = 1;
+    [SerializeField] private int maxDrainPerUpdate = 3;  // 提升到3帧加快消费
+    // 记住解码器配置，便于在运行期切换回退
+    private string decoderCodec;
+    private int decoderOutW;
+    private int decoderOutH;
+    private int decoderQueueLimit;
     // 入场与看门狗控制
     private bool hasEntered;
     private bool gateNotified;
@@ -88,9 +105,9 @@ public class VideoStreamService : MonoBehaviour
         switch (transportMode)
         {
             case TransportMode.UdpAnnexB:
-                // 下调组帧超时以降低卡顿，同时保留适度缓冲
-                // 低延迟模式：缩短组帧等待并减少缓冲帧数（牺牲完整性换流畅）
-                transport = new UdpAnnexBTransport(timeoutSec: 0.18f, maxBufferedFrames: 24, verbose: false);
+                // 适度组帧超时以平衡延迟和完整性
+                // 提升容错：给予足够时间接收大帧（2K HEVC 可达 250KB/180分片）
+                transport = new UdpAnnexBTransport(timeoutSec: 0.22f, maxBufferedFrames: 24, verbose: false);
                 // 统计兼容：仍订阅 UDP 分片事件以记录 slices 指标
                 NetworkManager.Instance.OnUdpVideoFrame += (slice) => statSlicesIn++;
                 break;
@@ -102,22 +119,27 @@ public class VideoStreamService : MonoBehaviour
         }
 
         // 根据所选传输的编解码器决定解码器输入格式（默认 hevc，遵循官方协议）
-        string decoderCodec = "hevc";
+        decoderCodec = "hevc";
         if (transportMode == TransportMode.RtspSkeleton)
         {
             if (rtspCodec == RtspCodec.H264) decoderCodec = "h264";
             else if (rtspCodec == RtspCodec.Hevc || rtspCodec == RtspCodec.Auto) decoderCodec = "hevc";
         }
-        // 临时将输出改为 rawvideo 以排除 PPM 解析因素；指定固定分辨率 1280x720
-        // 低延迟优先：进一步下采样以提升解码吞吐与纹理上传速度
-        // 强制HEVC链路：禁用软解回退，不允许切换到H264
-        // 参数化解码输出分辨率和队列上限
-        int outW = ConfigLoader.config.decoderOutputWidth > 0 ? ConfigLoader.config.decoderOutputWidth : 960;
-        int outH = ConfigLoader.config.decoderOutputHeight > 0 ? ConfigLoader.config.decoderOutputHeight : 540;
-        int queueLimit = ConfigLoader.config.decoderQueueSize > 0 ? ConfigLoader.config.decoderQueueSize : 6;
-        decoder = new FfmpegPipeDecoder(decoderCodec, useRawVideo: true, outputWidth: outW, outputHeight: outH, verboseFrameLogs: false, enableStderrLog: false, useHardwareDecode: true, forceHevc: true);
-        if (decoder is FfmpegPipeDecoder ff)
-            ff.MaxQueueSize = queueLimit;
+        // 默认使用 2K 分辨率 (2560x1440)，可通过配置文件覆盖
+        decoderOutW = ConfigLoader.config.decoderOutputWidth > 0 ? ConfigLoader.config.decoderOutputWidth : 2560;
+        decoderOutH = ConfigLoader.config.decoderOutputHeight > 0 ? ConfigLoader.config.decoderOutputHeight : 1440;
+        decoderQueueLimit = ConfigLoader.config.decoderQueueSize > 0 ? ConfigLoader.config.decoderQueueSize : 3;
+
+        // 原生 NVDEC 初始化延迟到 Start() 执行，确保 Unity 图形设备完全就绪
+        // Awake() 阶段图形设备可能处于 PlayMode 转换中，此时调用 CUDA 会导致 double fault
+
+        if (decodeBackend == DecodeBackend.FfmpegPipe)
+        {
+            decoder = new FfmpegPipeDecoder(decoderCodec, useRawVideo: true, outputWidth: decoderOutW, outputHeight: decoderOutH, verboseFrameLogs: false, enableStderrLog: false, useHardwareDecode: true, forceHevc: true);
+            if (decoder is FfmpegPipeDecoder ff)
+                ff.MaxQueueSize = decoderQueueLimit;
+        }
+
         transport.OnAnnexBFrame += OnAnnexBFrame;
         transport.Start();
         DebugLog.Video("[VideoStreamService] 初始化完成，已订阅UDP帧并启动解码循环 (输出=rawvideo 1280x720)");
@@ -134,6 +156,52 @@ public class VideoStreamService : MonoBehaviour
         lastWatchdogSend = startTime;
     }
 
+    // 标记 NVDEC 是否已延迟初始化
+    private bool nvdecDelayedInitDone = false;
+
+    void Start()
+    {
+        // 延迟初始化原生 NVDEC：确保 Unity 图形设备在 PlayMode 下完全就绪
+        // Awake() 阶段调用 CUDA/Vulkan 初始化会导致 double fault 崩溃
+        if (decodeBackend == DecodeBackend.NativeNvdec && NativeVideoBridge.Available && !nvdecDelayedInitDone)
+        {
+            InitializeNativeNvdec();
+        }
+    }
+
+    private void InitializeNativeNvdec()
+    {
+        if (nvdecDelayedInitDone) return;
+        nvdecDelayedInitDone = true;
+
+        nativeTexWidth = decoderOutW;
+        nativeTexHeight = decoderOutH;
+        wmj.DebugTools.WriteRunLog("[VideoStreamService] 正在初始化原生 NVDEC (延迟模式)...", "INFO");
+
+        int init = -99;
+        try
+        {
+            init = NativeVideoBridge.Init(decoderOutW, decoderOutH);
+        }
+        catch (Exception ex)
+        {
+            wmj.DebugTools.WriteRunLog("[VideoStreamService] NVDEC init 异常: " + ex.Message, "ERROR");
+            init = -100;
+        }
+
+        if (init != 0)
+        {
+            wmj.DebugTools.WriteRunLog("[VideoStreamService] Native NVDEC init 失败 (code=" + init + ")，保持原生模式等待重试", "WARN");
+            nvdecDelayedInitDone = false; // 允许重试
+        }
+        else
+        {
+            wmj.DebugTools.WriteRunLog("[VideoStreamService] Native NVDEC 初始化成功", "INFO");
+            nvdecStartTime = Time.realtimeSinceStartup;
+            nvdecFallbackTriggered = false;
+        }
+    }
+
     private void OnDestroy()
     {
         try
@@ -145,12 +213,23 @@ public class VideoStreamService : MonoBehaviour
         // 正确释放 ffmpeg 解码器，避免下次运行资源冲突
         (decoder as FfmpegPipeDecoder)?.Dispose();
         decoder = null;
+        if (decodeBackend == DecodeBackend.NativeNvdec)
+        {
+            NativeVideoBridge.Shutdown();
+        }
     }
 
     private void OnAnnexBFrame(byte[] annexB)
     {
+        if (decodeBackend == DecodeBackend.NativeNvdec && NativeVideoBridge.Available && nvdecDelayedInitDone)
+        {
+            NativeVideoBridge.Push(annexB, annexB?.Length ?? 0);
+            statFramesAssembled++;
+            return;
+        }
+
         // 传输层已非主线程组帧完成，直接推入解码器
-        decoder.Push(annexB);
+        decoder?.Push(annexB);
         statFramesAssembled++;
         DebugLog.Transport("[VideoStreamService] 推送至解码: bytes=" + (annexB?.Length ?? 0));
 #if UNITY_EDITOR
@@ -162,6 +241,95 @@ public class VideoStreamService : MonoBehaviour
 
     void Update()
     {
+        if (decodeBackend == DecodeBackend.NativeNvdec && NativeVideoBridge.Available)
+        {
+            // 确保延迟初始化已完成
+            if (!nvdecDelayedInitDone)
+            {
+                return; // 等待 Start() 完成初始化
+            }
+
+            // 先检查 NVDEC 检测到的实际视频尺寸，如果与当前纹理尺寸不同则需要更新
+            if (NativeVideoBridge.TryGetStats(out var sizeStats) && sizeStats.width > 0 && sizeStats.height > 0)
+            {
+                if (sizeStats.width != nativeTexWidth || sizeStats.height != nativeTexHeight)
+                {
+                    DebugLog.Video($"[VideoStreamService] 视频尺寸变化: {nativeTexWidth}x{nativeTexHeight} -> {sizeStats.width}x{sizeStats.height}");
+                    wmj.DebugTools.WriteRunLog($"[VideoStreamService] 视频尺寸变化: {nativeTexWidth}x{nativeTexHeight} -> {sizeStats.width}x{sizeStats.height}", "INFO");
+                    nativeTexWidth = sizeStats.width;
+                    nativeTexHeight = sizeStats.height;
+                    // 强制重新创建纹理
+                    nativeTextureId = 0;
+                    if (CurrentTexture != null)
+                    {
+                        UnityEngine.Object.Destroy(CurrentTexture);
+                        CurrentTexture = null;
+                    }
+                }
+            }
+
+            // 检查是否使用 Vulkan 模式
+            bool isVulkan = NativeVideoBridge.IsVulkanEnabled();
+
+            if (isVulkan)
+            {
+                // Vulkan 模式：使用 VkImage 句柄创建外部纹理
+                IntPtr vkImage = NativeVideoBridge.GetVulkanImage();
+                if (vkImage != IntPtr.Zero && vkImage.ToInt64() != nativeTextureId)
+                {
+                    nativeTextureId = (int)vkImage.ToInt64();
+                    if (CurrentTexture != null)
+                    {
+                        UnityEngine.Object.Destroy(CurrentTexture);
+                    }
+                    // Vulkan 模式使用 RGBA32 格式
+                    CurrentTexture = Texture2D.CreateExternalTexture(nativeTexWidth, nativeTexHeight, TextureFormat.RGBA32, false, false, vkImage);
+                    DebugLog.Video("[VideoStreamService] 绑定 Vulkan 纹理: handle=" + vkImage + ", " + nativeTexWidth + "x" + nativeTexHeight);
+                    wmj.DebugTools.WriteRunLog("[VideoStreamService] 绑定 Vulkan 纹理: handle=" + vkImage, "INFO");
+                }
+            }
+            else
+            {
+                // OpenGL 模式：使用 GLuint 纹理 ID
+                int texId = NativeVideoBridge.GetLatestTextureId();
+                if (texId != 0 && texId != nativeTextureId)
+                {
+                    nativeTextureId = texId;
+                    if (CurrentTexture != null)
+                    {
+                        UnityEngine.Object.Destroy(CurrentTexture);
+                    }
+                    CurrentTexture = Texture2D.CreateExternalTexture(nativeTexWidth, nativeTexHeight, TextureFormat.RGB24, false, false, (IntPtr)nativeTextureId);
+                    DebugLog.Video("[VideoStreamService] 绑定 OpenGL 纹理: id=" + nativeTexWidth + "x" + nativeTexHeight + ", id=" + nativeTextureId);
+                    wmj.DebugTools.WriteRunLog("[VideoStreamService] 绑定 OpenGL 纹理: " + nativeTexWidth + "x" + nativeTexHeight + ", id=" + nativeTextureId, "INFO");
+                }
+            }
+
+            // 定期抓取原生统计，检测无纹理产出场景，尽量避免误回退
+            if (NativeVideoBridge.TryGetStats(out var stats) && Time.realtimeSinceStartup - nvdecLastStatLog >= 1f)
+            {
+                nvdecLastStatLog = Time.realtimeSinceStartup;
+                string mode = stats.vulkanEnabled != 0 ? "Vulkan" : "OpenGL";
+                DebugLog.Video($"[VideoStreamService][NVDEC] 统计 mode={mode}, tex={stats.tex}, pbo={stats.pbo}, cuPbo={stats.cuPbo}, glReady={stats.glReady}, glFailed={stats.glFailed}, decoded={stats.framesDecoded}, displayed={stats.framesDisplayed}, size={stats.width}x{stats.height}, slices={statSlicesIn}, assembled={statFramesAssembled}");
+                wmj.DebugTools.WriteRunLog("[VideoStreamService][NVDEC] 统计 mode=" + mode + ", tex=" + stats.tex + ", pbo=" + stats.pbo + ", cuPbo=" + stats.cuPbo + ", glReady=" + stats.glReady + ", glFailed=" + stats.glFailed + ", decoded=" + stats.framesDecoded + ", displayed=" + stats.framesDisplayed + ", size=" + stats.width + "x" + stats.height + ", slices=" + statSlicesIn + ", assembled=" + statFramesAssembled, "INFO");
+                statSlicesIn = 0;
+                statFramesAssembled = 0;
+            }
+
+            // 安全回退门限：仅在累计帧数充足且长时间无显示时触发（放宽时间与帧数阈值，避免误回退）
+            if (!nvdecFallbackTriggered && nvdecStartTime > 0f && NativeVideoBridge.TryGetStats(out var st))
+            {
+                float sinceStart = Time.realtimeSinceStartup - nvdecStartTime;
+                if (sinceStart > 5f && st.framesDisplayed <= 0 && st.framesDecoded >= 80 && statFramesAssembled >= 150)
+                {
+                    SwitchToFfmpeg("NVDEC 长时间未产出纹理，已解码=" + st.framesDecoded + ", 已接收帧=" + statFramesAssembled);
+                    return;
+                }
+            }
+            // 原生路径不需要托管解码队列
+            return;
+        }
+
         // 主线程：耗尽解码器队列，只应用最新帧，并限制 Apply 频率
         Framework.Video.DecodedFrame latest = null;
         int drainLimit = Mathf.Max(1, maxDrainPerUpdate);
@@ -322,5 +490,38 @@ public class VideoStreamService : MonoBehaviour
                 watchdogAttempts = 0;
             }
         }
+    }
+
+    private void SwitchToFfmpeg(string reason)
+    {
+        if (decodeBackend == DecodeBackend.FfmpegPipe)
+            return;
+
+        nvdecFallbackTriggered = true;
+        wmj.DebugTools.WriteRunLog("[VideoStreamService] 切换到 Ffmpeg 回退：" + reason, "WARN");
+        NativeVideoBridge.Shutdown();
+        decodeBackend = DecodeBackend.FfmpegPipe;
+        // 释放原生纹理引用，防止旧纹理残留
+        if (CurrentTexture != null && nativeTextureId != 0)
+        {
+            UnityEngine.Object.Destroy(CurrentTexture);
+            CurrentTexture = null;
+            nativeTextureId = 0;
+        }
+
+        decoder = new FfmpegPipeDecoder(decoderCodec, useRawVideo: true, outputWidth: decoderOutW, outputHeight: decoderOutH, verboseFrameLogs: false, enableStderrLog: false, useHardwareDecode: true, forceHevc: true);
+        if (decoder is FfmpegPipeDecoder ff)
+            ff.MaxQueueSize = decoderQueueLimit;
+
+        // 复位入场/门控状态，确保回退链路正常入场
+        hasEntered = false;
+        gateNotified = false;
+        statSlicesIn = 0;
+        statFramesAssembled = 0;
+        statFramesDecoded = 0;
+        statTexturesApplied = 0;
+        decodedSinceLastApply = 0;
+        startTime = Time.realtimeSinceStartup;
+        lastDiagTime = startTime;
     }
 }

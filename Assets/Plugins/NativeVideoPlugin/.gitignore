@@ -1,0 +1,19 @@
+# Build artifacts
+build/
+*.o
+*.so
+*.a
+
+# Test executables
+test_cuvid
+
+# Editor backups
+*~
+*.swp
+.*.swp
+
+# CMake
+CMakeCache.txt
+CMakeFiles/
+cmake_install.cmake
+Makefile

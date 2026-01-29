@@ -1,0 +1,5 @@
+# Unity将忽略此目录中匹配以下模式的文件
+*.log
+*.log.*
+pids.*
+mosquitto_mock.conf

@@ -52,7 +52,7 @@ namespace UI.Views
         private void RenderAll(GameStatusViewModel vm)
         {
             // 逐项渲染各字段
-            if (RoundText) RoundText.text = $"{vm.CurrentRound}/{vm.TotalRounds}";
+            if (RoundText) RoundText.text = $"{vm.CurrentRound} / {vm.TotalRounds}";
             if (RedScoreText) RedScoreText.text = $"{vm.RedScore}";
             if (BlueScoreText) BlueScoreText.text = $"{vm.BlueScore}";
             if (StageText) StageText.text = vm.CurrentStage.ToString();

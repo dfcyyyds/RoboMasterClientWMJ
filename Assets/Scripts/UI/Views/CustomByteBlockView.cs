@@ -16,8 +16,8 @@ namespace UI.Views
             var vm = viewModel;
             if (DataText)
             {
-                var bytes = vm.Data?.ToByteArray() ?? Array.Empty<byte>();
-                DataText.text = BitConverter.ToString(bytes);
+                // var bytes = vm.Data?.ToByteArray() ?? Array.Empty<byte>();
+                // DataText.text = BitConverter.ToString(bytes);
             }
         }
     }

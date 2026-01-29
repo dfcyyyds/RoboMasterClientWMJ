@@ -16,11 +16,11 @@ namespace Framework.Video
 
         public event Action<byte[]> OnAnnexBFrame;
 
-        public UdpAnnexBTransport(float timeoutSec = 0.2f, int maxBufferedFrames = 16, bool verbose = false)
+        public UdpAnnexBTransport(float timeoutSec = 0.1f, int maxBufferedFrames = 8, bool verbose = false)
         {
             this.verbose = verbose;
             // 低延迟取舍：提高估计吞吐，缩短动态超时
-            assembler = new AnnexBFrameAssembler(timeoutSec, maxBufferedFrames, verbose, bytesPerSecForTimeout: 600000f);
+            assembler = new AnnexBFrameAssembler(timeoutSec, maxBufferedFrames, verbose, bytesPerSecForTimeout: 800000f);
         }
 
         public void Start()

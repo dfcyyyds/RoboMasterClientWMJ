@@ -101,31 +101,52 @@ public class MessageDispatcher
     }
 
     /// <summary>
-    /// 分发消息到对应处理器
+    /// 分发消息到对应处理器（保持兼容的 byte[] 入口）。
     /// </summary>
     public void Dispatch(string topic, byte[] payload)
+    {
+        var seg = payload == null ? ArraySegment<byte>.Empty : new ArraySegment<byte>(payload, 0, payload.Length);
+        DispatchSegment(topic, seg);
+    }
+
+    /// <summary>
+    /// 支持零拷贝分发的入口，优先调用实现 IMessageSegmentHandler 的处理器。
+    /// 调用方不得在回调结束后继续持有 payload（若需要请自行复制）。
+    /// </summary>
+    public void DispatchSegment(string topic, ArraySegment<byte> payload)
     {
         if (handlers.TryGetValue(topic, out var handler))
         {
             if (ShouldLog(topic))
             {
 #if UNITY_EDITOR
-                wmj.DebugTools.Info($"[MessageDispatcher] 分发消息: topic={topic}, len={payload?.Length}", wmj.DebugTools.LogCategory.Network);
-                wmj.DebugTools.WriteDebugLog("[MessageDispatcher] 分发消息: topic=" + topic + ", len=" + (payload?.Length.ToString() ?? "0"), "INFO");
+                wmj.DebugTools.Info($"[MessageDispatcher] 分发消息: topic={topic}, len={payload.Count}", wmj.DebugTools.LogCategory.Network);
+                wmj.DebugTools.WriteDebugLog("[MessageDispatcher] 分发消息: topic=" + topic + ", len=" + payload.Count, "INFO");
 #endif
-                wmj.DebugTools.WriteRunLog("[MessageDispatcher] 分发消息: topic=" + topic + ", len=" + (payload?.Length.ToString() ?? "0"), "INFO");
+                wmj.DebugTools.WriteRunLog("[MessageDispatcher] 分发消息: topic=" + topic + ", len=" + payload.Count, "INFO");
             }
-            handler.HandleMessage(topic, payload);
+
+            if (handler is IMessageSegmentHandler segHandler)
+            {
+                segHandler.HandleMessage(topic, payload);
+            }
+            else
+            {
+                // 兼容旧接口：复制一份 byte[]
+                var copy = new byte[payload.Count];
+                Buffer.BlockCopy(payload.Array, payload.Offset, copy, 0, payload.Count);
+                handler.HandleMessage(topic, copy);
+            }
         }
         else
         {
             if (ShouldLog(topic))
             {
 #if UNITY_EDITOR
-                wmj.DebugTools.Warn($"[MessageDispatcher] 未找到处理器，丢弃消息: topic={topic}, len={payload?.Length}", wmj.DebugTools.LogCategory.Network);
-                wmj.DebugTools.WriteDebugLog("[MessageDispatcher] 未找到处理器，丢弃消息: topic=" + topic + ", len=" + (payload?.Length.ToString() ?? "0"), "WARN");
+                wmj.DebugTools.Warn($"[MessageDispatcher] 未找到处理器，丢弃消息: topic={topic}, len={payload.Count}", wmj.DebugTools.LogCategory.Network);
+                wmj.DebugTools.WriteDebugLog("[MessageDispatcher] 未找到处理器，丢弃消息: topic=" + topic + ", len=" + payload.Count, "WARN");
 #endif
-                wmj.DebugTools.WriteRunLog("[MessageDispatcher] 未找到处理器，丢弃消息: topic=" + topic + ", len=" + (payload?.Length.ToString() ?? "0"), "WARN");
+                wmj.DebugTools.WriteRunLog("[MessageDispatcher] 未找到处理器，丢弃消息: topic=" + topic + ", len=" + payload.Count, "WARN");
             }
         }
     }

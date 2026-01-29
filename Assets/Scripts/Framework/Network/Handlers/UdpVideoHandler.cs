@@ -3,7 +3,7 @@ using UnityEngine;
 using Framework.Utils;
 
 // 处理 UDP 图传数据包
-public class UdpVideoHandler : IMessageHandler
+public class UdpVideoHandler : IMessageHandler, IMessageSegmentHandler
 {
     public event Action<UdpVideoFrame> OnFrameReceived;
     private static long totalSlices = 0;
@@ -17,8 +17,17 @@ public class UdpVideoHandler : IMessageHandler
 
     public void HandleMessage(string topic, byte[] payload)
     {
+        if (payload == null)
+        {
+            return;
+        }
+        HandleMessage(topic, new ArraySegment<byte>(payload, 0, payload.Length));
+    }
+
+    public void HandleMessage(string topic, ArraySegment<byte> payload)
+    {
         // topic 为 remoteEP.ToString()，payload 为原始 UDP 包
-        if (payload == null || payload.Length < 8)
+        if (payload.Count < 8)
         {
             DebugLog.TransportWarning("[UdpVideoHandler] UDP 包长度不足8字节，丢弃");
 #if UNITY_EDITOR
@@ -28,18 +37,14 @@ public class UdpVideoHandler : IMessageHandler
             wmj.DebugTools.WriteRunLog("[UdpVideoHandler] UDP 包长度不足8字节，丢弃", "WARN");
             return;
         }
+        var span = new ReadOnlySpan<byte>(payload.Array, payload.Offset, payload.Count);
         // 解析前8字节（严格按小端，不依赖运行时平台字节序）
-        ushort frameId = (ushort)(payload[0] | (payload[1] << 8));
-        ushort sliceId = (ushort)(payload[2] | (payload[3] << 8));
-        uint frameLen = (uint)(
-            ((uint)payload[4]) |
-            ((uint)payload[5] << 8) |
-            ((uint)payload[6] << 16) |
-            ((uint)payload[7] << 24)
-        );
+        ushort frameId = (ushort)(span[0] | (span[1] << 8));
+        ushort sliceId = (ushort)(span[2] | (span[3] << 8));
+        uint frameLen = (uint)((uint)span[4] | ((uint)span[5] << 8) | ((uint)span[6] << 16) | ((uint)span[7] << 24));
         // 剩余为AnnexB格式NALU
-        byte[] nalu = new byte[payload.Length - 8];
-        Buffer.BlockCopy(payload, 8, nalu, 0, nalu.Length);
+        byte[] nalu = new byte[span.Length - 8];
+        span.Slice(8).CopyTo(nalu);
         totalSlices++;
 
 #if UNITY_EDITOR || DIAGNOSE_UDP

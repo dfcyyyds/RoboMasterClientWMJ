@@ -207,6 +207,7 @@
     <None Include="Assets/TextMesh Pro/Shaders/TMP_SDF SSD.shader" />
     <None Include="Assets/MockServerCpp/qtgui/CMakeLists.txt" />
     <None Include="Assets/TextMesh Pro/Shaders/TMP_SDF-Surface-Mobile.shader" />
+    <None Include="Assets/MockServerCpp/run/README.txt" />
     <None Include="Assets/MockServerCpp/qtgui/build/qtgui_make_log.txt" />
     <None Include="Assets/TextMesh Pro/Shaders/SDFFunctions.hlsl" />
     <None Include="Assets/MockServerCpp/qtgui/build/qtgui_cmake_log.txt" />

@@ -124,10 +124,11 @@ void VideoSenderLoop(std::string target_ip, int target_port,
       if (g_use_hevc) {
         cmd = std::string("ffmpeg -nostdin -hide_banner -loglevel warning ") +
               "-f lavfi -i " + lavfi_arg +
-              " -vf scale=1280:720,fps=30 "
+              " -vf scale=2560:1440,fps=30 "
               " -g " +
               std::to_string(g_gop) +
-              " -c:v libx265 -preset ultrafast -tune zerolatency "
+              " -c:v libx265 -preset ultrafast -tune zerolatency -b:v 20M "
+              "-maxrate 25M -bufsize 40M "
               " -pix_fmt yuv420p" +
               color_args +
               " -x265-params "
@@ -139,10 +140,11 @@ void VideoSenderLoop(std::string target_ip, int target_port,
       } else {
         cmd = std::string("ffmpeg -nostdin -hide_banner -loglevel warning ") +
               "-f lavfi -i " + lavfi_arg +
-              " -vf scale=1280:720,fps=30 "
+              " -vf scale=2560:1440,fps=30 "
               " -g " +
               std::to_string(g_gop) +
-              " -c:v libx264 -preset ultrafast -tune zerolatency "
+              " -c:v libx264 -preset ultrafast -tune zerolatency -b:v 20M "
+              "-maxrate 25M -bufsize 40M "
               " -pix_fmt yuv420p" +
               color_args +
               " -x264-params "
@@ -155,10 +157,11 @@ void VideoSenderLoop(std::string target_ip, int target_port,
       if (g_use_hevc) {
         cmd = std::string("ffmpeg -nostdin -hide_banner -loglevel warning ") +
               "-f v4l2 -thread_queue_size 512 -framerate 30 -i " + input_spec +
-              " -vf scale=1280:720,fps=30 "
+              " -vf scale=2560:1440,fps=30 "
               " -g " +
               std::to_string(g_gop) +
-              " -c:v libx265 -preset ultrafast -tune zerolatency "
+              " -c:v libx265 -preset ultrafast -tune zerolatency -b:v 20M "
+              "-maxrate 25M -bufsize 40M "
               " -pix_fmt yuv420p" +
               color_args +
               " -x265-params "
@@ -170,10 +173,11 @@ void VideoSenderLoop(std::string target_ip, int target_port,
       } else {
         cmd = std::string("ffmpeg -nostdin -hide_banner -loglevel warning ") +
               "-f v4l2 -thread_queue_size 512 -framerate 30 -i " + input_spec +
-              " -vf scale=1280:720,fps=30 "
+              " -vf scale=2560:1440,fps=30 "
               " -g " +
               std::to_string(g_gop) +
-              " -c:v libx264 -preset ultrafast -tune zerolatency "
+              " -c:v libx264 -preset ultrafast -tune zerolatency -b:v 20M "
+              "-maxrate 25M -bufsize 40M "
               " -pix_fmt yuv420p" +
               color_args +
               " -x264-params "
@@ -184,13 +188,15 @@ void VideoSenderLoop(std::string target_ip, int target_port,
       }
     } else if (is_file) {
       // 针对avi/mp4等文件输入，拼接推荐命令
+      // -an: 禁用音频流，只处理视频
       if (g_use_hevc) {
         cmd = std::string("ffmpeg -nostdin -hide_banner -loglevel warning ") +
-              "-stream_loop -1 -i " + input_spec +
-              " -vf scale=1280:720,fps=30 "
+              "-stream_loop -1 -i " + input_spec + " -an " +
+              " -vf scale=2560:1440,fps=30 "
               " -g " +
               std::to_string(g_gop) +
-              " -c:v libx265 -preset ultrafast -tune zerolatency "
+              " -c:v libx265 -preset ultrafast -tune zerolatency -b:v 20M "
+              "-maxrate 25M -bufsize 40M "
               " -pix_fmt yuv420p" +
               color_args +
               " -x265-params "
@@ -201,11 +207,12 @@ void VideoSenderLoop(std::string target_ip, int target_port,
               " -f hevc pipe:1";
       } else {
         cmd = std::string("ffmpeg -nostdin -hide_banner -loglevel warning ") +
-              "-stream_loop -1 -i " + input_spec +
-              " -vf scale=1280:720,fps=30 "
+              "-stream_loop -1 -i " + input_spec + " -an " +
+              " -vf scale=2560:1440,fps=30 "
               " -g " +
               std::to_string(g_gop) +
-              " -c:v libx264 -preset ultrafast -tune zerolatency "
+              " -c:v libx264 -preset ultrafast -tune zerolatency -b:v 20M "
+              "-maxrate 25M -bufsize 40M "
               " -pix_fmt yuv420p" +
               color_args +
               " -x264-params "
@@ -219,8 +226,9 @@ void VideoSenderLoop(std::string target_ip, int target_port,
       if (g_use_hevc) {
         cmd = std::string("ffmpeg -nostdin -hide_banner -loglevel warning ") +
               "-f v4l2 -thread_queue_size 512 -framerate 30 -i " + input_spec +
-              " -vf scale=1280:720,fps=30 "
-              " -c:v libx265 -preset ultrafast -tune zerolatency "
+              " -vf scale=2560:1440,fps=30 "
+              " -c:v libx265 -preset ultrafast -tune zerolatency -b:v 20M "
+              "-maxrate 25M -bufsize 40M "
               " -pix_fmt yuv420p" +
               color_args +
               " -x265-params "
@@ -231,8 +239,9 @@ void VideoSenderLoop(std::string target_ip, int target_port,
       } else {
         cmd = std::string("ffmpeg -nostdin -hide_banner -loglevel warning ") +
               "-f v4l2 -thread_queue_size 512 -framerate 30 -i " + input_spec +
-              " -vf scale=1280:720,fps=30 "
-              " -c:v libx264 -preset ultrafast -tune zerolatency "
+              " -vf scale=2560:1440,fps=30 "
+              " -c:v libx264 -preset ultrafast -tune zerolatency -b:v 20M "
+              "-maxrate 25M -bufsize 40M "
               " -pix_fmt yuv420p" +
               color_args +
               " -x264-params "
@@ -420,6 +429,19 @@ void VideoSenderLoop(std::string target_ip, int target_port,
           uint32_t offset = 0;
           uint32_t pktCount = 0;
 
+          // 动态流控：根据帧大小自适应调整分片间延迟
+          // - 小帧（P帧 <50KB）：低延迟快速发送，提升流畅度
+          // - 中帧（50-150KB）：适中延迟
+          // - 大帧（IDR >150KB）：保守延迟，避免 UDP 缓冲区溢出丢包
+          int delay_us;
+          if (totalBytes < 50000) {
+            delay_us = 40;  // 小帧：激进发送
+          } else if (totalBytes < 150000) {
+            delay_us = 60;  // 中帧：适中
+          } else {
+            delay_us = 80;  // 大帧（IDR）：保守，避免丢包
+          }
+
           while (offset < totalBytes) {
             uint32_t remaining = totalBytes - offset;
             uint32_t chunkSize =
@@ -431,8 +453,7 @@ void VideoSenderLoop(std::string target_ip, int target_port,
             offset += chunkSize;
             fragId++;
             pktCount++;
-            // 简单的流控，防止发太快UDP丢包（恢复到更保守的节流，降低丢包率）
-            std::this_thread::sleep_for(std::chrono::microseconds(80));
+            std::this_thread::sleep_for(std::chrono::microseconds(delay_us));
           }
 
           total_frames_processed++;

@@ -198,7 +198,8 @@ public class NetworkManager : MonoBehaviour
 
         // 订阅消息接收事件
         mqttService.OnMessageReceived += dispatcher.Dispatch;
-        // UDP 图传数据强制分发到 "VideoStream" 主题
+        // UDP 图传数据分发：优先零拷贝段分发，回退到 byte[]
+        udpService.OnMessageReceivedSegment += (remoteEp, data) => dispatcher.DispatchSegment("VideoStream", data);
         udpService.OnMessageReceived += (remoteEp, data) => dispatcher.Dispatch("VideoStream", data);
 
         // 订阅网络状态事件

@@ -18,8 +18,8 @@ UDP_PORT_ARG="3334"
 # Default codec/gop optimized for quick client entry
 CODEC_ARG="hevc"
 GOP_ARG="15"
-# Default to lavfi test source to guarantee frames; use /dev/video0 if explicitly requested
-VIDEO_ARG="lavfi:testsrc=size=640x360:rate=30"
+# Default to TestVedio.mp4 for realistic video simulation
+VIDEO_ARG="$SCRIPT_DIR/TestVedio.mp4"
 VIDEO_PROVIDED=0
 INTERVAL_ARG="1000"
 FORCE_REBUILD=0
@@ -63,11 +63,15 @@ done
 
 mkdir -p "$RUN_DIR"
 
-# Auto-select source if not provided: prefer bundled avi, else camera, else testsrc
+# Auto-select source if not provided: prefer bundled mp4/avi, else camera, else testsrc
 if [[ $VIDEO_PROVIDED -eq 0 ]]; then
+  LOCAL_MP4="$MOCK_ROOT/TestVedio.mp4"
   LOCAL_AVI="$MOCK_ROOT/single_20260125_1534.avi"
-  if [[ -f "$LOCAL_AVI" ]]; then
-    VIDEO_ARG="single_20260125_1534.avi"  # relative path for ffmpeg
+  if [[ -f "$LOCAL_MP4" ]]; then
+    VIDEO_ARG="$LOCAL_MP4"
+    echo "[start_mock] Auto-selected bundled MP4: $VIDEO_ARG"
+  elif [[ -f "$LOCAL_AVI" ]]; then
+    VIDEO_ARG="$LOCAL_AVI"
     echo "[start_mock] Auto-selected bundled AVI: $VIDEO_ARG"
   elif [[ -e "/dev/video0" ]]; then
     VIDEO_ARG="/dev/video0"
