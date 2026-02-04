@@ -350,3 +350,4 @@ crashlytics-build.properties
 # ========================================
 # Keep source .md, ignore generated PDF (optional)
 # UDP图传架构.pdf
+!UDP图传架构.pdf
