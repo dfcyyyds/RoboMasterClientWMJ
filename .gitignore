@@ -286,3 +286,67 @@ run_unity_*.sh
 *.LOCAL.*
 *.REMOTE.*
 *~
+
+# ========================================
+# PDF/LaTeX Build Artifacts
+# ========================================
+.tmp_md_to_pdf_build/
+*.aux
+*.fdb_latexmk
+*.fls
+*.synctex.gz
+*.toc
+*.out
+*.nav
+*.snm
+*.vrb
+*.bbl
+*.blg
+*.bcf
+*.run.xml
+
+# ========================================
+# Python Tools & Cache
+# ========================================
+tools/__pycache__/
+*.pyc
+
+# ========================================
+# Security & Credentials (sensitive)
+# ========================================
+*.key
+*.pem
+*.p12
+*.pfx
+secrets.json
+credentials.json
+.env
+.env.*
+!.env.example
+
+# ========================================
+# Unity Additional Ignores
+# ========================================
+/[Aa]ssets/AssetStoreTools*
+/[Aa]ssets/[Pp]lugins/Editor/JetBrains*
+InitTestScene*.unity
+InitTestScene*.unity.meta
+sysinfo.txt
+crashlytics-build.properties
+
+# Profiler captures
+/ProfilerCaptures/
+
+# Addressables
+/[Aa]ssets/[Aa]ddressable[Aa]ssets[Dd]ata/*/*.bin*
+/[Aa]ssets/[Ss]treamingAssets/aa.meta
+/[Aa]ssets/[Ss]treamingAssets/aa/*
+
+# TextMesh Pro
+/[Aa]ssets/TextMesh Pro/Resources/Fonts & Materials/*.asset
+
+# ========================================
+# Generated Documentation
+# ========================================
+# Keep source .md, ignore generated PDF (optional)
+# UDP图传架构.pdf

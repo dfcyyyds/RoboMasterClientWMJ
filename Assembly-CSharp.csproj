@@ -108,6 +108,7 @@
     <Compile Include="Assets/Scripts/UI/Views/RobotModuleStatusView.cs" />
     <Compile Include="Assets/Scripts/Framework/Network/Handlers/DeployModeStatusSyncHandler.cs" />
     <Compile Include="Assets/TextMesh Pro/Examples &amp; Extras/Scripts/VertexZoom.cs" />
+    <Compile Include="Assets/Scripts/UI/RobotSelection/RobotSelectionPanel.cs" />
     <Compile Include="Assets/Scripts/Framework/Network/Handlers/PenaltyInfoHandler.cs" />
     <Compile Include="Assets/Scripts/UI/ViewModels/AirSupportStatusSyncViewModel.cs" />
     <Compile Include="Assets/TextMesh Pro/Examples &amp; Extras/Scripts/TMP_TextSelector_B.cs" />
@@ -144,6 +145,7 @@
     <Compile Include="Assets/TextMesh Pro/Examples &amp; Extras/Scripts/Benchmark04.cs" />
     <Compile Include="Assets/Scripts/Framework/Video/IVideoTransport.cs" />
     <Compile Include="Assets/TextMesh Pro/Examples &amp; Extras/Scripts/ChatController.cs" />
+    <Compile Include="Assets/Scripts/UI/RobotSelection/RobotSelectionBootstrap.cs" />
     <Compile Include="Assets/Scripts/UI/ViewModels/EventViewModel.cs" />
     <Compile Include="Assets/Scripts/Plugins/NativeVideoPlugin.cs" />
     <Compile Include="Assets/TextMesh Pro/Examples &amp; Extras/Scripts/TMP_DigitValidator.cs" />
@@ -154,6 +156,7 @@
     <Compile Include="Assets/Scripts/Framework/Network/Handlers/GameStatusHandler.cs" />
     <Compile Include="Assets/Scripts/UI/Views/TechCoreMotionStateSyncView.cs" />
     <Compile Include="Assets/Scripts/Framework/Network/Handlers/BuffHandler.cs" />
+    <Compile Include="Assets/Scripts/UI/RobotSelection/RobotSelectionData.cs" />
     <Compile Include="Assets/Scripts/UI/ViewModels/ProtoAutoViewModel.cs" />
     <Compile Include="Assets/Scripts/Framework/Network/Handlers/CustomByteBlockHandler.cs" />
     <Compile Include="Assets/TextMesh Pro/Examples &amp; Extras/Scripts/CameraController.cs" />
@@ -166,6 +169,7 @@
     <Compile Include="Assets/TextMesh Pro/Examples &amp; Extras/Scripts/DropdownSample.cs" />
     <Compile Include="Assets/TextMesh Pro/Examples &amp; Extras/Scripts/VertexColorCycler.cs" />
     <Compile Include="Assets/Scripts/UI/Views/RemoteControlView.cs" />
+    <Compile Include="Assets/Scripts/UI/RobotSelection/RobotSelectionViewModel.cs" />
     <Compile Include="Assets/Scripts/UI/Views/RaderInfoToClientView.cs" />
     <Compile Include="Assets/TextMesh Pro/Examples &amp; Extras/Scripts/ObjectSpin.cs" />
     <Compile Include="Assets/TextMesh Pro/Examples &amp; Extras/Scripts/TMP_PhoneNumberValidator.cs" />
@@ -186,6 +190,7 @@
     <Compile Include="Assets/Scripts/Plugins/NativeVideoBridge.cs" />
     <Compile Include="Assets/TextMesh Pro/Examples &amp; Extras/Scripts/TextMeshProFloatingText.cs" />
     <Compile Include="Assets/Scripts/UI/Views/DartSelectTargetStatusSyncView.cs" />
+    <Compile Include="Assets/Scripts/UI/UIManager.cs" />
     <Compile Include="Assets/Scripts/UI/ViewModels/RaderInfoToClientViewModel.cs" />
     <Compile Include="Assets/Scripts/Framework/Network/IMessageHandler.cs" />
   </ItemGroup>
@@ -1520,6 +1525,7 @@
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="Project.Editor.csproj" />
+    <ProjectReference Include="UI.RobotSelection.Editor.csproj" />
     <ProjectReference Include="MiniJSON.csproj" />
   </ItemGroup>
   <Import Project="Sdk.targets" Sdk="Microsoft.NET.Sdk" />

@@ -323,8 +323,35 @@ static int CUDAAPI HandlePictureDisplay(void* pUserData,
   }
 #endif
 
-  // OpenGL 路径 - 双缓冲 PBO
+  // OpenGL 路径 - 三缓冲 PBO (支持 4K 120fps)
   int write_idx = ctx->pbo_write_idx;
+
+  // 帧丢弃策略：如果写入缓冲区仍在等待上传，丢弃最旧的帧
+  if (ctx->pbo_ready_for_upload[write_idx] ||
+      ctx->pbo_cuda_pending[write_idx]) {
+    // 当前写入位置被占用，检查是否可以覆盖
+    if (ctx->cudaWriteEvent[write_idx]) {
+      cudaError_t ev_status = cudaEventQuery(ctx->cudaWriteEvent[write_idx]);
+      if (ev_status == cudaErrorNotReady) {
+        // CUDA 写入尚未完成，必须丢弃这一帧
+        ctx->frames_dropped++;
+        static int drop_log = 0;
+        if (++drop_log <= 10 || drop_log % 100 == 0) {
+          fprintf(
+              stderr,
+              "[NVDEC] Frame dropped (buffer full): dropped=%d, write_idx=%d\n",
+              ctx->frames_dropped.load(), write_idx);
+        }
+        cuvidUnmapVideoFrame(ctx->decoder, dpSrcFrame);
+        cleanup();
+        return 1;  // 返回成功，继续解码
+      }
+    }
+    // CUDA 写入已完成但还没上传，可以覆盖（丢弃旧帧）
+    ctx->pbo_ready_for_upload[write_idx] = false;
+    ctx->pbo_cuda_pending[write_idx] = false;
+  }
+
   if (ctx->cuPbo[write_idx]) {
     size_t pbo_size = 0;
     CUdeviceptr dpPbo = 0;
@@ -345,9 +372,8 @@ static int CUDAAPI HandlePictureDisplay(void* pUserData,
       static int diag_rgb = 0;
       if (diag_rgb++ < 10) {
         fprintf(stderr,
-                "[NVDEC] NV12->RGB (dual-buf): write_idx=%d, src_pitch=%u, "
-                "pbo_size=%zu, wxh=%dx%d, "
-                "required=%zu\n",
+                "[NVDEC] NV12->RGB (triple-buf): write_idx=%d, src_pitch=%u, "
+                "pbo_size=%zu, wxh=%dx%d, required=%zu\n",
                 write_idx, pitch, pbo_size, ctx->width, ctx->height,
                 required_size);
       }
@@ -368,7 +394,6 @@ static int CUDAAPI HandlePictureDisplay(void* pUserData,
                       ctx->width, ctx->height, pitch, pitch, ctx->stream);
 
       // 异步优化：使用 cudaEvent 代替 cudaStreamSynchronize
-      // 只在 Unmap 前记录事件，让 GPU 继续执行
       if (ctx->cudaWriteEvent[write_idx]) {
         cudaEventRecord(ctx->cudaWriteEvent[write_idx], ctx->stream);
         ctx->pbo_cuda_pending[write_idx] = true;
@@ -377,9 +402,9 @@ static int CUDAAPI HandlePictureDisplay(void* pUserData,
       // Unmap 必须在同一个 stream 上，CUDA driver 会自动排序
       cuGraphicsUnmapResources(1, &ctx->cuPbo[write_idx], ctx->stream);
 
-      // 双缓冲：交换写入索引，标记读取索引
-      ctx->pbo_read_idx = write_idx;
-      ctx->pbo_write_idx = 1 - write_idx;
+      // 三缓冲：标记当前缓冲区已就绪，移动写入索引
+      ctx->pbo_ready_for_upload[write_idx] = true;
+      ctx->pbo_write_idx = (write_idx + 1) % NvdecContext::NUM_PBO_BUFFERS;
       ctx->frame_ready = true;
       ctx->frames_displayed++;
     } else {
@@ -413,8 +438,9 @@ static int CUDAAPI HandlePictureDisplay(void* pUserData,
 // 销毁 GL 对象（用于尺寸变化时重新创建）
 static void destroy_gl_objects(NvdecContext& ctx) {
   fprintf(stderr,
-          "[NVDEC] Destroying GL objects: pbo[0]=%u, pbo[1]=%u, tex=%u\n",
-          ctx.pbo[0], ctx.pbo[1], ctx.tex);
+          "[NVDEC] Destroying GL objects: pbo[0]=%u, pbo[1]=%u, pbo[2]=%u, "
+          "tex=%u\n",
+          ctx.pbo[0], ctx.pbo[1], ctx.pbo[2], ctx.tex);
 
   // 清理 GL Fence
   if (ctx.glFence) {
@@ -431,8 +457,8 @@ static void destroy_gl_objects(NvdecContext& ctx) {
     cuCtxPushCurrent(ctx.cuCtx);
   }
 
-  // 注销双缓冲 CUDA 资源
-  for (int i = 0; i < 2; i++) {
+  // 注销三缓冲 CUDA 资源
+  for (int i = 0; i < NvdecContext::NUM_PBO_BUFFERS; i++) {
     if (ctx.cuPbo[i]) {
       CUresult res = cuGraphicsUnregisterResource(ctx.cuPbo[i]);
       if (res != CUDA_SUCCESS) {
@@ -441,8 +467,9 @@ static void destroy_gl_objects(NvdecContext& ctx) {
       }
       ctx.cuPbo[i] = nullptr;
     }
-    // 重置 CUDA pending 状态
+    // 重置状态
     ctx.pbo_cuda_pending[i] = false;
+    ctx.pbo_ready_for_upload[i] = false;
   }
 
   if (needPush && ctx.cuCtx) {
@@ -450,8 +477,8 @@ static void destroy_gl_objects(NvdecContext& ctx) {
     cuCtxPopCurrent(&popped);
   }
 
-  // 删除双缓冲 PBO
-  for (int i = 0; i < 2; i++) {
+  // 删除三缓冲 PBO
+  for (int i = 0; i < NvdecContext::NUM_PBO_BUFFERS; i++) {
     if (ctx.pbo[i]) {
       glDeleteBuffers(1, &ctx.pbo[i]);
       ctx.pbo[i] = 0;
@@ -465,7 +492,8 @@ static void destroy_gl_objects(NvdecContext& ctx) {
   ctx.gl_width = 0;
   ctx.gl_height = 0;
   ctx.pbo_write_idx = 0;
-  ctx.pbo_read_idx = 0;
+  ctx.pbo_upload_idx = 0;
+  ctx.pbo_display_idx = 0;
   fprintf(stderr, "[NVDEC] GL objects destroyed\n");
 }
 
@@ -484,24 +512,35 @@ static int setup_gl_objects(NvdecContext& ctx, int w, int h) {
   while (glGetError() != GL_NO_ERROR) {
   }
 
+  // 4K 120fps 优化：预分配最大尺寸的 PBO，避免后续重建
+  // 实际使用尺寸由 gl_width/gl_height 控制
+  int alloc_w = (w > NvdecContext::MAX_WIDTH) ? w : NvdecContext::MAX_WIDTH;
+  int alloc_h = (h > NvdecContext::MAX_HEIGHT) ? h : NvdecContext::MAX_HEIGHT;
+  size_t pbo_alloc_size = (size_t)alloc_w * alloc_h * 3;
+
   fprintf(stderr,
-          "[NVDEC] Creating dual-buffer GL objects for size %dx%d (%d bytes "
-          "each)\n",
-          w, h, w * h * 3);
+          "[NVDEC] Creating triple-buffer GL objects: display=%dx%d, "
+          "alloc=%dx%d (%zu bytes each, total=%zu MB)\n",
+          w, h, alloc_w, alloc_h, pbo_alloc_size,
+          (pbo_alloc_size * NvdecContext::NUM_PBO_BUFFERS) / (1024 * 1024));
 
   ctx.gl_width = w;
   ctx.gl_height = h;
 
-  // 创建双缓冲 PBO
-  glGenBuffers(2, ctx.pbo);
-  if (ctx.pbo[0] == 0 || ctx.pbo[1] == 0) {
-    throttled_log("glGenBuffers returned 0 for dual PBO");
-    ctx.gl_failed = true;
-    return -1;
-  }
-  for (int i = 0; i < 2; i++) {
+  // 创建三缓冲 PBO
+  glGenBuffers(NvdecContext::NUM_PBO_BUFFERS, ctx.pbo);
+  for (int i = 0; i < NvdecContext::NUM_PBO_BUFFERS; i++) {
+    if (ctx.pbo[i] == 0) {
+      char msg[64];
+      snprintf(msg, sizeof(msg), "glGenBuffers returned 0 for PBO[%d]", i);
+      throttled_log(msg);
+      ctx.gl_failed = true;
+      return -1;
+    }
     glBindBuffer(GL_PIXEL_UNPACK_BUFFER, ctx.pbo[i]);
-    glBufferData(GL_PIXEL_UNPACK_BUFFER, w * h * 3, nullptr, GL_STREAM_DRAW);
+    // 预分配 4K 大小，使用 GL_STREAM_DRAW 优化频繁更新
+    glBufferData(GL_PIXEL_UNPACK_BUFFER, pbo_alloc_size, nullptr,
+                 GL_STREAM_DRAW);
   }
   glBindBuffer(GL_PIXEL_UNPACK_BUFFER, 0);
 
@@ -529,11 +568,15 @@ static int setup_gl_objects(NvdecContext& ctx, int w, int h) {
 
   ctx.gl_ready = true;
   ctx.pbo_write_idx = 0;
-  ctx.pbo_read_idx = 0;
+  ctx.pbo_upload_idx = 0;
+  ctx.pbo_display_idx = 0;
+  for (int i = 0; i < NvdecContext::NUM_PBO_BUFFERS; i++) {
+    ctx.pbo_ready_for_upload[i] = false;
+  }
   printf(
-      "[NVDEC] Dual-buffer GL objects created: pbo[0]=%u pbo[1]=%u tex=%u, "
-      "size=%dx%d (%d bytes)\n",
-      ctx.pbo[0], ctx.pbo[1], ctx.tex, w, h, w * h * 3);
+      "[NVDEC] Triple-buffer GL objects created: pbo[0]=%u pbo[1]=%u pbo[2]=%u "
+      "tex=%u, display=%dx%d, alloc=%dx%d\n",
+      ctx.pbo[0], ctx.pbo[1], ctx.pbo[2], ctx.tex, w, h, alloc_w, alloc_h);
   return 0;
 }
 #endif  // NVP_HAS_NVDEC
@@ -573,8 +616,8 @@ bool nvdec_init(NvdecContext& ctx, int width, int height) {
     return false;
   }
 
-  // 创建 CUDA Events 用于异步同步（双缓冲）
-  for (int i = 0; i < 2; i++) {
+  // 创建 CUDA Events 用于异步同步（三缓冲）
+  for (int i = 0; i < NvdecContext::NUM_PBO_BUFFERS; i++) {
     cudaError_t ev_err = cudaEventCreateWithFlags(&ctx.cudaWriteEvent[i],
                                                   cudaEventDisableTiming);
     if (ev_err != cudaSuccess) {
@@ -584,8 +627,9 @@ bool nvdec_init(NvdecContext& ctx, int width, int height) {
       ctx.cudaWriteEvent[i] = nullptr;
     }
     ctx.pbo_cuda_pending[i] = false;
+    ctx.pbo_ready_for_upload[i] = false;
   }
-  printf("[NVDEC] CUDA Events created for async optimization\n");
+  printf("[NVDEC] CUDA Events created for triple-buffer async optimization\n");
 
   CUVIDPARSERPARAMS vpp = {};
   vpp.CodecType = cudaVideoCodec_HEVC;
@@ -669,16 +713,17 @@ int nvdec_get_texture(const NvdecContext& ctx) {
 
   // 创建或重新创建 GL 对象（如果尺寸变化）
   if (!mut_ctx.gl_ready || mut_ctx.tex == 0 || mut_ctx.pbo[0] == 0 ||
-      mut_ctx.pbo[1] == 0 || mut_ctx.gl_width != w || mut_ctx.gl_height != h) {
+      mut_ctx.pbo[1] == 0 || mut_ctx.pbo[2] == 0 || mut_ctx.gl_width != w ||
+      mut_ctx.gl_height != h) {
     if (setup_gl_objects(mut_ctx, w, h) != 0) {
       fprintf(stderr, "[NVDEC] GL setup failed\n");
       return 0;
     }
   }
 
-  // 延迟注册 CUDA-GL 互操作 (双缓冲)
+  // 延迟注册 CUDA-GL 互操作 (三缓冲)
   bool need_register = false;
-  for (int i = 0; i < 2; i++) {
+  for (int i = 0; i < NvdecContext::NUM_PBO_BUFFERS; i++) {
     if (mut_ctx.pbo[i] && !mut_ctx.cuPbo[i] && !mut_ctx.cuda_gl_failed) {
       need_register = true;
       break;
@@ -697,8 +742,8 @@ int nvdec_get_texture(const NvdecContext& ctx) {
       }
     }
 
-    // 注册双缓冲 PBO
-    for (int i = 0; i < 2; i++) {
+    // 注册三缓冲 PBO
+    for (int i = 0; i < NvdecContext::NUM_PBO_BUFFERS; i++) {
       if (mut_ctx.pbo[i] && !mut_ctx.cuPbo[i]) {
         CUresult cu_res = cuGraphicsGLRegisterBuffer(
             &mut_ctx.cuPbo[i], mut_ctx.pbo[i],
@@ -729,29 +774,28 @@ int nvdec_get_texture(const NvdecContext& ctx) {
     }
   }
 
-  // 上传 PBO 到纹理 (使用读取缓冲) - 带异步同步优化
-  int read_idx = mut_ctx.pbo_read_idx;
-  if (mut_ctx.cuPbo[read_idx] && mut_ctx.frame_ready) {
-    // 异步优化：检查 CUDA 写入是否完成
-    // 使用非阻塞查询，如果未完成则跳过本次上传，下一帧再试
-    if (mut_ctx.pbo_cuda_pending[read_idx] &&
-        mut_ctx.cudaWriteEvent[read_idx]) {
-      cudaError_t event_status =
-          cudaEventQuery(mut_ctx.cudaWriteEvent[read_idx]);
-      if (event_status == cudaErrorNotReady) {
-        // CUDA 写入尚未完成，跳过本次上传，避免阻塞
-        static int skip_async = 0;
-        if (++skip_async <= 5) {
-          fprintf(stderr,
-                  "[NVDEC] CUDA write not ready, skipping upload (async "
-                  "optimization)\n");
+  // 上传 PBO 到纹理 - 三缓冲异步优化
+  // 查找一个已就绪的缓冲区进行上传
+  int upload_idx = -1;
+  for (int i = 0; i < NvdecContext::NUM_PBO_BUFFERS; i++) {
+    int idx = (mut_ctx.pbo_upload_idx + i) % NvdecContext::NUM_PBO_BUFFERS;
+    if (mut_ctx.pbo_ready_for_upload[idx] && mut_ctx.cuPbo[idx]) {
+      // 检查 CUDA 写入是否完成
+      if (mut_ctx.pbo_cuda_pending[idx] && mut_ctx.cudaWriteEvent[idx]) {
+        cudaError_t event_status = cudaEventQuery(mut_ctx.cudaWriteEvent[idx]);
+        if (event_status == cudaErrorNotReady) {
+          // 这个缓冲区的 CUDA 写入尚未完成，尝试下一个
+          continue;
+        } else if (event_status == cudaSuccess) {
+          mut_ctx.pbo_cuda_pending[idx] = false;
         }
-        return static_cast<int>(mut_ctx.tex);  // 返回旧纹理
-      } else if (event_status == cudaSuccess) {
-        mut_ctx.pbo_cuda_pending[read_idx] = false;
       }
+      upload_idx = idx;
+      break;
     }
+  }
 
+  if (upload_idx >= 0) {
     // 删除旧的 GL Fence（如果存在）
     GLsync oldFence = static_cast<GLsync>(mut_ctx.glFence);
     if (oldFence) {
@@ -771,7 +815,7 @@ int nvdec_get_texture(const NvdecContext& ctx) {
     }
 
     static int tex_upload_count = 0;
-    glBindBuffer(GL_PIXEL_UNPACK_BUFFER, mut_ctx.pbo[read_idx]);
+    glBindBuffer(GL_PIXEL_UNPACK_BUFFER, mut_ctx.pbo[upload_idx]);
     glBindTexture(GL_TEXTURE_2D, mut_ctx.tex);
     glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, mut_ctx.gl_width, mut_ctx.gl_height,
                     GL_RGB, GL_UNSIGNED_BYTE, 0);
@@ -787,16 +831,21 @@ int nvdec_get_texture(const NvdecContext& ctx) {
 
     glBindBuffer(GL_PIXEL_UNPACK_BUFFER, 0);
     glBindTexture(GL_TEXTURE_2D, 0);
+
+    // 标记此缓冲区已上传
+    mut_ctx.pbo_ready_for_upload[upload_idx] = false;
+    mut_ctx.pbo_upload_idx = (upload_idx + 1) % NvdecContext::NUM_PBO_BUFFERS;
     mut_ctx.frame_ready = false;
+
     tex_upload_count++;
     if (tex_upload_count <= 10 || tex_upload_count % 60 == 0) {
       fprintf(stderr,
-              "[NVDEC] Texture uploaded (count=%d, read_idx=%d, decoded=%d, "
-              "displayed=%d, async=true)\n",
-              tex_upload_count, read_idx, mut_ctx.frames_decoded.load(),
-              mut_ctx.frames_displayed.load());
+              "[NVDEC] Texture uploaded (count=%d, upload_idx=%d, decoded=%d, "
+              "displayed=%d, dropped=%d, triple-buf)\n",
+              tex_upload_count, upload_idx, mut_ctx.frames_decoded.load(),
+              mut_ctx.frames_displayed.load(), mut_ctx.frames_dropped.load());
     }
-  } else if (!mut_ctx.cuPbo[0] && !mut_ctx.cuPbo[1]) {
+  } else if (!mut_ctx.cuPbo[0] && !mut_ctx.cuPbo[1] && !mut_ctx.cuPbo[2]) {
     static bool warned = false;
     if (!warned) {
       fprintf(stderr, "[NVDEC] nvdec_get_texture: cuPbo[] not registered\n");
@@ -825,17 +874,18 @@ void nvdec_shutdown(NvdecContext& ctx) {
     ctx.glFence = nullptr;
   }
 
-  // 清理 CUDA Events
-  for (int i = 0; i < 2; i++) {
+  // 清理 CUDA Events（三缓冲）
+  for (int i = 0; i < NvdecContext::NUM_PBO_BUFFERS; i++) {
     if (ctx.cudaWriteEvent[i]) {
       cudaEventDestroy(ctx.cudaWriteEvent[i]);
       ctx.cudaWriteEvent[i] = nullptr;
     }
     ctx.pbo_cuda_pending[i] = false;
+    ctx.pbo_ready_for_upload[i] = false;
   }
 
-  // 清理双缓冲资源
-  for (int i = 0; i < 2; i++) {
+  // 清理三缓冲资源
+  for (int i = 0; i < NvdecContext::NUM_PBO_BUFFERS; i++) {
     if (ctx.cuPbo[i]) cuGraphicsUnregisterResource(ctx.cuPbo[i]);
     if (ctx.pbo[i]) glDeleteBuffers(1, &ctx.pbo[i]);
   }
@@ -847,12 +897,13 @@ void nvdec_shutdown(NvdecContext& ctx) {
   if (ctx.cuCtx) cuCtxDestroy(ctx.cuCtx);
 
 #if defined(NVP_HAS_VULKAN)
-  printf("[NVDEC] Shutdown. Decoded=%d, Displayed=%d, Vulkan=%s\n",
+  printf("[NVDEC] Shutdown. Decoded=%d, Displayed=%d, Dropped=%d, Vulkan=%s\n",
          ctx.frames_decoded.load(), ctx.frames_displayed.load(),
-         ctx.use_vulkan ? "YES" : "NO");
+         ctx.frames_dropped.load(), ctx.use_vulkan ? "YES" : "NO");
 #else
-  printf("[NVDEC] Shutdown. Decoded=%d, Displayed=%d\n",
-         ctx.frames_decoded.load(), ctx.frames_displayed.load());
+  printf("[NVDEC] Shutdown. Decoded=%d, Displayed=%d, Dropped=%d\n",
+         ctx.frames_decoded.load(), ctx.frames_displayed.load(),
+         ctx.frames_dropped.load());
 #endif
 #else
   (void)ctx;

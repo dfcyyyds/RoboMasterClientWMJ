@@ -1,6 +1,7 @@
 ﻿<Solution>
   <Project Path="Assembly-CSharp.csproj" />
-  <Project Path="Project.Editor.csproj" />
   <Project Path="Assembly-CSharp-Editor.csproj" />
   <Project Path="MiniJSON.csproj" />
+  <Project Path="UI.RobotSelection.Editor.csproj" />
+  <Project Path="Project.Editor.csproj" />
 </Solution>

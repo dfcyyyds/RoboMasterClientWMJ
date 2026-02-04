@@ -25,23 +25,34 @@ struct NvdecContext {
   int width = 0;  // 视频实际尺寸 (来自 NVDEC)
   int height = 0;
 
-  // OpenGL 路径 - 双缓冲 PBO 提升流畅度
-  unsigned int pbo[2] = {0, 0};  // 双缓冲 PBO
+  // 4K 120fps 优化常量
+  static constexpr int NUM_PBO_BUFFERS = 3;  // 三缓冲 PBO
+  static constexpr int MAX_WIDTH = 3840;     // 4K 宽度
+  static constexpr int MAX_HEIGHT = 2160;    // 4K 高度
+  static constexpr size_t MAX_PBO_SIZE = MAX_WIDTH * MAX_HEIGHT * 3;  // ~25MB
+
+  // OpenGL 路径 - 三缓冲 PBO 提升流畅度 (支持 4K 120fps)
+  unsigned int pbo[NUM_PBO_BUFFERS] = {0, 0, 0};  // 三缓冲 PBO
   unsigned int tex = 0;
-  CUgraphicsResource cuPbo[2] = {nullptr, nullptr};  // 双缓冲 CUDA 资源
-  int pbo_write_idx = 0;  // 当前写入的 PBO 索引 (CUDA 写入)
-  int pbo_read_idx = 0;   // 当前读取的 PBO 索引 (GL 上传)
-  int gl_width = 0;       // GL 对象创建时的尺寸
+  CUgraphicsResource cuPbo[NUM_PBO_BUFFERS] = {nullptr, nullptr, nullptr};
+  int pbo_write_idx = 0;    // CUDA 写入的 PBO 索引
+  int pbo_upload_idx = 0;   // 等待 GL 上传的 PBO 索引
+  int pbo_display_idx = 0;  // 当前显示的 PBO 索引
+  int gl_width = 0;         // GL 对象创建时的尺寸
   int gl_height = 0;
   bool gl_ready = false;
   bool gl_failed = false;
   bool cuda_gl_failed = false;
 
-  // 异步同步优化：CUDA Event + GL Fence
-  cudaEvent_t cudaWriteEvent[2] = {nullptr,
-                                   nullptr};  // 每个 PBO 的 CUDA 写入完成事件
-  bool pbo_cuda_pending[2] = {false, false};  // PBO 是否有待处理的 CUDA 写入
+  // 异步同步优化：CUDA Event + GL Fence (三缓冲)
+  cudaEvent_t cudaWriteEvent[NUM_PBO_BUFFERS] = {nullptr, nullptr, nullptr};
+  bool pbo_cuda_pending[NUM_PBO_BUFFERS] = {false, false, false};
+  bool pbo_ready_for_upload[NUM_PBO_BUFFERS] = {false, false,
+                                                false};  // 帧已写入，等待上传
   void* glFence = nullptr;  // GLsync fence (存储为 void* 避免头文件依赖)
+
+  // 帧丢弃统计
+  std::atomic<int> frames_dropped{0};  // 因缓冲区满而丢弃的帧数
 
   // Vulkan 路径 (主要)
 #if defined(NVP_HAS_VULKAN)

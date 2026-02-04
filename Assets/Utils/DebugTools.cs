@@ -30,7 +30,7 @@ namespace wmj
         static string RunLogPath;
 
         // 日志分类定义
-        public enum LogCategory { General, Network, Video, Decoder, Transport, Custom1, Custom2 }
+        public enum LogCategory { General, Network, Video, Decoder, Transport, UI, Custom1, Custom2 }
         // 分类开关（可由参数管理器/配置界面动态设置）
         public static Dictionary<LogCategory, bool> CategorySwitch = new Dictionary<LogCategory, bool>
         {
@@ -39,6 +39,7 @@ namespace wmj
             { LogCategory.Video, true },
             { LogCategory.Decoder, true },
             { LogCategory.Transport, true },
+            { LogCategory.UI, true },
             { LogCategory.Custom1, false },
             { LogCategory.Custom2, false }
         };
