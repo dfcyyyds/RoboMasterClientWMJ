@@ -31,6 +31,9 @@ public class ConfigData
     /// <summary>解码队列上限</summary>
     public int decoderQueueSize = 6;
 
+    /// <summary>目标帧率（0 表示不限制）</summary>
+    public int targetFrameRate = 60;
+
     /// <summary>日志缓冲区大小（积攒多少条日志后批量写入，建议16~256，越大越省IO）</summary>
     public int logBufferSize = 32;
 }

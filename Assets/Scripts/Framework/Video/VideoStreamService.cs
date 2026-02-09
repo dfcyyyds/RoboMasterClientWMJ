@@ -3,6 +3,7 @@ using System.Collections.Concurrent;
 using UnityEngine;
 using Framework.Video;
 using Framework.Utils;
+using Framework.Boot;
 
 /// 视频流服务：订阅UDP帧，后台组装/解码，在主线程分发纹理
 public class VideoStreamService : MonoBehaviour
@@ -92,6 +93,20 @@ public class VideoStreamService : MonoBehaviour
         DontDestroyOnLoad(gameObject);
         // 参数化主线程解码帧数
         maxDrainPerUpdate = ConfigLoader.config.maxDrainPerUpdate > 0 ? ConfigLoader.config.maxDrainPerUpdate : 1;
+
+        // 根据硬件能力自动选择解码后端
+        var detection = HardwareCapabilityDetector.Detect();
+        if (decodeBackend == DecodeBackend.NativeNvdec && detection.Accel != HardwareCapabilityDetector.RecommendedAccel.NvdecCuda)
+        {
+            decodeBackend = DecodeBackend.FfmpegPipe;
+            wmj.DebugTools.Warn("[VideoStreamService] 当前硬件不支持 NVDEC，已自动切换到 ffmpeg 解码", wmj.DebugTools.LogCategory.Video);
+        }
+
+        // 根据配置设置纹理上传上限（避免低配过高负载）
+        if (ConfigLoader.config.targetFrameRate > 0)
+        {
+            maxApplyFps = Mathf.Max(30, ConfigLoader.config.targetFrameRate);
+        }
 
         // 若 Inspector 中序列化的 maxApplyFps 过低（被误设为1），强制抬升到合理下限
         if (maxApplyFps < 30)

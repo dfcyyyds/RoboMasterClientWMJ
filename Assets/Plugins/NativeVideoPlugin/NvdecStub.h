@@ -25,11 +25,19 @@ struct NvdecContext {
   int width = 0;  // 视频实际尺寸 (来自 NVDEC)
   int height = 0;
 
-  // 4K 120fps 优化常量
+  // PBO 缓冲区常量
   static constexpr int NUM_PBO_BUFFERS = 3;  // 三缓冲 PBO
-  static constexpr int MAX_WIDTH = 3840;     // 4K 宽度
-  static constexpr int MAX_HEIGHT = 2160;    // 4K 高度
-  static constexpr size_t MAX_PBO_SIZE = MAX_WIDTH * MAX_HEIGHT * 3;  // ~25MB
+
+  // 初始分配尺寸 (2K) - 按需扩展到 4K
+  static constexpr int INITIAL_WIDTH = 2560;   // 2K 宽度 (初始)
+  static constexpr int INITIAL_HEIGHT = 1440;  // 2K 高度 (初始)
+
+  // 最大支持尺寸 (4K)
+  static constexpr int MAX_WIDTH = 3840;   // 4K 宽度 (最大)
+  static constexpr int MAX_HEIGHT = 2160;  // 4K 高度 (最大)
+
+  static constexpr size_t MAX_PBO_SIZE =
+      MAX_WIDTH * MAX_HEIGHT * 3;  // ~25MB (仅用于边界检查)
 
   // OpenGL 路径 - 三缓冲 PBO 提升流畅度 (支持 4K 120fps)
   unsigned int pbo[NUM_PBO_BUFFERS] = {0, 0, 0};  // 三缓冲 PBO
@@ -40,6 +48,8 @@ struct NvdecContext {
   int pbo_display_idx = 0;  // 当前显示的 PBO 索引
   int gl_width = 0;         // GL 对象创建时的尺寸
   int gl_height = 0;
+  int pbo_alloc_width = 0;  // PBO 实际分配的尺寸 (可能大于 gl_width)
+  int pbo_alloc_height = 0;
   bool gl_ready = false;
   bool gl_failed = false;
   bool cuda_gl_failed = false;

@@ -1,6 +1,7 @@
 using UnityEngine;
 using System.IO;
 using UnityEngine.Networking;
+using Framework.Boot;
 
 public static class ConfigLoader
 {
@@ -9,7 +10,9 @@ public static class ConfigLoader
     private static ConfigData _config;
     private static bool _isLoaded = false;
     private static string _configPath = null;
+    private static HardwareCapabilityDetector.CapabilityLevel _detectedLevel = HardwareCapabilityDetector.CapabilityLevel.Mid;
     public static bool IsLoaded => _isLoaded;
+    public static HardwareCapabilityDetector.CapabilityLevel DetectedLevel => _detectedLevel;
     public static ConfigData config
     {
         get
@@ -41,24 +44,80 @@ public static class ConfigLoader
     private class ConfigLoaderHost : MonoBehaviour { }
 
     /// <summary>
-    /// 只加载一次参数到内存
+    /// 只加载一次参数到内存，根据硬件能力自动选择配置档位
     /// </summary>
     public static void LoadConfig()
     {
         if (_isLoaded) return;
-        if (_configPath == null)
-            _configPath = GetConfigPath();
+
+        // 执行硬件探测，确定能力等级
+        var detection = HardwareCapabilityDetector.Detect();
+        _detectedLevel = detection.Level;
+
+        // 根据能力等级选择配置文件
+        string configFileName = GetConfigFileNameByLevel(_detectedLevel);
+        _configPath = Path.Combine(Application.streamingAssetsPath, configFileName);
+
+        // 如果分档配置不存在，回退到默认配置
+        if (!File.Exists(_configPath))
+        {
+            wmj.DebugTools.Warn($"[ConfigLoader] 分档配置 {configFileName} 不存在，回退到默认配置");
+            _configPath = Path.Combine(Application.streamingAssetsPath, "Config/params.json");
+        }
+
         if (!File.Exists(_configPath))
         {
             wmj.DebugTools.Error($"[ConfigLoader] 配置文件不存在: {_configPath}");
             return;
         }
+
         string jsonStr = File.ReadAllText(_configPath);
         if (!string.IsNullOrEmpty(jsonStr) && jsonStr[0] == '\uFEFF')
             jsonStr = jsonStr.Substring(1);
         jsonStr = RemoveJsonComments(jsonStr);
         _config = JsonUtility.FromJson<ConfigData>(jsonStr);
         _isLoaded = _config != null;
+
+        // 应用硬件探测推荐的配置（如果配置文件中的值为默认值）
+        ApplyHardwareRecommendations(detection);
+
+        wmj.DebugTools.Info($"[ConfigLoader] 已加载配置: {_configPath} (硬件等级: {_detectedLevel})");
+    }
+
+    /// <summary>
+    /// 根据硬件能力等级获取配置文件名
+    /// </summary>
+    private static string GetConfigFileNameByLevel(HardwareCapabilityDetector.CapabilityLevel level)
+    {
+        switch (level)
+        {
+            case HardwareCapabilityDetector.CapabilityLevel.Low:
+                return "Config/params_lowspec.json";
+            case HardwareCapabilityDetector.CapabilityLevel.Mid:
+                return "Config/params_midspec.json";
+            case HardwareCapabilityDetector.CapabilityLevel.High:
+            default:
+                return "Config/params.json";
+        }
+    }
+
+    /// <summary>
+    /// 应用硬件探测推荐的配置
+    /// </summary>
+    private static void ApplyHardwareRecommendations(HardwareCapabilityDetector.DetectionResult detection)
+    {
+        if (_config == null) return;
+
+        // 如果配置文件中的帧率为 0 或未设置，使用推荐值
+        if (_config.targetFrameRate <= 0)
+            _config.targetFrameRate = detection.RecommendedTargetFps;
+
+        // 日志输出当前生效的关键配置
+        wmj.DebugTools.Info($"[ConfigLoader] 生效配置: " +
+            $"分辨率={_config.decoderOutputWidth}x{_config.decoderOutputHeight}, " +
+            $"目标帧率={_config.targetFrameRate}, " +
+            $"解码队列={_config.decoderQueueSize}, " +
+            $"推荐加速={detection.Accel}");
     }
 
     /// <summary>
@@ -88,7 +147,26 @@ public static class ConfigLoader
 #if UNITY_EDITOR || UNITY_ANDROID
     public static System.Collections.IEnumerator LoadConfigCoroutine()
     {
-        string path = Path.Combine(Application.streamingAssetsPath, fileName);
+        if (_isLoaded) yield break;
+
+        var detection = HardwareCapabilityDetector.Detect();
+        _detectedLevel = detection.Level;
+
+        string configFileName = GetConfigFileNameByLevel(_detectedLevel);
+        string path = Path.Combine(Application.streamingAssetsPath, configFileName);
+
+        if (!File.Exists(path))
+        {
+            wmj.DebugTools.Warn($"[ConfigLoader] 分档配置 {configFileName} 不存在，回退到默认配置");
+            path = Path.Combine(Application.streamingAssetsPath, "Config/params.json");
+        }
+
+        if (!File.Exists(path))
+        {
+            wmj.DebugTools.Error($"[ConfigLoader] 配置文件不存在: {path}");
+            yield break;
+        }
+
 #if UNITY_EDITOR || UNITY_STANDALONE
         if (!path.StartsWith("file://"))
             path = "file://" + path;
@@ -112,40 +190,65 @@ public static class ConfigLoader
                 jsonStr = jsonStr.Substring(1);
             if (string.IsNullOrEmpty(jsonStr))
             {
-                wmj.DebugTools.Error($"[ConfigLoader] 找不到配置文件 {fileName}");
-                wmj.DebugTools.Error($"[ConfigLoader] 找不到配置文件 {fileName}");
+                wmj.DebugTools.Error($"[ConfigLoader] 找不到配置文件 {path}");
+                wmj.DebugTools.Error($"[ConfigLoader] 找不到配置文件 {path}");
 #if UNITY_EDITOR
                 UnityEditor.EditorApplication.isPlaying = false;
-                wmj.DebugTools.Error($"[ConfigLoader] 找不到配置文件 {fileName}");
+                wmj.DebugTools.Error($"[ConfigLoader] 找不到配置文件 {path}");
 #endif
                 yield break;
             }
             jsonStr = RemoveJsonComments(jsonStr);
             _config = JsonUtility.FromJson<ConfigData>(jsonStr);
             _isLoaded = true;
+
+            ApplyHardwareRecommendations(detection);
+            wmj.DebugTools.Info($"[ConfigLoader] 已加载配置: {path} (硬件等级: {_detectedLevel})");
         }
     }
 #else
     public static void LoadConfig()
     {
-        string path = Path.Combine(Application.streamingAssetsPath, fileName);
+        if (_isLoaded) return;
+
+        var detection = HardwareCapabilityDetector.Detect();
+        _detectedLevel = detection.Level;
+
+        string configFileName = GetConfigFileNameByLevel(_detectedLevel);
+        string path = Path.Combine(Application.streamingAssetsPath, configFileName);
+
+        if (!File.Exists(path))
+        {
+            wmj.DebugTools.Warn($"[ConfigLoader] 分档配置 {configFileName} 不存在，回退到默认配置");
+            path = Path.Combine(Application.streamingAssetsPath, "Config/params.json");
+        }
+
+        if (!File.Exists(path))
+        {
+            wmj.DebugTools.Error($"[ConfigLoader] 配置文件不存在: {path}");
+            return;
+        }
+
         string jsonStr = File.ReadAllText(path);
         // 去除UTF-8 BOM
         if (!string.IsNullOrEmpty(jsonStr) && jsonStr[0] == '\uFEFF')
             jsonStr = jsonStr.Substring(1);
         if (string.IsNullOrEmpty(jsonStr))
         {
-            wmj.DebugTools.Error($"[ConfigLoader] 找不到配置文件 {fileName}");
-            wmj.DebugTools.Error($"[ConfigLoader] 找不到配置文件 {fileName}");
+            wmj.DebugTools.Error($"[ConfigLoader] 找不到配置文件 {path}");
+            wmj.DebugTools.Error($"[ConfigLoader] 找不到配置文件 {path}");
 #if UNITY_EDITOR
             UnityEditor.EditorApplication.isPlaying = false;
-            wmj.DebugTools.Error($"[ConfigLoader] 找不到配置文件 {fileName}");
+            wmj.DebugTools.Error($"[ConfigLoader] 找不到配置文件 {path}");
 #endif
             return;
         }
         jsonStr = RemoveJsonComments(jsonStr);
         _config = JsonUtility.FromJson<ConfigData>(jsonStr);
         _isLoaded = true;
+
+        ApplyHardwareRecommendations(detection);
+        wmj.DebugTools.Info($"[ConfigLoader] 已加载配置: {path} (硬件等级: {_detectedLevel})");
     }
 #endif
 

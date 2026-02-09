@@ -491,6 +491,8 @@ static void destroy_gl_objects(NvdecContext& ctx) {
   ctx.gl_ready = false;
   ctx.gl_width = 0;
   ctx.gl_height = 0;
+  ctx.pbo_alloc_width = 0;  // 重置分配尺寸跟踪
+  ctx.pbo_alloc_height = 0;
   ctx.pbo_write_idx = 0;
   ctx.pbo_upload_idx = 0;
   ctx.pbo_display_idx = 0;
@@ -498,24 +500,67 @@ static void destroy_gl_objects(NvdecContext& ctx) {
 }
 
 static int setup_gl_objects(NvdecContext& ctx, int w, int h) {
-  // 如果尺寸变化，需要重新创建
-  if (ctx.gl_ready && (ctx.gl_width != w || ctx.gl_height != h)) {
-    fprintf(stderr,
-            "[NVDEC] Size changed from %dx%d to %dx%d, recreating GL objects\n",
-            ctx.gl_width, ctx.gl_height, w, h);
-    destroy_gl_objects(ctx);
+  // 检查是否需要扩展 PBO 缓冲区
+  bool need_expand = false;
+  if (ctx.gl_ready) {
+    // 如果当前分辨率超过已分配的 PBO 大小，需要扩展
+    if (w > ctx.pbo_alloc_width || h > ctx.pbo_alloc_height) {
+      fprintf(stderr,
+              "[NVDEC] Resolution %dx%d exceeds allocated PBO %dx%d, "
+              "expanding...\n",
+              w, h, ctx.pbo_alloc_width, ctx.pbo_alloc_height);
+      need_expand = true;
+      destroy_gl_objects(ctx);
+    } else if (ctx.gl_width != w || ctx.gl_height != h) {
+      // 分辨率变化但在已分配范围内，只需更新纹理
+      fprintf(stderr,
+              "[NVDEC] Size changed from %dx%d to %dx%d (within alloc %dx%d), "
+              "updating texture\n",
+              ctx.gl_width, ctx.gl_height, w, h, ctx.pbo_alloc_width,
+              ctx.pbo_alloc_height);
+      ctx.gl_width = w;
+      ctx.gl_height = h;
+      // 重新创建纹理以匹配新尺寸
+      if (ctx.tex != 0) {
+        glDeleteTextures(1, &ctx.tex);
+        ctx.tex = 0;
+      }
+      glGenTextures(1, &ctx.tex);
+      glBindTexture(GL_TEXTURE_2D, ctx.tex);
+      glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+      glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+      glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB8, w, h, 0, GL_RGB, GL_UNSIGNED_BYTE,
+                   nullptr);
+      glBindTexture(GL_TEXTURE_2D, 0);
+      return 0;
+    } else {
+      return 0;  // 无变化
+    }
   }
-
-  if (ctx.gl_ready) return 0;
 
   // 清除之前可能遗留的 GL 错误
   while (glGetError() != GL_NO_ERROR) {
   }
 
-  // 4K 120fps 优化：预分配最大尺寸的 PBO，避免后续重建
-  // 实际使用尺寸由 gl_width/gl_height 控制
-  int alloc_w = (w > NvdecContext::MAX_WIDTH) ? w : NvdecContext::MAX_WIDTH;
-  int alloc_h = (h > NvdecContext::MAX_HEIGHT) ? h : NvdecContext::MAX_HEIGHT;
+  // 智能分配策略：
+  // - 初始分配 2K (2560x1440)，节省 ~42MB GPU 内存
+  // - 如果实际分辨率超过 2K，按需扩展到 4K
+  int alloc_w, alloc_h;
+
+  if (need_expand || w > NvdecContext::INITIAL_WIDTH ||
+      h > NvdecContext::INITIAL_HEIGHT) {
+    // 需要 4K 分配
+    alloc_w = NvdecContext::MAX_WIDTH;
+    alloc_h = NvdecContext::MAX_HEIGHT;
+    fprintf(stderr, "[NVDEC] Using 4K allocation for %dx%d content\n", w, h);
+  } else {
+    // 使用 2K 初始分配
+    alloc_w = NvdecContext::INITIAL_WIDTH;
+    alloc_h = NvdecContext::INITIAL_HEIGHT;
+    fprintf(stderr, "[NVDEC] Using 2K initial allocation for %dx%d content\n",
+            w, h);
+  }
+
   size_t pbo_alloc_size = (size_t)alloc_w * alloc_h * 3;
 
   fprintf(stderr,
@@ -567,6 +612,8 @@ static int setup_gl_objects(NvdecContext& ctx, int w, int h) {
   }
 
   ctx.gl_ready = true;
+  ctx.pbo_alloc_width = alloc_w;  // 记录实际分配的 PBO 尺寸
+  ctx.pbo_alloc_height = alloc_h;
   ctx.pbo_write_idx = 0;
   ctx.pbo_upload_idx = 0;
   ctx.pbo_display_idx = 0;

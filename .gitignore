@@ -98,6 +98,21 @@ RunLog.txt
 ProfilerCaptures/
 
 # ========================================
+# Runtime-generated Data (keep reports)
+# ========================================
+/.gpu_backup/
+/Assets/StreamingAssets/Config/hardware_override.json
+/Assets/StreamingAssets/Config/hardware_override.json.meta
+/Assets/StreamingAssets/Config/params_override.json
+/Assets/StreamingAssets/Config/params_override.json.meta
+/Assets/StreamingAssets/Config/*override*.json
+/Assets/StreamingAssets/Config/*override*.json.meta
+
+# Keep test reports
+!/测试报告/
+!/测试报告/**
+
+# ========================================
 # Package Management
 # ========================================
 packages/

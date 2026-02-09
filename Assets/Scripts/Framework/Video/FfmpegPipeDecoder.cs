@@ -6,6 +6,7 @@ using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using Framework.Utils;
+using Framework.Boot;
 
 namespace Framework.Video
 {
@@ -44,7 +45,7 @@ namespace Framework.Video
         private int queueCount = 0;
         private int maxQueueSize = 3;
 
-        private enum AccelMode { AutoCuda, Vaapi, Software }
+        private enum AccelMode { AutoCuda, Vaapi, Dxva, VideoToolbox, Software }
         private AccelMode accelMode = AccelMode.AutoCuda;
         private DateTime lastFrameTime = DateTime.UtcNow;
         private readonly TimeSpan noFrameTimeout = TimeSpan.FromSeconds(5); // 加长超时，避免首包前误判
@@ -69,8 +70,27 @@ namespace Framework.Video
             this.enableStderrLog = enableStderrLog;
             this.useHardwareDecode = useHardwareDecode;
             this.forceHevc = forceHevc;
-            accelMode = useHardwareDecode ? AccelMode.AutoCuda : AccelMode.Software;
+            accelMode = useHardwareDecode ? SelectAccelMode() : AccelMode.Software;
             StartProcess();
+        }
+
+        private AccelMode SelectAccelMode()
+        {
+            var detection = HardwareCapabilityDetector.Detect();
+            switch (detection.Accel)
+            {
+                case HardwareCapabilityDetector.RecommendedAccel.NvdecCuda:
+                    return AccelMode.AutoCuda;
+                case HardwareCapabilityDetector.RecommendedAccel.Vaapi:
+                    return AccelMode.Vaapi;
+                case HardwareCapabilityDetector.RecommendedAccel.Dxva:
+                    return AccelMode.Dxva;
+                case HardwareCapabilityDetector.RecommendedAccel.VideoToolbox:
+                    return AccelMode.VideoToolbox;
+                case HardwareCapabilityDetector.RecommendedAccel.Software:
+                default:
+                    return AccelMode.Software;
+            }
         }
 
         // 暴露队列长度与上限，便于诊断与调参
@@ -198,9 +218,22 @@ namespace Framework.Video
                         // 提升解码线程数至4以平滑瞬时抖动
                         return $"-loglevel warning -nostdin -hide_banner -hwaccel cuda -hwaccel_output_format cuda -extra_hw_frames 8 -probesize 32 -analyzeduration 0 -fflags +nobuffer -flags low_delay -threads 4 -an -sn -vsync passthrough -f {inputCodec} -i - -vf {vf} -pix_fmt rgb24 -f rawvideo pipe:1";
                     }
-                    // VAAPI 硬解
-                    vf = $"scale_vaapi={outputWidth}:{outputHeight}:format=nv12,hwdownload,format=nv12,format=rgb24";
-                    return $"-loglevel warning -nostdin -hide_banner -hwaccel vaapi -hwaccel_output_format vaapi -vaapi_device /dev/dri/renderD128 -probesize 32 -analyzeduration 0 -fflags +nobuffer -flags low_delay -threads 4 -an -sn -vsync passthrough -f {inputCodec} -i - -vf {vf} -pix_fmt rgb24 -f rawvideo pipe:1";
+                    if (accelMode == AccelMode.Vaapi)
+                    {
+                        // VAAPI 硬解
+                        vf = $"scale_vaapi={outputWidth}:{outputHeight}:format=nv12,hwdownload,format=nv12,format=rgb24";
+                        return $"-loglevel warning -nostdin -hide_banner -hwaccel vaapi -hwaccel_output_format vaapi -vaapi_device /dev/dri/renderD128 -probesize 32 -analyzeduration 0 -fflags +nobuffer -flags low_delay -threads 4 -an -sn -vsync passthrough -f {inputCodec} -i - -vf {vf} -pix_fmt rgb24 -f rawvideo pipe:1";
+                    }
+                    if (accelMode == AccelMode.Dxva)
+                    {
+                        vf = $"scale={outputWidth}:{outputHeight},format=rgb24";
+                        return $"-loglevel warning -nostdin -hide_banner -hwaccel d3d11va -probesize 32 -analyzeduration 0 -fflags +nobuffer -flags low_delay -threads 4 -an -sn -vsync passthrough -f {inputCodec} -i - -vf {vf} -pix_fmt rgb24 -f rawvideo pipe:1";
+                    }
+                    if (accelMode == AccelMode.VideoToolbox)
+                    {
+                        vf = $"scale={outputWidth}:{outputHeight},format=rgb24";
+                        return $"-loglevel warning -nostdin -hide_banner -hwaccel videotoolbox -probesize 32 -analyzeduration 0 -fflags +nobuffer -flags low_delay -threads 4 -an -sn -vsync passthrough -f {inputCodec} -i - -vf {vf} -pix_fmt rgb24 -f rawvideo pipe:1";
+                    }
                 }
                 vf = $"scale={outputWidth}:{outputHeight},format=rgb24";
                 // 软解路径
@@ -216,9 +249,22 @@ namespace Framework.Video
                         vf = "scale_cuda=1280:-2:format=nv12,hwdownload,format=nv12,format=rgb24";
                         return $"-loglevel warning -nostdin -hide_banner -hwaccel cuda -hwaccel_output_format cuda -extra_hw_frames 8 -probesize 32 -analyzeduration 0 -fflags +nobuffer -flags low_delay -threads 4 -an -sn -vsync passthrough -f {inputCodec} -i - -vf {vf} -f image2pipe -vcodec ppm -pix_fmt rgb24 pipe:1";
                     }
-                    // VAAPI 硬解
-                    vf = "scale_vaapi=1280:-2:format=nv12,hwdownload,format=nv12,format=rgb24";
-                    return $"-loglevel warning -nostdin -hide_banner -hwaccel vaapi -hwaccel_output_format vaapi -vaapi_device /dev/dri/renderD128 -probesize 32 -analyzeduration 0 -fflags +nobuffer -flags low_delay -threads 4 -an -sn -vsync passthrough -f {inputCodec} -i - -vf {vf} -f image2pipe -vcodec ppm -pix_fmt rgb24 pipe:1";
+                    if (accelMode == AccelMode.Vaapi)
+                    {
+                        // VAAPI 硬解
+                        vf = "scale_vaapi=1280:-2:format=nv12,hwdownload,format=nv12,format=rgb24";
+                        return $"-loglevel warning -nostdin -hide_banner -hwaccel vaapi -hwaccel_output_format vaapi -vaapi_device /dev/dri/renderD128 -probesize 32 -analyzeduration 0 -fflags +nobuffer -flags low_delay -threads 4 -an -sn -vsync passthrough -f {inputCodec} -i - -vf {vf} -f image2pipe -vcodec ppm -pix_fmt rgb24 pipe:1";
+                    }
+                    if (accelMode == AccelMode.Dxva)
+                    {
+                        vf = "scale=1280:-2,format=rgb24";
+                        return $"-loglevel warning -nostdin -hide_banner -hwaccel d3d11va -probesize 32 -analyzeduration 0 -fflags +nobuffer -flags low_delay -threads 4 -an -sn -vsync passthrough -f {inputCodec} -i - -vf {vf} -f image2pipe -vcodec ppm -pix_fmt rgb24 pipe:1";
+                    }
+                    if (accelMode == AccelMode.VideoToolbox)
+                    {
+                        vf = "scale=1280:-2,format=rgb24";
+                        return $"-loglevel warning -nostdin -hide_banner -hwaccel videotoolbox -probesize 32 -analyzeduration 0 -fflags +nobuffer -flags low_delay -threads 4 -an -sn -vsync passthrough -f {inputCodec} -i - -vf {vf} -f image2pipe -vcodec ppm -pix_fmt rgb24 pipe:1";
+                    }
                 }
                 vf = "scale=1280:-2,format=rgb24";
                 return $"-loglevel warning -nostdin -hide_banner -probesize 32 -analyzeduration 0 -fflags +nobuffer -flags low_delay -threads 4 -an -sn -vsync passthrough -f {inputCodec} -i - -vf {vf} -f image2pipe -vcodec ppm -pix_fmt rgb24 pipe:1";

@@ -14,7 +14,10 @@ public class RuntimeTuner : MonoBehaviour
     {
         Application.runInBackground = true; // 后台仍刷新
         QualitySettings.vSyncCount = 0;     // 关闭VSync以允许更高帧率
-        Application.targetFrameRate = 120;  // 明确目标帧率
+        int targetFps = ConfigLoader.config != null && ConfigLoader.config.targetFrameRate > 0
+            ? ConfigLoader.config.targetFrameRate
+            : 120;
+        Application.targetFrameRate = targetFps;  // 明确目标帧率
         // 强制每帧渲染一次，避免渲染帧间隔导致的低刷新
         OnDemandRendering.renderFrameInterval = 1;
         diagLast = Time.realtimeSinceStartup;
