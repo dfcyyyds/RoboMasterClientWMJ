@@ -205,12 +205,12 @@ public class UdpClientService
                 try
                 {
                     var seg = new ArraySegment<byte>(item.Buffer, 0, item.Length);
-                    // 主线程统一输出日志，遵守 Unity 线程约束
-#if UNITY_EDITOR
+                    // 高频日志仅在编辑器调试时输出，避免IO阻塞
+#if UNITY_EDITOR && UDP_VERBOSE_LOG
                     wmj.DebugTools.Info($"[UdpClientService] 收到UDP包: 来自 {item.Remote}, 长度={item.Length}", wmj.DebugTools.LogCategory.Network);
                     wmj.DebugTools.WriteDebugLog("[UdpClientService] 收到UDP包: 来自 " + item.Remote + ", 长度=" + item.Length, "INFO");
 #endif
-                    wmj.DebugTools.WriteRunLog("[UdpClientService] 收到UDP包: 来自 " + item.Remote + ", 长度=" + item.Length, "INFO");
+                    // 移除高频WriteRunLog调用，避免每秒30000+次IO导致卡死
 
                     // 优先使用零拷贝的Segment版本，避免重复分发
                     if (OnMessageReceivedSegment != null)

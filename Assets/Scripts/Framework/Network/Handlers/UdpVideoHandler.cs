@@ -1,4 +1,5 @@
 using System;
+using System.Buffers;
 using UnityEngine;
 using Framework.Utils;
 
@@ -8,6 +9,8 @@ public class UdpVideoHandler : IMessageHandler, IMessageSegmentHandler
     public event Action<UdpVideoFrame> OnFrameReceived;
     private static long totalSlices = 0;
     private static bool firstValidSliceAnnounced = false;
+    // ArrayPool用于NALU缓冲区复用，显著减少GC压力
+    private static readonly ArrayPool<byte> naluPool = ArrayPool<byte>.Shared;
 
 #if UNITY_EDITOR || DIAGNOSE_UDP
     private static float diagLastReport = 0;
@@ -42,8 +45,9 @@ public class UdpVideoHandler : IMessageHandler, IMessageSegmentHandler
         ushort frameId = (ushort)(span[0] | (span[1] << 8));
         ushort sliceId = (ushort)(span[2] | (span[3] << 8));
         uint frameLen = (uint)((uint)span[4] | ((uint)span[5] << 8) | ((uint)span[6] << 16) | ((uint)span[7] << 24));
-        // 剩余为AnnexB格式NALU
-        byte[] nalu = new byte[span.Length - 8];
+        // 剩余为AnnexB格式NALU - 使用ArrayPool减少GC
+        int naluLen = span.Length - 8;
+        byte[] nalu = naluPool.Rent(naluLen);
         span.Slice(8).CopyTo(nalu);
         totalSlices++;
 
@@ -73,16 +77,19 @@ public class UdpVideoHandler : IMessageHandler, IMessageSegmentHandler
             wmj.DebugTools.Info($"[UdpVideoHandler] 首个有效视频切片已到达: frame={frameId}, slice={sliceId}, naluLen={nalu.Length}", wmj.DebugTools.LogCategory.Network);
             wmj.DebugTools.WriteDebugLog("[UdpVideoHandler] 首个有效视频切片已到达: frame=" + frameId + ", slice=" + sliceId + ", naluLen=" + nalu.Length, "INFO");
 #endif
-            wmj.DebugTools.WriteRunLog("[UdpVideoHandler] ✅ 首个有效视频切片已到达: frame=" + frameId + ", slice=" + sliceId + ", naluLen=" + nalu.Length, "INFO");
+            wmj.DebugTools.WriteRunLog("[UdpVideoHandler] 首个有效视频切片已到达: frame=" + frameId + ", slice=" + sliceId + ", naluLen=" + nalu.Length, "INFO");
             firstValidSliceAnnounced = true;
         }
-        wmj.DebugTools.WriteRunLog("[UdpVideoHandler] 收到切片: frame=" + frameId + ", slice=" + sliceId + ", naluLen=" + nalu.Length, "INFO");
+        // 移除高频日志调用，每秒约30000次调用会导致IO阻塞和卡死
+        // 如需调试可启用: wmj.DebugTools.WriteRunLog("[UdpVideoHandler] 收到切片: frame=" + frameId + ", slice=" + sliceId + ", naluLen=" + nalu.Length, "INFO");
         var frame = new UdpVideoFrame
         {
             FrameId = frameId,
             SliceId = sliceId,
             FrameLength = frameLen,
-            Nalu = nalu
+            Nalu = nalu,
+            NaluActualLength = naluLen,
+            IsPooled = true
         };
         OnFrameReceived?.Invoke(frame);
     }
@@ -94,4 +101,17 @@ public class UdpVideoFrame
     public ushort SliceId;
     public uint FrameLength;
     public byte[] Nalu;
+    public int NaluActualLength; // 实际NALU长度（Rent可能返回更大数组）
+    public bool IsPooled;        // 是否来自ArrayPool
+    
+    /// <summary>归还NALU到ArrayPool（组帧完成后调用）</summary>
+    public void ReturnNaluToPool()
+    {
+        if (IsPooled && Nalu != null)
+        {
+            ArrayPool<byte>.Shared.Return(Nalu);
+            Nalu = null;
+            IsPooled = false;
+        }
+    }
 }

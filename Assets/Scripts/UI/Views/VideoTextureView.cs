@@ -9,7 +9,9 @@ public class VideoTextureView : MonoBehaviour
     public Renderer TargetRenderer; // 如需贴到材质
     private Texture lastApplied;
 
-    void Update()
+    // 使用 LateUpdate 确保在 VideoStreamService.Update() 之后执行
+    // 这样可以获取到当前帧的最新纹理
+    void LateUpdate()
     {
         var svc = VideoStreamService.Instance;
         if (svc == null) return;

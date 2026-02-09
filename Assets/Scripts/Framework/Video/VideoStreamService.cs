@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Concurrent;
 using UnityEngine;
+using UnityEngine.Scripting;
 using Framework.Video;
 using Framework.Utils;
 using Framework.Boot;
@@ -12,6 +13,9 @@ public class VideoStreamService : MonoBehaviour
 
     // 暴露当前纹理，便于挂载显示
     public Texture2D CurrentTexture { get; private set; }
+    // 双缓冲：避免在GPU渲染时更新纹理导致撕裂（暂时禁用以排查问题）
+    private Texture2D backBuffer;
+    private bool useDoubleBuffer = false;  // 暂时禁用双缓冲
     // 新纹理事件已弃用（改为视图在Update轮询CurrentTexture）
 
     // 编辑器可见的传输模式开关
@@ -68,8 +72,8 @@ public class VideoStreamService : MonoBehaviour
     [SerializeField] private int backlogDivisor = 10;
     [Tooltip("临时取消限频的窗口秒数")]
     [SerializeField] private float overrideWindowSec = 1.5f;
-    [Tooltip("每次Update最多消耗解码帧数（防止一次性清空队列导致 applied≈1）")]
-    [SerializeField] private int maxDrainPerUpdate = 3;  // 提升到3帧加快消费
+    [Tooltip("每次Update最多消耗解码帧数")]
+    [SerializeField] private int maxDrainPerUpdate = 16;  // 大幅提升以确保队列不积压
     // 记住解码器配置，便于在运行期切换回退
     private string decoderCodec;
     private int decoderOutW;
@@ -80,6 +84,11 @@ public class VideoStreamService : MonoBehaviour
     private bool gateNotified;
     private int watchdogAttempts;
     private float lastWatchdogSend;
+    // 增量GC辅助：每隔一定帧数在Update末尾触发低开销GC
+    private int framesSinceLastGcHint;
+    private const int GC_HINT_INTERVAL_FRAMES = 60; // 每60帧（约1秒@60fps）发一次GC提示
+    private float lastFullGcTime;
+    private const float FULL_GC_INTERVAL_SEC = 10f; // 每10秒尝试一次低优先级完整GC
 
     void Awake()
     {
@@ -232,6 +241,17 @@ public class VideoStreamService : MonoBehaviour
         {
             NativeVideoBridge.Shutdown();
         }
+        // 释放双缓冲纹理
+        if (CurrentTexture != null)
+        {
+            UnityEngine.Object.Destroy(CurrentTexture);
+            CurrentTexture = null;
+        }
+        if (backBuffer != null)
+        {
+            UnityEngine.Object.Destroy(backBuffer);
+            backBuffer = null;
+        }
     }
 
     private void OnAnnexBFrame(byte[] annexB)
@@ -345,17 +365,47 @@ public class VideoStreamService : MonoBehaviour
             return;
         }
 
-        // 主线程：耗尽解码器队列，只应用最新帧，并限制 Apply 频率
+        // 主线程：从解码器队列取帧，正常情况下每帧取一个以保持连贯性
+        // 仅在队列积压超过阈值时才跳帧追赶
         Framework.Video.DecodedFrame latest = null;
-        int drainLimit = Mathf.Max(1, maxDrainPerUpdate);
-        int drained = 0;
-        while (drained < drainLimit && decoder.TryGetFrame(out var f))
+        int currentQueueSize = 0;
+        var ffCheck = decoder as FfmpegPipeDecoder;
+        if (ffCheck != null) currentQueueSize = ffCheck.GetQueueCount();
+        
+        // 积压判断：队列超过 4 帧认为需要追赶
+        const int queueBacklogThreshold = 4;
+        bool needCatchUp = currentQueueSize > queueBacklogThreshold;
+        
+        if (needCatchUp)
         {
-            if (f == null || f.Pixels == null) break;
-            statFramesDecoded++;
-            decodedSinceLastApply++;
-            latest = f; // 仅保留最新帧
-            drained++;
+            // 追赶模式：丢弃较旧帧，只保留最新帧
+            Framework.Video.DecodedFrame previousLatest = null;
+            int drainLimit = Mathf.Max(1, maxDrainPerUpdate);
+            int drained = 0;
+            while (drained < drainLimit && decoder.TryGetFrame(out var f))
+            {
+                if (f == null || f.Pixels == null) break;
+                statFramesDecoded++;
+                decodedSinceLastApply++;
+                previousLatest?.ReturnToPool();
+                previousLatest = latest;
+                latest = f;
+                drained++;
+            }
+            previousLatest?.ReturnToPool();
+        }
+        else
+        {
+            // 正常模式：每次只取一帧，保持帧序连贯
+            if (decoder.TryGetFrame(out var f))
+            {
+                if (f != null && f.Pixels != null)
+                {
+                    statFramesDecoded++;
+                    decodedSinceLastApply++;
+                    latest = f;
+                }
+            }
         }
 
         if (latest != null)
@@ -389,34 +439,49 @@ public class VideoStreamService : MonoBehaviour
                     wmj.DebugTools.WriteRunLog("[VideoStreamService] IDR未捕获，暂不应用纹理（门控生效）", "WARN");
                     gateNotified = true;
                 }
-                // 丢弃应用阶段，仅继续解码队列耗尽，以等待首个IDR
+                // 门控生效时归还帧到池
+                latest.ReturnToPool();
                 return;
             }
 
             bool needCreate = CurrentTexture == null || CurrentTexture.width != latest.Width || CurrentTexture.height != latest.Height || CurrentTexture.format != UnityEngine.TextureFormat.RGB24;
+            bool needCreateBack = useDoubleBuffer && (backBuffer == null || backBuffer.width != latest.Width || backBuffer.height != latest.Height || backBuffer.format != UnityEngine.TextureFormat.RGB24);
             float now = Time.realtimeSinceStartup;
-            // 运行时强制下限，避免 Inspector 误设为 1fps 导致 applied=1
-            int effectiveFps = Mathf.Max(maxApplyFps, 60);
-            // 动态应急：在限定窗口内直接取消限频
-            bool overrideNow = applyOverrideUnlimited && now < applyOverrideUntil;
-            float minInterval = overrideNow ? 0f : (effectiveFps > 0 ? (1f / Mathf.Clamp(effectiveFps, 1, 120)) : 0f);
-            // 自适应追帧：若自上次 Apply 以来积压帧数过多，则本次允许越过限频立即应用
-            // 阈值按帧率动态设定，最低为5帧，约等于 ~1/12 秒的预算。
-            int denom = Mathf.Max(backlogDivisor, 1);
-            int backlogThreshold = Mathf.Max(backlogMinFrames, effectiveFps / denom);
-            bool backlogPressure = decodedSinceLastApply >= backlogThreshold;
-            if (backlogPressure && !overrideNow)
+            
+            // 双缓冲逻辑：写入后台纹理，然后交换
+            if (useDoubleBuffer)
             {
-                // 短期开放更高应用节奏以快速追帧，避免出现 applied≈1 的极端情况
-                applyOverrideUnlimited = true;
-                applyOverrideUntil = now + Mathf.Max(overrideWindowSec, 0.2f);
-                wmj.DebugTools.WriteRunLog("[VideoStreamService] 触发自适应追帧：积压=" + decodedSinceLastApply + ", 阈值=" + backlogThreshold + ", 临时取消限频 " + overrideWindowSec.ToString("F2") + "s", "WARN");
-                overrideNow = true;
-                minInterval = 0f;
+                // 确保后台缓冲存在
+                if (needCreateBack)
+                {
+                    if (backBuffer != null)
+                    {
+                        UnityEngine.Object.Destroy(backBuffer);
+                    }
+                    backBuffer = new UnityEngine.Texture2D(latest.Width, latest.Height, UnityEngine.TextureFormat.RGB24, false);
+                }
+                // 确保前台缓冲也存在（首次或尺寸变化）
+                if (needCreate)
+                {
+                    if (CurrentTexture != null)
+                    {
+                        UnityEngine.Object.Destroy(CurrentTexture);
+                    }
+                    CurrentTexture = new UnityEngine.Texture2D(latest.Width, latest.Height, UnityEngine.TextureFormat.RGB24, false);
+                    DebugLog.Video($"[VideoStreamService] 新建/调整纹理(双缓冲): {latest.Width}x{latest.Height}");
+                    wmj.DebugTools.WriteRunLog("[VideoStreamService] 新建/调整纹理(双缓冲): " + latest.Width + "x" + latest.Height, "INFO");
+                }
+                // 写入后台缓冲
+                backBuffer.LoadRawTextureData(latest.Pixels);
+                backBuffer.Apply(false, false);
+                // 交换前后台缓冲
+                var temp = CurrentTexture;
+                CurrentTexture = backBuffer;
+                backBuffer = temp;
             }
-            bool allowApply = needCreate || (minInterval <= 0f) || backlogPressure || (now - lastApplyTime >= minInterval);
-            if (allowApply)
+            else
             {
+                // 单缓冲逻辑（保留旧代码路径）
                 if (needCreate)
                 {
                     if (CurrentTexture != null)
@@ -433,10 +498,12 @@ public class VideoStreamService : MonoBehaviour
                 }
                 CurrentTexture.LoadRawTextureData(latest.Pixels);
                 CurrentTexture.Apply(false, false);
-                lastApplyTime = now;
-                statTexturesApplied++;
-                decodedSinceLastApply = 0; // 已应用，清空积压计数
             }
+            lastApplyTime = now;
+            statTexturesApplied++;
+            decodedSinceLastApply = 0;
+            // 归还帧到ArrayPool
+            latest.ReturnToPool();
         }
 
         // 每秒打印一次统计
@@ -456,12 +523,10 @@ public class VideoStreamService : MonoBehaviour
             wmj.DebugTools.WriteDebugLog("[VideoStreamService] 每秒统计 slices=" + statSlicesIn + ", assembled=" + statFramesAssembled + ", decoded=" + statFramesDecoded + ", applied=" + statTexturesApplied + st, "INFO");
 #endif
             wmj.DebugTools.WriteRunLog("[VideoStreamService] 每秒统计 slices=" + statSlicesIn + ", assembled=" + statFramesAssembled + ", decoded=" + statFramesDecoded + ", applied=" + statTexturesApplied + st, "INFO");
-            // 若 decoded 正常而 applied≈1，开启5秒的取消限频以定位外部限制
+            // 诊断：若 decoded 远大于 applied，说明可能有队列积压或帧丢失
             if (statFramesDecoded >= 15 && statTexturesApplied <= 1)
             {
-                applyOverrideUnlimited = true;
-                applyOverrideUntil = Time.realtimeSinceStartup + 5f;
-                wmj.DebugTools.WriteRunLog("[VideoStreamService] 检测到 applied≈1（decoded=" + statFramesDecoded + "),短期取消限频以排查外部限制", "WARN");
+                wmj.DebugTools.WriteRunLog("[VideoStreamService] 诊断: decoded=" + statFramesDecoded + " 但 applied=" + statTexturesApplied + "，可能存在队列积压", "WARN");
             }
             statSlicesIn = 0;
             statFramesAssembled = 0;
@@ -470,9 +535,9 @@ public class VideoStreamService : MonoBehaviour
             statLastReport = Time.realtimeSinceStartup;
         }
 
-        // 入场诊断：超过2秒仍未解码，输出状态快照
+        // 入场诊断：未入场且超过2秒仍未解码，输出状态快照
         float nowDiag = Time.realtimeSinceStartup;
-        if (nowDiag - startTime >= 2f && statSlicesIn > 0 && statFramesDecoded == 0 && nowDiag - lastDiagTime >= 1f)
+        if (!hasEntered && nowDiag - startTime >= 2f && statSlicesIn > 0 && nowDiag - lastDiagTime >= 1f)
         {
             var ff = decoder as FfmpegPipeDecoder;
             if (ff != null)
@@ -503,6 +568,33 @@ public class VideoStreamService : MonoBehaviour
             {
                 wmj.DebugTools.WriteRunLog("[VideoStreamService] 入场后重置看门狗计数（" + watchdogAttempts + ")", "INFO");
                 watchdogAttempts = 0;
+            }
+        }
+        
+        // 增量GC辅助：定期发送GC提示以避免大块内存累积导致突发GC停顿
+        framesSinceLastGcHint++;
+        if (framesSinceLastGcHint >= GC_HINT_INTERVAL_FRAMES)
+        {
+            framesSinceLastGcHint = 0;
+            // 使用 GarbageCollector 的增量模式提示（Unity 2019.1+）
+            // 这会让Unity在下一个合适的时机进行少量GC工作
+            if (GarbageCollector.isIncremental)
+            {
+                // 分配少量时间片给增量GC（不阻塞）
+                GarbageCollector.CollectIncremental(1000000); // 1ms
+            }
+        }
+        
+        // 低优先级完整GC：在空闲时段（帧率稳定且无大量解码积压）进行
+        float nowGc = Time.realtimeSinceStartup;
+        if (nowGc - lastFullGcTime >= FULL_GC_INTERVAL_SEC)
+        {
+            // 仅在没有解码积压时触发，避免影响实时性
+            if (decodedSinceLastApply <= 2)
+            {
+                lastFullGcTime = nowGc;
+                // 触发Generation 0回收（开销最小）
+                System.GC.Collect(0, System.GCCollectionMode.Optimized, false);
             }
         }
     }

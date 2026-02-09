@@ -5,8 +5,6 @@ using Framework.Boot;
 
 public static class ConfigLoader
 {
-    // 配置文件路径
-    private static string fileName = "Config/params.json";
     private static ConfigData _config;
     private static bool _isLoaded = false;
     private static string _configPath = null;

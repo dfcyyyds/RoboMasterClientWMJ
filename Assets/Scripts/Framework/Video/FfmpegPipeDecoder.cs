@@ -41,9 +41,9 @@ namespace Framework.Video
         private readonly int outputHeight;
         private readonly bool enableStderrLog;
         private readonly bool forceHevc; // 强制HEVC模式，不允许切换到其他codec
-        // 解码队列限长与计数
+        // 解码队列限长与计数（增大队列以减少丢帧，允许更多缓冲）
         private int queueCount = 0;
-        private int maxQueueSize = 3;
+        private int maxQueueSize = 8;
 
         private enum AccelMode { AutoCuda, Vaapi, Dxva, VideoToolbox, Software }
         private AccelMode accelMode = AccelMode.AutoCuda;
@@ -220,9 +220,9 @@ namespace Framework.Video
                     }
                     if (accelMode == AccelMode.Vaapi)
                     {
-                        // VAAPI 硬解
+                        // VAAPI 硬解：添加 extra_hw_frames 以改善缓冲减少卡顿
                         vf = $"scale_vaapi={outputWidth}:{outputHeight}:format=nv12,hwdownload,format=nv12,format=rgb24";
-                        return $"-loglevel warning -nostdin -hide_banner -hwaccel vaapi -hwaccel_output_format vaapi -vaapi_device /dev/dri/renderD128 -probesize 32 -analyzeduration 0 -fflags +nobuffer -flags low_delay -threads 4 -an -sn -vsync passthrough -f {inputCodec} -i - -vf {vf} -pix_fmt rgb24 -f rawvideo pipe:1";
+                        return $"-loglevel warning -nostdin -hide_banner -hwaccel vaapi -hwaccel_output_format vaapi -vaapi_device /dev/dri/renderD128 -extra_hw_frames 8 -probesize 32 -analyzeduration 0 -fflags +nobuffer -flags low_delay -threads 4 -an -sn -vsync passthrough -f {inputCodec} -i - -vf {vf} -pix_fmt rgb24 -f rawvideo pipe:1";
                     }
                     if (accelMode == AccelMode.Dxva)
                     {
@@ -251,9 +251,9 @@ namespace Framework.Video
                     }
                     if (accelMode == AccelMode.Vaapi)
                     {
-                        // VAAPI 硬解
+                        // VAAPI 硬解：添加 extra_hw_frames 以改善缓冲减少卡顿
                         vf = "scale_vaapi=1280:-2:format=nv12,hwdownload,format=nv12,format=rgb24";
-                        return $"-loglevel warning -nostdin -hide_banner -hwaccel vaapi -hwaccel_output_format vaapi -vaapi_device /dev/dri/renderD128 -probesize 32 -analyzeduration 0 -fflags +nobuffer -flags low_delay -threads 4 -an -sn -vsync passthrough -f {inputCodec} -i - -vf {vf} -f image2pipe -vcodec ppm -pix_fmt rgb24 pipe:1";
+                        return $"-loglevel warning -nostdin -hide_banner -hwaccel vaapi -hwaccel_output_format vaapi -vaapi_device /dev/dri/renderD128 -extra_hw_frames 8 -probesize 32 -analyzeduration 0 -fflags +nobuffer -flags low_delay -threads 4 -an -sn -vsync passthrough -f {inputCodec} -i - -vf {vf} -f image2pipe -vcodec ppm -pix_fmt rgb24 pipe:1";
                     }
                     if (accelMode == AccelMode.Dxva)
                     {
@@ -350,20 +350,18 @@ namespace Framework.Video
                     }
                 }
 
-                // 若检测到IDR帧，为稳妥起见在该帧前再次发送参数集（即使已发送过）
-                if (containsIdr && parameterSetCache != null && parameterSetCache.Length > 0)
+                // 若检测到IDR帧，且参数集尚未发送过，则发送参数集
+                // 注意：不再每次IDR都重发，避免重复数据导致解码器时间戳混乱
+                // 参数集通常在整个会话中不变，只需首次发送一次即可
+                if (containsIdr && !parameterSetsSent && parameterSetCache != null && parameterSetCache.Length > 0)
                 {
                     lock (sync)
                     {
                         stdin.Write(parameterSetCache, 0, parameterSetCache.Length);
                     }
-                    wmj.DebugTools.WriteRunLog("[FfmpegPipeDecoder] IDR前重发参数集: " + parameterSetCache.Length + " bytes", "DEBUG");
-                    DebugLog.Decoder("[FfmpegPipeDecoder] IDR前重发参数集: " + parameterSetCache.Length + " bytes");
-                    if (verboseFrameLogs)
-                    {
-                        wmj.DebugTools.WriteRunLog("[FfmpegPipeDecoder] IDR前重发参数集: " + parameterSetCache.Length + " bytes", "DEBUG");
-                        DebugLog.Decoder("[FfmpegPipeDecoder] IDR前重发参数集: " + parameterSetCache.Length + " bytes");
-                    }
+                    parameterSetsSent = true;
+                    wmj.DebugTools.WriteRunLog("[FfmpegPipeDecoder] IDR前发送参数集: " + parameterSetCache.Length + " bytes", "DEBUG");
+                    DebugLog.Decoder("[FfmpegPipeDecoder] IDR前发送参数集: " + parameterSetCache.Length + " bytes");
                 }
 
                 // 然后发送当前帧
@@ -427,8 +425,11 @@ namespace Framework.Video
 
         private void ExtractAndCacheParameterSets(byte[] annexBBytes)
         {
-            // 从 annexBBytes 中提取 VPS(32), SPS(33), PPS(34) NAL单元
-            // 并缓存它们，确保之后每个 IDR 帧前都发送
+            // 从 annexBBytes 中提取参数集 NAL 单元并缓存
+            // HEVC: VPS(32), SPS(33), PPS(34)
+            // H264: SPS(7), PPS(8)
+            // 根据当前 inputCodec 判断使用哪种解析方式
+            bool isHevcCodec = (inputCodec == "hevc");
             var paramSets = new System.Collections.Generic.List<byte>();
 
             for (int i = 0; i < annexBBytes.Length - 4; i++)
@@ -453,15 +454,23 @@ namespace Framework.Video
                     if (i + startCodeLen < annexBBytes.Length)
                     {
                         byte nalHeader = annexBBytes[i + startCodeLen];
-                        int hevcType = (nalHeader >> 1) & 0x3F; // H265
-                        int h264Type = nalHeader & 0x1F;        // H264
+                        
+                        // 根据 codec 类型判断是否为参数集
+                        bool isParamSet = false;
+                        if (isHevcCodec)
+                        {
+                            // HEVC: VPS(32)/SPS(33)/PPS(34)
+                            int hevcType = (nalHeader >> 1) & 0x3F;
+                            isParamSet = (hevcType == 32 || hevcType == 33 || hevcType == 34);
+                        }
+                        else
+                        {
+                            // H264: SPS(7)/PPS(8)
+                            int h264Type = nalHeader & 0x1F;
+                            isParamSet = (h264Type == 7 || h264Type == 8);
+                        }
 
-                        // HEVC 参数集 VPS(32)/SPS(33)/PPS(34)
-                        bool isHevcParam = (hevcType == 32 || hevcType == 33 || hevcType == 34);
-                        // H264 参数集 SPS(7)/PPS(8)
-                        bool isH264Param = (h264Type == 7 || h264Type == 8);
-
-                        if (isHevcParam || isH264Param)
+                        if (isParamSet)
                         {
                             // 找到参数集，加入正确的起始码 + NAL内容
                             // 起始码应完整复制 00 00 01 或 00 00 00 01
@@ -633,20 +642,18 @@ namespace Framework.Video
         {
             wmj.DebugTools.WriteRunLog("[FfmpegPipeDecoder] RAW读取线程启动", "DEBUG");
             int dataSize = width * height * 3;
-            // 使用小型环形缓冲避免每帧分配，降低GC压力
-            byte[][] buffers = new byte[3][];
-            for (int i = 0; i < buffers.Length; i++) buffers[i] = new byte[dataSize];
-            int bufIndex = 0;
+            // 使用ArrayPool减少GC压力，每帧仍需独立缓冲区避免数据覆盖
+            var pool = System.Buffers.ArrayPool<byte>.Shared;
+            byte[] readBuffer = new byte[dataSize];
             var s = stdout; // 直接用底层流读取到预分配缓冲
             while (!token.IsCancellationRequested)
             {
                 try
                 {
-                    var buf = buffers[bufIndex];
                     int read = 0;
                     while (read < dataSize)
                     {
-                        int n = s.Read(buf, read, dataSize - read);
+                        int n = s.Read(readBuffer, read, dataSize - read);
                         if (n <= 0) throw new EndOfStreamException();
                         read += n;
                     }
@@ -662,7 +669,10 @@ namespace Framework.Video
                     }
                     if (!needsIdrSync && hasReceivedIdr)
                     {
-                        frameQueue.Enqueue(new DecodedFrame { Width = width, Height = height, Pixels = buf });
+                        // 使用ArrayPool租用缓冲区减少GC压力（消费端需要归还）
+                        byte[] framePixels = pool.Rent(dataSize);
+                        Buffer.BlockCopy(readBuffer, 0, framePixels, 0, dataSize);
+                        frameQueue.Enqueue(new DecodedFrame { Width = width, Height = height, Pixels = framePixels, PixelArraySize = dataSize, IsPooled = true });
                         int q = Interlocked.Increment(ref queueCount);
                         lastFrameTime = DateTime.UtcNow;
                         if (dropped && verboseFrameLogs)
@@ -679,7 +689,6 @@ namespace Framework.Video
                     }
                     if (dropped && verboseFrameLogs)
                         wmj.DebugTools.WriteRunLog("[FfmpegPipeDecoder] 队列过长，已丢弃旧帧", "WARN");
-                    bufIndex = (bufIndex + 1) % buffers.Length;
                 }
                 catch (EndOfStreamException) { break; }
                 catch (Exception ex)
