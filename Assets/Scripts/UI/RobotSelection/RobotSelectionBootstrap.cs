@@ -80,9 +80,22 @@ namespace UI.RobotSelection
             // 将选择结果写入 ConfigLoader
             ApplyToConfig(result);
 
+            // 确保 HUD 系统已创建
+            EnsureHUD();
+
             wmj.Log.I($"[RobotSelection] 选择完成: {result}", wmj.Log.Tag.UI);
 
             OnSelectionCompleted?.Invoke(result);
+        }
+
+        /// <summary>确保 HUD 启动器存在</summary>
+        private static void EnsureHUD()
+        {
+            if (UnityEngine.Object.FindAnyObjectByType<UI.HUD.HUDBoot>() == null)
+            {
+                var go = new GameObject("[HUDBoot]");
+                go.AddComponent<UI.HUD.HUDBoot>();
+            }
         }
 
         /// <summary>
@@ -114,6 +127,15 @@ namespace UI.RobotSelection
         {
             CurrentSelection = null;
             IsSelectionCompleted = false;
+        }
+
+        /// <summary>
+        /// 从外部（如设置面板）应用新的选择结果。
+        /// 等待选择完成后才调用此方法。
+        /// </summary>
+        public static void ApplySelection(RobotSelectionResult result)
+        {
+            CompleteSelection(result);
         }
     }
 }

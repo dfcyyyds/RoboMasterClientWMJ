@@ -1,0 +1,50 @@
+{
+    "elements": [
+        {
+            "id": "HealthBar",
+            "anchorX": 0.5034239888191223,
+            "anchorY": 0.13827449083328248,
+            "width": 200.0,
+            "height": 50.0,
+            "scale": 1.0,
+            "visible": true
+        },
+        {
+            "id": "CrosshairRing",
+            "anchorX": 0.41782334446907046,
+            "anchorY": 0.6637006402015686,
+            "width": 200.0,
+            "height": 50.0,
+            "scale": 1.0,
+            "visible": true
+        },
+        {
+            "id": "Notifications",
+            "anchorX": 0.7670741081237793,
+            "anchorY": 0.7270684838294983,
+            "width": 200.0,
+            "height": 50.0,
+            "scale": 1.0,
+            "visible": true
+        }
+    ],
+    "hudSettings": {
+        "notificationDuration": 2.1228039264678957,
+        "maxNotifications": 5,
+        "aimZoomFactor": 1.5,
+        "aimZoomSpeed": 8.0,
+        "hitFlashDuration": 0.30000001192092898,
+        "lowHealthThreshold": 0.6000000238418579,
+        "crosshairRingRadius": 120.0,
+        "crosshairRingThickness": 2.5,
+        "crosshairDotSize": 8.0,
+        "crosshairLineLength": 40.0,
+        "healthBarWidth": 500.0,
+        "healthBarHeight": 16.0,
+        "crosshairFontSize": 30,
+        "healthBarFontSize": 22,
+        "notificationFontSize": 26,
+        "buffFontSize": 22,
+        "textOpacity": 0.8799999952316284
+    }
+}

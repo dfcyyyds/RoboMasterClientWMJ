@@ -69,7 +69,7 @@ int main(int argc, char* argv[]) {
   // UDP 视频推流目标与设备
   std::string udp_ip = "127.0.0.1";
   int udp_port = 3334;
-  std::string video_path = "single_20260125_1534.avi";
+  std::string video_path = "RealTest.mp4";
   std::string video_codec = "hevc";  // 默认HEVC，符合官方协议
   int video_gop = 15;                // 默认IDR周期(帧数)，缩短等待时间
 

@@ -1,14 +1,16 @@
 using System;
 using System.ComponentModel;
 using UnityEngine;
+using UnityEngine.InputSystem;
 using UnityEngine.UI;
 using TMPro;
+using UI.Core;
 
 namespace UI.RobotSelection
 {
     /// <summary>
-    /// 兵种选择面板 View - 负责 UI 渲染和交互
-    /// 使用方式: RobotSelectionPanel.Show(result => { ... });
+    /// 兵种选择面板 — 横排布局，选项按钮倾斜(skew)，容器不倾斜
+    /// 透明背景 + 亮蓝容器 + 淡蓝边框
     /// </summary>
     public class RobotSelectionPanel : MonoBehaviour
     {
@@ -17,27 +19,17 @@ namespace UI.RobotSelection
         private static RobotSelectionPanel _instance;
         private static Action<RobotSelectionResult> _onCompleteCallback;
 
-        /// <summary>
-        /// 显示兵种选择面板
-        /// </summary>
-        /// <param name="onComplete">选择完成后的回调</param>
+        public static bool IsVisible => _instance != null && _instance.gameObject.activeSelf;
+
         public static void Show(Action<RobotSelectionResult> onComplete = null)
         {
             _onCompleteCallback = onComplete;
-
             if (_instance == null)
-            {
                 CreatePanel();
-            }
             else
-            {
                 _instance.gameObject.SetActive(true);
-            }
         }
 
-        /// <summary>
-        /// 隐藏并销毁面板
-        /// </summary>
         public static void Hide()
         {
             if (_instance != null)
@@ -49,385 +41,332 @@ namespace UI.RobotSelection
 
         private static void CreatePanel()
         {
-            // 动态创建 Canvas 和 UI
-            var panelGO = new GameObject("RobotSelectionPanel");
-            _instance = panelGO.AddComponent<RobotSelectionPanel>();
-            DontDestroyOnLoad(panelGO);
+            var go = new GameObject("RobotSelectionPanel");
+            _instance = go.AddComponent<RobotSelectionPanel>();
+            DontDestroyOnLoad(go);
         }
 
         #endregion
 
-        #region UI引用（动态创建）
+        #region 字段
 
         private Canvas canvas;
         private CanvasGroup canvasGroup;
         private RobotSelectionViewModel viewModel;
 
-        // 阵营按钮
-        private Button redTeamButton;
-        private Button blueTeamButton;
-        private Image redTeamBg;
-        private Image blueTeamBg;
+        private Button redTeamBtn, blueTeamBtn;
+        private Image redTeamBg, blueTeamBg;
+        private Button[] robotBtns;
+        private Image[] robotBgs;
+        private TextMeshProUGUI[] robotLabels;
+        private TextMeshProUGUI[] robotKeyLabels;
+        private Button confirmBtn;
+        private Image confirmBg;
+        private TextMeshProUGUI statusText;
 
-        // 兵种按钮
-        private Button[] robotButtons;
-        private Image[] robotButtonBgs;
+        private float fadeProgress;
 
-        // 确认按钮和状态
-        private Button confirmButton;
-        private TMP_Text statusText;
-        private TMP_Text titleText;
+        private const float SKEW = 5f; // 选项倾斜角度
 
-        // 中文字体资源
-        private TMP_FontAsset chineseFont;
+        private static readonly RobotType[] Types = {
+            RobotType.Hero, RobotType.Engineer, RobotType.Infantry3,
+            RobotType.Infantry4, RobotType.Infantry5, RobotType.Aerial,
+            RobotType.Sentry, RobotType.Dart, RobotType.Radar
+        };
+
+        private static readonly string[] Names = {
+            "英雄", "工程", "步兵III",
+            "步兵IV", "步兵V", "空中",
+            "哨兵", "飞镖", "雷达"
+        };
 
         #endregion
 
-        #region Unity生命周期
+        #region 生命周期
 
         void Awake()
         {
             _instance = this;
             viewModel = new RobotSelectionViewModel();
-            viewModel.PropertyChanged += OnViewModelChanged;
-            viewModel.SelectionCompleted += OnSelectionCompleted;
-
-            LoadChineseFont();
+            viewModel.PropertyChanged += OnVMChanged;
+            viewModel.SelectionCompleted += OnSelectionDone;
             BuildUI();
+        }
+
+        void Update()
+        {
+            if (fadeProgress < 1f)
+            {
+                fadeProgress = Mathf.MoveTowards(fadeProgress, 1f, Time.unscaledDeltaTime * 4f);
+                if (canvasGroup) canvasGroup.alpha = fadeProgress;
+            }
+            HandleKeyboard();
         }
 
         void OnDestroy()
         {
             if (viewModel != null)
             {
-                viewModel.PropertyChanged -= OnViewModelChanged;
-                viewModel.SelectionCompleted -= OnSelectionCompleted;
+                viewModel.PropertyChanged -= OnVMChanged;
+                viewModel.SelectionCompleted -= OnSelectionDone;
             }
-            if (_instance == this)
-            {
-                _instance = null;
-            }
+            if (_instance == this) _instance = null;
         }
 
         #endregion
 
-        #region 字体加载
+        #region 键盘输入
 
-        private void LoadChineseFont()
+        private static readonly Key[] AlphaKeys = {
+            Key.Digit1, Key.Digit2, Key.Digit3, Key.Digit4, Key.Digit5,
+            Key.Digit6, Key.Digit7, Key.Digit8, Key.Digit9
+        };
+        private static readonly Key[] NumpadKeys = {
+            Key.Numpad1, Key.Numpad2, Key.Numpad3, Key.Numpad4, Key.Numpad5,
+            Key.Numpad6, Key.Numpad7, Key.Numpad8, Key.Numpad9
+        };
+
+        private void HandleKeyboard()
         {
-            // 尝试从 Resources 加载中文字体
-            // 方法1: 直接加载 TMP_FontAsset (如果已在 Unity 中创建)
-            chineseFont = Resources.Load<TMP_FontAsset>("Fonts/ChineseFont SDF");
+            var kb = Keyboard.current;
+            if (kb == null) return;
 
-            if (chineseFont == null)
+            if (kb.tabKey.wasPressedThisFrame)
             {
-                // 方法2: 加载 TTF 并动态创建 TMP_FontAsset
-                var ttfFont = Resources.Load<Font>("Fonts/ChineseFont");
-                if (ttfFont != null)
-                {
-                    chineseFont = TMP_FontAsset.CreateFontAsset(ttfFont);
-                    if (chineseFont != null)
-                    {
-                        chineseFont.name = "ChineseFont Dynamic";
-                        wmj.Log.I("[RobotSelectionPanel] 已从 TTF 动态创建中文字体", wmj.Log.Tag.UI);
-                    }
-                }
+                if (viewModel.IsRedSelected) viewModel.SelectBlue();
+                else viewModel.SelectRed();
             }
-
-            if (chineseFont == null)
+            for (int i = 0; i < 9; i++)
             {
-                // 方法3: 使用 TMP 默认字体作为后备
-                chineseFont = TMP_Settings.defaultFontAsset;
-                wmj.Log.W("[RobotSelectionPanel] 未找到中文字体，使用默认字体。请在 Unity 中创建 TMP 字体资源。", wmj.Log.Tag.UI);
+                if (kb[AlphaKeys[i]].wasPressedThisFrame || kb[NumpadKeys[i]].wasPressedThisFrame)
+                    viewModel.SelectRobot(Types[i]);
             }
+            if (kb.enterKey.wasPressedThisFrame || kb.numpadEnterKey.wasPressedThisFrame)
+                viewModel.Confirm();
         }
 
         #endregion
 
-        #region UI构建
+        #region UI 构建
 
         private void BuildUI()
         {
-            // 创建最高层级的 Canvas
-            canvas = gameObject.AddComponent<Canvas>();
-            canvas.renderMode = RenderMode.ScreenSpaceOverlay;
-            canvas.sortingOrder = 9999; // 最高层级
+            canvas = UIFactory.CreateCanvas("SelectionCanvas", 30000);
+            canvas.transform.SetParent(transform, false);
+            canvasGroup = UIFactory.EnsureCanvasGroup(canvas.gameObject);
+            canvasGroup.alpha = 0f;
+            fadeProgress = 0f;
 
-            gameObject.AddComponent<CanvasScaler>().uiScaleMode = CanvasScaler.ScaleMode.ScaleWithScreenSize;
-            gameObject.GetComponent<CanvasScaler>().referenceResolution = new Vector2(1920, 1080);
-            gameObject.AddComponent<GraphicRaycaster>();
-
-            canvasGroup = gameObject.AddComponent<CanvasGroup>();
+            var root = canvas.transform;
 
             // 半透明背景遮罩
-            var bgMask = CreateImage(transform, "BackgroundMask", new Color(0, 0, 0, 0.7f));
-            SetFullStretch(bgMask.rectTransform);
+            var overlay = UIFactory.CreateFullScreenImage(root, "Overlay",
+                new Color(0.02f, 0.02f, 0.06f, 0.55f));
+            overlay.raycastTarget = true;
 
-            // 主面板
-            var panelBg = CreateImage(transform, "PanelBackground", new Color(0.15f, 0.15f, 0.2f, 0.95f));
-            panelBg.rectTransform.anchorMin = new Vector2(0.2f, 0.15f);
-            panelBg.rectTransform.anchorMax = new Vector2(0.8f, 0.85f);
-            panelBg.rectTransform.offsetMin = Vector2.zero;
-            panelBg.rectTransform.offsetMax = Vector2.zero;
+            // ── 主容器面板（不倾斜，接近屏幕比例 16:9 → 选一个宽扁容器）──
+            var panel = new GameObject("Panel").AddComponent<RectTransform>();
+            panel.SetParent(root, false);
+            UIFactory.SetAnchoredSize(panel, new Vector2(0, 10), new Vector2(1750, 780));
 
-            // 标题
-            titleText = CreateText(panelBg.transform, "Title", "兵 种 选 择", 48, TextAlignmentOptions.Center);
-            titleText.rectTransform.anchorMin = new Vector2(0, 0.88f);
-            titleText.rectTransform.anchorMax = new Vector2(1, 0.98f);
-            titleText.rectTransform.offsetMin = Vector2.zero;
-            titleText.rectTransform.offsetMax = Vector2.zero;
-            titleText.color = Color.white;
+            // 容器背景（亮蓝色半透明 + 圆角）
+            var panelBg = UIFactory.CreateContainerBg(panel, "Bg", 0.12f);
+            UIFactory.SetFullStretch(panelBg.rectTransform);
 
-            // 阵营选择区域
-            var teamSection = CreateSection(panelBg.transform, "TeamSection", 0.75f, 0.88f);
-            var teamLabel = CreateText(teamSection, "TeamLabel", "选择阵营", 28, TextAlignmentOptions.Left);
-            teamLabel.rectTransform.anchorMin = new Vector2(0.05f, 0);
-            teamLabel.rectTransform.anchorMax = new Vector2(0.25f, 1);
+            // 容器边框（淡蓝色）
+            var panelBorder = UIFactory.CreateContainerBorder(panel, "Border", 0.25f);
+            UIFactory.SetFullStretch(panelBorder.rectTransform);
 
-            redTeamButton = CreateTeamButton(teamSection, "RedTeam", "红 方", new Color(0.8f, 0.2f, 0.2f), 0.3f, 0.6f);
-            blueTeamButton = CreateTeamButton(teamSection, "BlueTeam", "蓝 方", new Color(0.2f, 0.4f, 0.8f), 0.65f, 0.95f);
-            redTeamBg = redTeamButton.GetComponent<Image>();
-            blueTeamBg = blueTeamButton.GetComponent<Image>();
+            // ── 标题 ──
+            var title = UIFactory.CreateText(panel, "Title", "兵 种 选 择", 48,
+                TextAlignmentOptions.Center, UIColors.BrightBlue, FontStyles.Bold);
+            title.rectTransform.anchorMin = new Vector2(0.05f, 0.84f);
+            title.rectTransform.anchorMax = new Vector2(0.95f, 0.97f);
+            title.rectTransform.offsetMin = Vector2.zero;
+            title.rectTransform.offsetMax = Vector2.zero;
 
-            redTeamButton.onClick.AddListener(() => viewModel.SelectRed());
-            blueTeamButton.onClick.AddListener(() => viewModel.SelectBlue());
+            // 分隔线
+            var divider = UIFactory.CreateImage(panel, "Divider",
+                UIColors.WithAlpha(UIColors.LightBlueBorder, 0.25f));
+            divider.rectTransform.anchorMin = new Vector2(0.04f, 0.80f);
+            divider.rectTransform.anchorMax = new Vector2(0.96f, 0.805f);
+            divider.rectTransform.offsetMin = Vector2.zero;
+            divider.rectTransform.offsetMax = Vector2.zero;
 
-            // 兵种选择区域
-            var robotSection = CreateSection(panelBg.transform, "RobotSection", 0.15f, 0.72f);
-            var robotLabel = CreateText(robotSection, "RobotLabel", "选择兵种", 28, TextAlignmentOptions.TopLeft);
-            robotLabel.rectTransform.anchorMin = new Vector2(0.05f, 0.85f);
-            robotLabel.rectTransform.anchorMax = new Vector2(0.95f, 1f);
+            // ── 阵营选择行 ──
+            var teamRow = new GameObject("TeamRow").AddComponent<RectTransform>();
+            teamRow.SetParent(panel, false);
+            teamRow.anchorMin = new Vector2(0.25f, 0.66f);
+            teamRow.anchorMax = new Vector2(0.75f, 0.78f);
+            teamRow.offsetMin = Vector2.zero;
+            teamRow.offsetMax = Vector2.zero;
 
-            // 兵种按钮网格 (3行3列)
-            RobotType[] robotTypes = {
-                RobotType.Hero, RobotType.Engineer, RobotType.Infantry3,
-                RobotType.Infantry4, RobotType.Infantry5, RobotType.Aerial,
-                RobotType.Sentry, RobotType.Dart, RobotType.Radar
-            };
-            string[] robotNames = {
-                "英雄", "工程", "3号步兵",
-                "4号步兵", "5号步兵", "空中",
-                "哨兵", "飞镖", "雷达"
-            };
+            // 红方按钮（skew 倾斜）
+            redTeamBtn = UIFactory.CreateSkewedButton(teamRow, "Red", "红 方 [Tab]",
+                UIColors.TeamRed, SKEW, 30);
+            var redRt = redTeamBtn.GetComponent<RectTransform>();
+            UIFactory.SetAnchors(redRt, 0f, 0.05f, 0.48f, 0.95f);
+            redTeamBg = redTeamBtn.GetComponent<Image>();
+            redTeamBtn.onClick.AddListener(() => viewModel.SelectRed());
 
-            robotButtons = new Button[robotTypes.Length];
-            robotButtonBgs = new Image[robotTypes.Length];
+            // 蓝方按钮（skew 倾斜）
+            blueTeamBtn = UIFactory.CreateSkewedButton(teamRow, "Blue", "蓝 方 [Tab]",
+                UIColors.TeamBlue, SKEW, 30);
+            var blueRt = blueTeamBtn.GetComponent<RectTransform>();
+            UIFactory.SetAnchors(blueRt, 0.52f, 0.05f, 1f, 0.95f);
+            blueTeamBg = blueTeamBtn.GetComponent<Image>();
+            blueTeamBtn.onClick.AddListener(() => viewModel.SelectBlue());
 
-            for (int i = 0; i < robotTypes.Length; i++)
+            // ── 兵种按钮（横排 3×3 或 9×1，这里用 9 横排）──
+            robotBtns = new Button[9];
+            robotBgs = new Image[9];
+            robotLabels = new TextMeshProUGUI[9];
+            robotKeyLabels = new TextMeshProUGUI[9];
+
+            // 兵种区域容器
+            var robotArea = new GameObject("RobotArea").AddComponent<RectTransform>();
+            robotArea.SetParent(panel, false);
+            robotArea.anchorMin = new Vector2(0.03f, 0.18f);
+            robotArea.anchorMax = new Vector2(0.97f, 0.62f);
+            robotArea.offsetMin = Vector2.zero;
+            robotArea.offsetMax = Vector2.zero;
+
+            float gap = 0.008f;
+            float cellW = (1f - gap * 10) / 9f;
+
+            for (int i = 0; i < 9; i++)
             {
-                int row = i / 3;
-                int col = i % 3;
-                float x0 = 0.05f + col * 0.3f;
-                float x1 = x0 + 0.28f;
-                float y1 = 0.82f - row * 0.28f;
-                float y0 = y1 - 0.25f;
+                float x0 = gap + i * (cellW + gap);
+                float x1 = x0 + cellW;
 
-                var btn = CreateRobotButton(robotSection, robotNames[i], robotTypes[i], x0, y0, x1, y1);
-                robotButtons[i] = btn;
-                robotButtonBgs[i] = btn.GetComponent<Image>();
+                // 按钮容器
+                var cellGo = new GameObject($"Robot_{Types[i]}");
+                cellGo.transform.SetParent(robotArea, false);
+                var cellRt = cellGo.AddComponent<RectTransform>();
+                cellRt.anchorMin = new Vector2(x0, 0.05f);
+                cellRt.anchorMax = new Vector2(x1, 0.95f);
+                cellRt.offsetMin = Vector2.zero;
+                cellRt.offsetMax = Vector2.zero;
 
-                int index = i;
-                RobotType type = robotTypes[i];
-                btn.onClick.AddListener(() => viewModel.SelectRobot(type));
+                // 背景（圆角 + skew 倾斜）
+                var bg = cellGo.AddComponent<Image>();
+                bg.sprite = UIShapeHelper.RoundedRect;
+                bg.type = Image.Type.Sliced;
+                bg.color = UIColors.WithAlpha(UIColors.BrightBlue, 0.15f);
+                bg.raycastTarget = true;
+
+                // 施加 skew
+                UIFactory.ApplySkew(cellRt, SKEW);
+
+                // 按键提示（顶部）
+                var keyLabel = UIFactory.CreateText(cellRt, "Key", (i + 1).ToString(), 22,
+                    TextAlignmentOptions.Center, UIColors.WithAlpha(UIColors.LightBlueBorder, 0.7f),
+                    FontStyles.Bold);
+                keyLabel.rectTransform.anchorMin = new Vector2(0f, 0.78f);
+                keyLabel.rectTransform.anchorMax = new Vector2(1f, 0.98f);
+                keyLabel.rectTransform.offsetMin = Vector2.zero;
+                keyLabel.rectTransform.offsetMax = Vector2.zero;
+
+                // 兵种名称（居中）
+                var label = UIFactory.CreateText(cellRt, "Label", Names[i], 26,
+                    TextAlignmentOptions.Center, UIColors.Silver, FontStyles.Bold);
+                label.rectTransform.anchorMin = new Vector2(0f, 0.2f);
+                label.rectTransform.anchorMax = new Vector2(1f, 0.75f);
+                label.rectTransform.offsetMin = Vector2.zero;
+                label.rectTransform.offsetMax = Vector2.zero;
+
+                // Button 组件
+                var btn = cellGo.AddComponent<Button>();
+                btn.targetGraphic = bg;
+                btn.transition = Selectable.Transition.None;
+
+                int idx = i;
+                btn.onClick.AddListener(() => viewModel.SelectRobot(Types[idx]));
+
+                robotBtns[i] = btn;
+                robotBgs[i] = bg;
+                robotLabels[i] = label;
+                robotKeyLabels[i] = keyLabel;
             }
 
-            // 状态文本
-            statusText = CreateText(panelBg.transform, "StatusText", viewModel.StatusText, 24, TextAlignmentOptions.Center);
-            statusText.rectTransform.anchorMin = new Vector2(0.1f, 0.06f);
-            statusText.rectTransform.anchorMax = new Vector2(0.5f, 0.12f);
-            statusText.color = new Color(0.8f, 0.8f, 0.8f);
+            // ── 快捷键提示 ──
+            var hint = UIFactory.CreateText(panel, "Hint",
+                "数字键 1-9 选择兵种  |  Tab 切换阵营  |  Enter 确认",
+                20, TextAlignmentOptions.Center, UIColors.WithAlpha(UIColors.Silver, 0.6f));
+            hint.rectTransform.anchorMin = new Vector2(0.1f, 0.10f);
+            hint.rectTransform.anchorMax = new Vector2(0.9f, 0.17f);
+            hint.rectTransform.offsetMin = Vector2.zero;
+            hint.rectTransform.offsetMax = Vector2.zero;
 
-            // 确认按钮
-            confirmButton = CreateButton(panelBg.transform, "ConfirmButton", "确认选择", new Color(0.2f, 0.6f, 0.2f), 0.6f, 0.03f, 0.9f, 0.13f);
-            confirmButton.onClick.AddListener(() => viewModel.Confirm());
+            // ── 状态文本 ──
+            statusText = UIFactory.CreateText(panel, "Status", viewModel.StatusText, 26,
+                TextAlignmentOptions.Center, UIColors.Silver);
+            statusText.rectTransform.anchorMin = new Vector2(0.2f, 0.02f);
+            statusText.rectTransform.anchorMax = new Vector2(0.55f, 0.10f);
+            statusText.rectTransform.offsetMin = Vector2.zero;
+            statusText.rectTransform.offsetMax = Vector2.zero;
 
-            // 初始渲染
+            // ── 确认按钮（skew 倾斜）──
+            confirmBtn = UIFactory.CreateSkewedButton(panel, "Confirm", "确认选择 [Enter]",
+                UIColors.BrightBlue, SKEW, 28, UIColors.White);
+            var confirmRt = confirmBtn.GetComponent<RectTransform>();
+            confirmRt.anchorMin = new Vector2(0.60f, 0.02f);
+            confirmRt.anchorMax = new Vector2(0.85f, 0.10f);
+            confirmRt.offsetMin = Vector2.zero;
+            confirmRt.offsetMax = Vector2.zero;
+            confirmBg = confirmBtn.GetComponent<Image>();
+            confirmBtn.onClick.AddListener(() => viewModel.Confirm());
+
             RenderAll();
-        }
-
-        private RectTransform CreateSection(Transform parent, string name, float yMin, float yMax)
-        {
-            var section = new GameObject(name).AddComponent<RectTransform>();
-            section.SetParent(parent, false);
-            section.anchorMin = new Vector2(0.02f, yMin);
-            section.anchorMax = new Vector2(0.98f, yMax);
-            section.offsetMin = Vector2.zero;
-            section.offsetMax = Vector2.zero;
-            return section;
-        }
-
-        private Image CreateImage(Transform parent, string name, Color color)
-        {
-            var go = new GameObject(name);
-            go.transform.SetParent(parent, false);
-            var img = go.AddComponent<Image>();
-            img.color = color;
-            // 确保透明度正确渲染
-            img.raycastTarget = true;
-            return img;
-        }
-
-        private TMP_Text CreateText(Transform parent, string name, string text, int fontSize, TextAlignmentOptions alignment)
-        {
-            var go = new GameObject(name);
-            go.transform.SetParent(parent, false);
-            var tmp = go.AddComponent<TextMeshProUGUI>();
-            tmp.text = text;
-            tmp.fontSize = fontSize;
-            tmp.alignment = alignment;
-            tmp.color = Color.white;
-
-            // 设置中文字体
-            if (chineseFont != null)
-            {
-                tmp.font = chineseFont;
-            }
-
-            var rt = go.GetComponent<RectTransform>();
-            rt.anchorMin = Vector2.zero;
-            rt.anchorMax = Vector2.one;
-            rt.offsetMin = Vector2.zero;
-            rt.offsetMax = Vector2.zero;
-            return tmp;
-        }
-
-        private Button CreateTeamButton(Transform parent, string name, string text, Color bgColor, float x0, float x1)
-        {
-            var go = new GameObject(name);
-            go.transform.SetParent(parent, false);
-
-            var img = go.AddComponent<Image>();
-            img.color = bgColor;
-
-            var btn = go.AddComponent<Button>();
-            btn.targetGraphic = img;
-
-            var rt = go.GetComponent<RectTransform>();
-            rt.anchorMin = new Vector2(x0, 0.1f);
-            rt.anchorMax = new Vector2(x1, 0.9f);
-            rt.offsetMin = Vector2.zero;
-            rt.offsetMax = Vector2.zero;
-
-            var label = CreateText(go.transform, "Label", text, 32, TextAlignmentOptions.Center);
-            label.fontStyle = FontStyles.Bold;
-
-            return btn;
-        }
-
-        private Button CreateRobotButton(Transform parent, string text, RobotType type, float x0, float y0, float x1, float y1)
-        {
-            var go = new GameObject($"Robot_{type}");
-            go.transform.SetParent(parent, false);
-
-            var img = go.AddComponent<Image>();
-            img.color = new Color(0.3f, 0.3f, 0.35f);
-
-            var btn = go.AddComponent<Button>();
-            btn.targetGraphic = img;
-
-            var rt = go.GetComponent<RectTransform>();
-            rt.anchorMin = new Vector2(x0, y0);
-            rt.anchorMax = new Vector2(x1, y1);
-            rt.offsetMin = Vector2.zero;
-            rt.offsetMax = Vector2.zero;
-
-            var label = CreateText(go.transform, "Label", text, 24, TextAlignmentOptions.Center);
-
-            return btn;
-        }
-
-        private Button CreateButton(Transform parent, string name, string text, Color bgColor, float x0, float y0, float x1, float y1)
-        {
-            var go = new GameObject(name);
-            go.transform.SetParent(parent, false);
-
-            var img = go.AddComponent<Image>();
-            img.color = bgColor;
-
-            var btn = go.AddComponent<Button>();
-            btn.targetGraphic = img;
-
-            var rt = go.GetComponent<RectTransform>();
-            rt.anchorMin = new Vector2(x0, y0);
-            rt.anchorMax = new Vector2(x1, y1);
-            rt.offsetMin = Vector2.zero;
-            rt.offsetMax = Vector2.zero;
-
-            var label = CreateText(go.transform, "Label", text, 28, TextAlignmentOptions.Center);
-            label.fontStyle = FontStyles.Bold;
-
-            return btn;
-        }
-
-        private void SetFullStretch(RectTransform rt)
-        {
-            rt.anchorMin = Vector2.zero;
-            rt.anchorMax = Vector2.one;
-            rt.offsetMin = Vector2.zero;
-            rt.offsetMax = Vector2.zero;
         }
 
         #endregion
 
-        #region 渲染更新
+        #region 渲染
 
-        private void OnViewModelChanged(object sender, PropertyChangedEventArgs e)
-        {
-            RenderAll();
-        }
+        private void OnVMChanged(object sender, PropertyChangedEventArgs e) => RenderAll();
 
         private void RenderAll()
         {
-            // Update team button highlighting
-            if (redTeamBg != null)
-            {
+            // 阵营高亮
+            if (redTeamBg)
                 redTeamBg.color = viewModel.IsRedSelected
-                    ? new Color(1f, 0.3f, 0.3f)
-                    : new Color(0.5f, 0.15f, 0.15f);
-            }
-            if (blueTeamBg != null)
-            {
+                    ? UIColors.WithAlpha(UIColors.TeamRed, 0.85f)
+                    : UIColors.WithAlpha(UIColors.TeamRed, 0.2f);
+            if (blueTeamBg)
                 blueTeamBg.color = viewModel.IsBlueSelected
-                    ? new Color(0.3f, 0.5f, 1f)
-                    : new Color(0.15f, 0.25f, 0.5f);
+                    ? UIColors.WithAlpha(UIColors.TeamBlue, 0.85f)
+                    : UIColors.WithAlpha(UIColors.TeamBlue, 0.2f);
+
+            Color teamAccent = viewModel.IsRedSelected ? UIColors.TeamRed : UIColors.BrightBlue;
+
+            // 兵种按钮
+            for (int i = 0; i < 9; i++)
+            {
+                bool sel = viewModel.SelectedRobot.HasValue && viewModel.SelectedRobot.Value == Types[i];
+                robotBgs[i].color = sel
+                    ? UIColors.WithAlpha(teamAccent, 0.55f)
+                    : UIColors.WithAlpha(UIColors.BrightBlue, 0.15f);
+                robotLabels[i].color = sel ? UIColors.White : UIColors.Silver;
+                robotKeyLabels[i].color = sel
+                    ? UIColors.WithAlpha(UIColors.White, 0.9f)
+                    : UIColors.WithAlpha(UIColors.LightBlueBorder, 0.7f);
+                robotBtns[i].transform.localScale = sel ? Vector3.one * 1.05f : Vector3.one;
             }
 
-            // Update robot button highlighting
-            RobotType[] robotTypes = {
-                RobotType.Hero, RobotType.Engineer, RobotType.Infantry3,
-                RobotType.Infantry4, RobotType.Infantry5, RobotType.Aerial,
-                RobotType.Sentry, RobotType.Dart, RobotType.Radar
-            };
-            for (int i = 0; i < robotButtons.Length && i < robotButtonBgs.Length; i++)
-            {
-                bool isSelected = viewModel.SelectedRobot.HasValue && viewModel.SelectedRobot.Value == robotTypes[i];
-                Color teamColor = viewModel.IsRedSelected
-                    ? new Color(0.8f, 0.3f, 0.3f)
-                    : new Color(0.3f, 0.5f, 0.8f);
-                robotButtonBgs[i].color = isSelected ? teamColor : new Color(0.3f, 0.3f, 0.35f);
-            }
+            // 状态
+            if (statusText) statusText.text = viewModel.StatusText;
 
-            // Update status text
-            if (statusText != null)
-            {
-                statusText.text = viewModel.StatusText;
-            }
-
-            // Update confirm button
-            if (confirmButton != null)
-            {
-                confirmButton.interactable = viewModel.CanConfirm;
-                var bg = confirmButton.GetComponent<Image>();
-                if (bg != null)
-                {
-                    bg.color = viewModel.CanConfirm
-                        ? new Color(0.2f, 0.7f, 0.2f)
-                        : new Color(0.3f, 0.3f, 0.3f);
-                }
-            }
+            // 确认按钮
+            bool ok = viewModel.CanConfirm;
+            if (confirmBtn) confirmBtn.interactable = ok;
+            if (confirmBg)
+                confirmBg.color = ok
+                    ? UIColors.WithAlpha(UIColors.BrightBlue, 0.7f)
+                    : new Color(0.15f, 0.15f, 0.2f, 0.3f);
         }
 
-        private void OnSelectionCompleted(object sender, RobotSelectionEventArgs e)
+        private void OnSelectionDone(object sender, RobotSelectionEventArgs e)
         {
             _onCompleteCallback?.Invoke(e.Result);
             Hide();

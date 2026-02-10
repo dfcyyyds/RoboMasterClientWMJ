@@ -51,6 +51,7 @@
   <ItemGroup>
     <Compile Include="Assets/Editor/ParamsManagerWindow.cs" />
     <Compile Include="Assets/Editor/LogViewerWindows.cs" />
+    <Compile Include="Assets/Editor/FontSdfGenerator.cs" />
   </ItemGroup>
   <ItemGroup>
     <None Include="Assets/Editor/Editor.asmdef" />
@@ -1178,6 +1179,10 @@
     </Reference>
     <Reference Include="netstandard">
       <HintPath>/home/zby/Unity/Hub/Editor/6000.3.5f1/Editor/Data/UnityReferenceAssemblies/unity-4.8-api/Facades/netstandard.dll</HintPath>
+      <Private>False</Private>
+    </Reference>
+    <Reference Include="Unity.TextMeshPro">
+      <HintPath>Library/ScriptAssemblies/Unity.TextMeshPro.dll</HintPath>
       <Private>False</Private>
     </Reference>
     <Reference Include="UnityEditor.UI">
