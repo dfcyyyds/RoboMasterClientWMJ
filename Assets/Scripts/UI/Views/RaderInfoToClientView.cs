@@ -4,7 +4,7 @@ using UnityEngine;
 
 namespace UI.Views
 {
-    public class RaderInfoToClientView : ProtoViewBase<RaderInfoToClientViewModel>
+    public class RadarInfoToClientView : ProtoViewBase<RadarInfoToClientViewModel>
     {
         public TMP_Text TargetRobotIdText;
         public TMP_Text TargetPosXText;
@@ -12,7 +12,7 @@ namespace UI.Views
         public TMP_Text TorwardAngleText;
         public TMP_Text IsHighLightText;
 
-        protected override RaderInfoToClientViewModel CreateViewModel() => new RaderInfoToClientViewModel();
+        protected override RadarInfoToClientViewModel CreateViewModel() => new RadarInfoToClientViewModel();
 
         protected override void RenderAll()
         {

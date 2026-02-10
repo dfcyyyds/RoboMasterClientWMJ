@@ -2,7 +2,10 @@ using Google.Protobuf;
 
 namespace UI.ViewModels
 {
-    public class RaderInfoToClientViewModel : ProtoViewModelBase<RaderInfoToClient>
+    /// <summary>
+    /// 雷达信息 ViewModel（原 RaderInfoToClientViewModel，修正拼写）
+    /// </summary>
+    public class RadarInfoToClientViewModel : ProtoViewModelBase<RadarInfoToClient>
     {
         private uint targetRobotId;
         private float targetPosX;
@@ -16,7 +19,7 @@ namespace UI.ViewModels
         public float TorwardAngle { get => torwardAngle; set { if (torwardAngle != value) { torwardAngle = value; OnPropertyChanged(); } } }
         public uint IsHighLight { get => isHighLight; set { if (isHighLight != value) { isHighLight = value; OnPropertyChanged(); } } }
 
-        protected override void UpdateFrom(RaderInfoToClient msg)
+        protected override void UpdateFrom(RadarInfoToClient msg)
         {
             TargetRobotId = msg.TargetRobotId;
             TargetPosX = msg.TargetPosX;

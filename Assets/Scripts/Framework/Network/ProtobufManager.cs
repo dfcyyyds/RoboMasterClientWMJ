@@ -13,7 +13,8 @@ namespace Framework.Network
         private static readonly Lazy<ProtobufManager> _instance = new Lazy<ProtobufManager>(() => new ProtobufManager());
         public static ProtobufManager Instance => _instance.Value;
         // 全部33个 Protobuf 数据对象，支持属性变更通知
-        public RemoteControl RemoteControl { get; private set; } = new RemoteControl();
+        public KeyboardMouseControl KeyboardMouseControl { get; private set; } = new KeyboardMouseControl();
+        public CustomControl CustomControl { get; private set; } = new CustomControl();
         public GameStatus GameStatus { get; private set; } = new GameStatus();
         public GlobalUnitStatus GlobalUnitStatus { get; private set; } = new GlobalUnitStatus();
         public GlobalLogisticsStatus GlobalLogisticsStatus { get; private set; } = new GlobalLogisticsStatus();
@@ -29,7 +30,7 @@ namespace Framework.Network
         public PenaltyInfo PenaltyInfo { get; private set; } = new PenaltyInfo();
         public RobotPathPlanInfo RobotPathPlanInfo { get; private set; } = new RobotPathPlanInfo();
         public MapClickInfoNotify MapClickInfoNotify { get; private set; } = new MapClickInfoNotify();
-        public RaderInfoToClient RaderInfoToClient { get; private set; } = new RaderInfoToClient();
+        public RadarInfoToClient RadarInfoToClient { get; private set; } = new RadarInfoToClient();
         public CustomByteBlock CustomByteBlock { get; private set; } = new CustomByteBlock();
         public AssemblyCommand AssemblyCommand { get; private set; } = new AssemblyCommand();
         public TechCoreMotionStateSync TechCoreMotionStateSync { get; private set; } = new TechCoreMotionStateSync();
@@ -39,11 +40,12 @@ namespace Framework.Network
         public DeployModeStatusSync DeployModeStatusSync { get; private set; } = new DeployModeStatusSync();
         public RuneActivateCommand RuneActivateCommand { get; private set; } = new RuneActivateCommand();
         public RuneStatusSync RuneStatusSync { get; private set; } = new RuneStatusSync();
-        public SentinelStatusSync SentinelStatusSync { get; private set; } = new SentinelStatusSync();
+        public SentryStatusSync SentryStatusSync { get; private set; } = new SentryStatusSync();
         public DartCommand DartCommand { get; private set; } = new DartCommand();
         public DartSelectTargetStatusSync DartSelectTargetStatusSync { get; private set; } = new DartSelectTargetStatusSync();
-        public GuardCtrlCommand GuardCtrlCommand { get; private set; } = new GuardCtrlCommand();
-        public GuardCtrlResult GuardCtrlResult { get; private set; } = new GuardCtrlResult();
+        public SentryCtrlCommand SentryCtrlCommand { get; private set; } = new SentryCtrlCommand();
+        public SentryCtrlResult SentryCtrlResult { get; private set; } = new SentryCtrlResult();
+        public CommonCommand CommonCommand { get; private set; } = new CommonCommand();
         public AirSupportCommand AirSupportCommand { get; private set; } = new AirSupportCommand();
         public AirSupportStatusSync AirSupportStatusSync { get; private set; } = new AirSupportStatusSync();
 

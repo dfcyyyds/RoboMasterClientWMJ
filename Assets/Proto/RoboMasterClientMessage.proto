@@ -1,8 +1,13 @@
-// 这个文件定义传输协议，通过proto编译器生成C++代码
+// RoboMaster 自定义客户端通信协议 V1.2.0
+// 数据流格式: Protobuf v3, MQTT 传输
+// 服务器 IP: 192.168.12.1, 端口: 3333
 
 syntax = "proto3";
 
-message RemoteControl {
+// ─── 2.2.1 KeyboardMouseControl ───
+// 用途：传输鼠标键盘输入（原 RemoteControl 拆分）
+// 方向：自定义客户端 → 图传链路 → 机器人
+message KeyboardMouseControl {
   int32 mouse_x = 1;
   int32 mouse_y = 2;
   int32 mouse_z = 3;
@@ -10,9 +15,16 @@ message RemoteControl {
   bool right_button_down = 5;
   uint32 keyboard_value = 6;
   bool mid_button_down = 7;
-  bytes data = 8;
 }
 
+// ─── 2.2.2 CustomControl ───
+// 用途：最大 30 字节的自定义数据（原 RemoteControl 拆分）
+// 方向：自定义客户端 → 图传链路 → 机器人（0x0311）
+message CustomControl {
+  bytes data = 1;
+}
+
+// ─── 2.2.3 GameStatus ───
 message GameStatus {
   uint32 current_round = 1;
   uint32 total_rounds = 2;
@@ -24,18 +36,26 @@ message GameStatus {
   bool is_paused = 8;
 }
 
+// ─── 2.2.4 GlobalUnitStatus ───
+// 用途：同步基地、前哨站和所有机器人状态（V1.2.0 新增对方基地/前哨站字段）
 message GlobalUnitStatus {
   uint32 base_health = 1;
   uint32 base_status = 2;
   uint32 base_shield = 3;
   uint32 outpost_health = 4;
   uint32 outpost_status = 5;
-  repeated uint32 robot_health = 6;
-  repeated int32 robot_bullets = 7;
-  uint32 total_damage_red = 8;
-  uint32 total_damage_blue = 9;
+  uint32 enemy_base_health = 6;
+  uint32 enemy_base_status = 7;
+  uint32 enemy_base_shield = 8;
+  uint32 enemy_outpost_health = 9;
+  uint32 enemy_outpost_status = 10;
+  repeated uint32 robot_health = 11;
+  repeated int32 robot_bullets = 12;
+  uint32 total_damage_ally = 13;
+  uint32 total_damage_enemy = 14;
 }
 
+// ─── 2.2.5 GlobalLogisticsStatus ───
 message GlobalLogisticsStatus {
   uint32 remaining_economy = 1;
   uint64 total_economy_obtained = 2;
@@ -43,16 +63,20 @@ message GlobalLogisticsStatus {
   uint32 encryption_level = 4;
 }
 
+// ─── 2.2.6 GlobalSpecialMechanism ───
 message GlobalSpecialMechanism {
   repeated uint32 mechanism_id = 1;
   repeated int32 mechanism_time_sec = 2;
 }
 
+// ─── 2.2.7 Event ───
 message Event {
   int32 event_id = 1;
   string param = 2;
 }
 
+// ─── 2.2.8 RobotInjuryStat ───
+// V1.2.0: wifi_offline_damage → offline_damage
 message RobotInjuryStat {
   uint32 total_damage = 1;
   uint32 collision_damage = 2;
@@ -60,12 +84,13 @@ message RobotInjuryStat {
   uint32 large_projectile_damage = 4;
   uint32 dart_splash_damage = 5;
   uint32 module_offline_damage = 6;
-  uint32 wifi_offline_damage = 7;
+  uint32 offline_damage = 7;
   uint32 penalty_damage = 8;
   uint32 server_kill_damage = 9;
   uint32 killer_id = 10;
 }
 
+// ─── 2.2.9 RobotRespawnStatus ───
 message RobotRespawnStatus {
   bool is_pending_respawn = 1;
   uint32 total_respawn_progress = 2;
@@ -75,6 +100,7 @@ message RobotRespawnStatus {
   bool can_pay_for_respawn = 6;
 }
 
+// ─── 2.2.10 RobotStaticStatus ───
 message RobotStaticStatus {
   uint32 connection_state = 1;
   uint32 field_state = 2;
@@ -92,6 +118,7 @@ message RobotStaticStatus {
   uint32 max_chassis_energy = 14;
 }
 
+// ─── 2.2.11 RobotDynamicStatus ───
 message RobotDynamicStatus {
   uint32 current_health = 1;
   float current_heat = 2;
@@ -108,6 +135,8 @@ message RobotDynamicStatus {
   bool can_remote_ammo = 13;
 }
 
+// ─── 2.2.12 RobotModuleStatus ───
+// V1.2.0: 新增 laser_detection_module (field 11)
 message RobotModuleStatus {
   uint32 power_manager = 1;
   uint32 rfid = 2;
@@ -119,8 +148,10 @@ message RobotModuleStatus {
   uint32 video_transmission = 8;
   uint32 capacitor = 9;
   uint32 main_controller = 10;
+  uint32 laser_detection_module = 11;
 }
 
+// ─── 2.2.13 RobotPosition ───
 message RobotPosition {
   float x = 1;
   float y = 2;
@@ -128,30 +159,34 @@ message RobotPosition {
   float yaw = 4;
 }
 
+// ─── 2.2.14 Buff ───
+// V1.2.0: 移除 msg_params (field 6)
 message Buff {
   uint32 robot_id = 1;
   uint32 buff_type = 2;
   int32 buff_level = 3;
   uint32 buff_max_time = 4;
   uint32 buff_left_time = 5;
-  string msg_params = 6;
 }
 
+// ─── 2.2.15 PenaltyInfo ───
 message PenaltyInfo {
   uint32 penalty_type = 1;
   uint32 penalty_effect_sec = 2;
   uint32 total_penalty_num = 3;
 }
 
+// ─── 2.2.16 RobotPathPlanInfo ───
 message RobotPathPlanInfo {
   uint32 intention = 1;
   uint32 start_pos_x = 2;
   uint32 start_pos_y = 3;
-  repeated int32 offset_x = 4 [ packed = true ];
-  repeated int32 offset_y = 5 [ packed = true ];
+  repeated int32 offset_x = 4 [packed = true];
+  repeated int32 offset_y = 5 [packed = true];
   uint32 sender_id = 6;
 }
 
+// ─── 2.2.17 MapClickInfoNotify ───
 message MapClickInfoNotify {
   uint32 is_send_all = 1;
   bytes robot_id = 2;
@@ -165,7 +200,9 @@ message MapClickInfoNotify {
   float map_y = 10;
 }
 
-message RaderInfoToClient {
+// ─── 2.2.18 RadarInfoToClient ───
+// V1.2.0: 修正拼写 Rader→Radar
+message RadarInfoToClient {
   uint32 target_robot_id = 1;
   float target_pos_x = 2;
   float target_pos_y = 3;
@@ -173,66 +210,102 @@ message RaderInfoToClient {
   uint32 is_high_light = 5;
 }
 
+// ─── 2.2.19 CustomByteBlock ───
 message CustomByteBlock { bytes data = 1; }
 
+// ─── 2.2.20 AssemblyCommand ───
 message AssemblyCommand {
   uint32 operation = 1;
   uint32 difficulty = 2;
 }
 
+// ─── 2.2.21 TechCoreMotionStateSync ───
+// V1.2.0: 新增 enemy_core_status, remain_time_all, remain_time_step
 message TechCoreMotionStateSync {
   uint32 maximum_difficulty_level = 1;
   uint32 status = 2;
+  uint32 enemy_core_status = 3;
+  uint32 remain_time_all = 4;
+  uint32 remain_time_step = 5;
 }
 
+// ─── 2.2.22 RobotPerformanceSelectionCommand ───
+// V1.2.0: 新增 sentry_control
 message RobotPerformanceSelectionCommand {
   uint32 shooter = 1;
   uint32 chassis = 2;
+  uint32 sentry_control = 3;
 }
 
+// ─── 2.2.23 RobotPerformanceSelectionSync ───
+// V1.2.0: 新增 sentry_control
 message RobotPerformanceSelectionSync {
   uint32 shooter = 1;
   uint32 chassis = 2;
+  uint32 sentry_control = 3;
 }
 
+// ─── 2.2.24 CommonCommand ───（V1.2.0 新增）
+message CommonCommand {
+  uint32 cmd_type = 1;
+  uint32 param = 2;
+}
+
+// ─── 2.2.25 HeroDeployModeEventCommand ───
 message HeroDeployModeEventCommand { uint32 mode = 1; }
 
+// ─── 2.2.26 DeployModeStatusSync ───
 message DeployModeStatusSync { uint32 status = 1; }
 
+// ─── 2.2.27 RuneActivateCommand ───
 message RuneActivateCommand { uint32 activate = 1; }
 
+// ─── 2.2.28 RuneStatusSync ───
 message RuneStatusSync {
   uint32 rune_status = 1;
   uint32 activated_arms = 2;
   uint32 average_rings = 3;
 }
 
-message SentinelStatusSync {
+// ─── 2.2.29 SentryStatusSync ───（原 SentinelStatusSync）
+message SentryStatusSync {
   uint32 posture_id = 1;
   bool is_weakened = 2;
 }
 
+// ─── 2.2.30 DartCommand ───
+// V1.2.0: 新增 launch_confirm
 message DartCommand {
   uint32 target_id = 1;
   bool open = 2;
+  bool launch_confirm = 3;
 }
 
+// ─── 2.2.31 DartSelectTargetStatusSync ───
+// V1.2.0: open 从 bool 改为 uint32 (0=关闭,1=开启中,2=已开启)
 message DartSelectTargetStatusSync {
   uint32 target_id = 1;
-  bool open = 2;
+  uint32 open = 2;
 }
 
-message GuardCtrlCommand { uint32 command_id = 1; }
+// ─── 2.2.32 SentryCtrlCommand ───（原 GuardCtrlCommand）
+message SentryCtrlCommand { uint32 command_id = 1; }
 
-message GuardCtrlResult {
+// ─── 2.2.33 SentryCtrlResult ───（原 GuardCtrlResult）
+message SentryCtrlResult {
   uint32 command_id = 1;
   uint32 result_code = 2;
 }
 
+// ─── 2.2.34 AirSupportCommand ───
 message AirSupportCommand { uint32 command_id = 1; }
 
+// ─── 2.2.35 AirSupportStatusSync ───
+// V1.2.0: 新增 is_being_targeted, shooter_status
 message AirSupportStatusSync {
   uint32 airsupport_status = 1;
   uint32 left_time = 2;
   uint32 cost_coins = 3;
+  uint32 is_being_targeted = 4;
+  uint32 shooter_status = 5;
 }

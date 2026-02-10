@@ -5,7 +5,10 @@ using UnityEngine;
 
 namespace UI.Views
 {
-    public class RemoteControlView : ProtoViewBase<RemoteControlViewModel>
+    /// <summary>
+    /// 键鼠控制视图（原 RemoteControlView，V1.2.0 拆分后去除 Data 字段）
+    /// </summary>
+    public class KeyboardMouseControlView : ProtoViewBase<KeyboardMouseControlViewModel>
     {
         public TMP_Text MouseXText;
         public TMP_Text MouseYText;
@@ -14,9 +17,8 @@ namespace UI.Views
         public TMP_Text RightButtonDownText;
         public TMP_Text KeyboardValueText;
         public TMP_Text MidButtonDownText;
-        public TMP_Text DataText;
 
-        protected override RemoteControlViewModel CreateViewModel() => new RemoteControlViewModel();
+        protected override KeyboardMouseControlViewModel CreateViewModel() => new KeyboardMouseControlViewModel();
 
         protected override void RenderAll()
         {
@@ -28,11 +30,6 @@ namespace UI.Views
             if (RightButtonDownText) RightButtonDownText.text = vm.RightButtonDown.ToString();
             if (KeyboardValueText) KeyboardValueText.text = vm.KeyboardValue.ToString();
             if (MidButtonDownText) MidButtonDownText.text = vm.MidButtonDown.ToString();
-            if (DataText)
-            {
-                var bytes = vm.Data?.ToByteArray() ?? Array.Empty<byte>();
-                DataText.text = BitConverter.ToString(bytes);
-            }
         }
     }
 }

@@ -140,14 +140,14 @@ public class NetworkManager : MonoBehaviour
         RegisterAndSync<BuffHandler, Buff>("Buff");
         RegisterAndSync<PenaltyInfoHandler, PenaltyInfo>("PenaltyInfo");
         RegisterAndSync<RobotPathPlanInfoHandler, RobotPathPlanInfo>("RobotPathPlanInfo");
-        RegisterAndSync<RaderInfoToClientHandler, RaderInfoToClient>("RaderInfoToClient");
+        RegisterAndSync<RadarInfoToClientHandler, RadarInfoToClient>("RadarInfoToClient");
         RegisterAndSync<TechCoreMotionStateSyncHandler, TechCoreMotionStateSync>("TechCoreMotionStateSync");
         RegisterAndSync<RobotPerformanceSelectionSyncHandler, RobotPerformanceSelectionSync>("RobotPerformanceSelectionSync");
         RegisterAndSync<DeployModeStatusSyncHandler, DeployModeStatusSync>("DeployModeStatusSync");
         RegisterAndSync<RuneStatusSyncHandler, RuneStatusSync>("RuneStatusSync");
-        RegisterAndSync<SentinelStatusSyncHandler, SentinelStatusSync>("SentinelStatusSync");
+        RegisterAndSync<SentryStatusSyncHandler, SentryStatusSync>("SentryStatusSync");
         RegisterAndSync<DartSelectTargetStatusSyncHandler, DartSelectTargetStatusSync>("DartSelectTargetStatusSync");
-        RegisterAndSync<GuardCtrlResultHandler, GuardCtrlResult>("GuardCtrlResult");
+        RegisterAndSync<SentryCtrlResultHandler, SentryCtrlResult>("SentryCtrlResult");
         RegisterAndSync<AirSupportStatusSyncHandler, AirSupportStatusSync>("AirSupportStatusSync");
         // 其它协议类型如需补充可继续添加...
 

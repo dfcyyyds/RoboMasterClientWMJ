@@ -65,11 +65,12 @@
     <Compile Include="Assets/Utils/DebugTools.cs" />
     <Compile Include="Assets/Scripts/Framework/Video/UdpAnnexBTransport.cs" />
     <Compile Include="Assets/Scripts/Framework/Video/RtspTransport.cs" />
+    <Compile Include="Assets/Scripts/Framework/Network/Handlers/SentryCtrlResultHandler.cs" />
     <Compile Include="Assets/Scripts/UI/Views/SentinelStatusSyncView.cs" />
     <Compile Include="Assets/Utils/DebugLog.cs" />
     <Compile Include="Assets/Scripts/UI/Views/GlobalUnitStatusView.cs" />
-    <Compile Include="Assets/Scripts/UI/ViewModels/GuardCtrlResultViewModel.cs" />
     <Compile Include="Assets/TextMesh Pro/Examples &amp; Extras/Scripts/Benchmark02.cs" />
+    <Compile Include="Assets/Scripts/UI/ViewModels/KeyboardMouseControlViewModel.cs" />
     <Compile Include="Assets/Scripts/UI/Views/RobotPerformanceSelectionSyncView.cs" />
     <Compile Include="Assets/Scripts/Framework/Network/Handlers/GlobalLogisticsStatusHandler.cs" />
     <Compile Include="Assets/Scripts/UI/HUD/BattleHUD.cs" />
@@ -86,7 +87,9 @@
     <Compile Include="Assets/Scripts/UI/ViewModels/DartSelectTargetStatusSyncViewModel.cs" />
     <Compile Include="Assets/Scripts/UI/Views/VideoTextureView.cs" />
     <Compile Include="Assets/Scripts/UI/ViewModels/ProtoViewModelBase.cs" />
+    <Compile Include="Assets/Scripts/UI/ViewModels/SentryStatusSyncViewModel.cs" />
     <Compile Include="Assets/Scripts/UI/ViewModels/GlobalUnitStatusViewModel.cs" />
+    <Compile Include="Assets/Scripts/Framework/Network/Handlers/CustomControlHandler.cs" />
     <Compile Include="Assets/Scripts/UI/ViewModels/BuffViewModel.cs" />
     <Compile Include="Assets/Scripts/UI/Views/EventView.cs" />
     <Compile Include="Assets/Scripts/UI/Views/RobotDynamicStatusView.cs" />
@@ -94,13 +97,11 @@
     <Compile Include="Assets/Scripts/Framework/Network/Handlers/RobotInjuryStatHandler.cs" />
     <Compile Include="Assets/Scripts/UI/ViewModels/GameStatusViewModel.cs" />
     <Compile Include="Assets/Scripts/Framework/Video/AnnexBFrameAssembler.cs" />
-    <Compile Include="Assets/Scripts/Framework/Network/Handlers/GuardCtrlResultHandler.cs" />
     <Compile Include="Assets/TextMesh Pro/Examples &amp; Extras/Scripts/TMP_ExampleScript_01.cs" />
     <Compile Include="Assets/TextMesh Pro/Examples &amp; Extras/Scripts/TMPro_InstructionOverlay.cs" />
     <Compile Include="Assets/TextMesh Pro/Examples &amp; Extras/Scripts/VertexShakeB.cs" />
     <Compile Include="Assets/Scripts/UI/ViewModels/RuneStatusSyncViewModel.cs" />
     <Compile Include="Assets/Scripts/UI/Views/BuffView.cs" />
-    <Compile Include="Assets/Scripts/UI/ViewModels/SentinelStatusSyncViewModel.cs" />
     <Compile Include="Assets/Scripts/Framework/Network/Handlers/RobotRespawnStatusHandler.cs" />
     <Compile Include="Assets/Utils/ConfigData.cs" />
     <Compile Include="Assets/Scripts/Framework/Network/Handlers/GlobalSpecialMechanismHandler.cs" />
@@ -108,6 +109,7 @@
     <Compile Include="Assets/Scripts/UI/Views/DeployModeStatusSyncView.cs" />
     <Compile Include="Assets/TextMesh Pro/Examples &amp; Extras/Scripts/VertexJitter.cs" />
     <Compile Include="Assets/Scripts/UI/ViewModels/RobotModuleStatusViewModel.cs" />
+    <Compile Include="Assets/Scripts/UI/ViewModels/CommonCommandViewModel.cs" />
     <Compile Include="Assets/Generated/RoboMasterClientMessage.cs" />
     <Compile Include="Assets/TextMesh Pro/Examples &amp; Extras/Scripts/TMP_UiFrameRateCounter.cs" />
     <Compile Include="Assets/Scripts/UI/Views/RobotModuleStatusView.cs" />
@@ -117,7 +119,6 @@
     <Compile Include="Assets/Scripts/Framework/Network/Handlers/PenaltyInfoHandler.cs" />
     <Compile Include="Assets/Scripts/UI/ViewModels/AirSupportStatusSyncViewModel.cs" />
     <Compile Include="Assets/TextMesh Pro/Examples &amp; Extras/Scripts/TMP_TextSelector_B.cs" />
-    <Compile Include="Assets/Scripts/Framework/Network/Handlers/SentinelStatusSyncHandler.cs" />
     <Compile Include="Assets/Scripts/Framework/Network/Handlers/DartSelectTargetStatusSyncHandler.cs" />
     <Compile Include="Assets/TextMesh Pro/Examples &amp; Extras/Scripts/SkewTextExample.cs" />
     <Compile Include="Assets/TextMesh Pro/Examples &amp; Extras/Scripts/WarpTextExample.cs" />
@@ -137,7 +138,7 @@
     <Compile Include="Assets/TextMesh Pro/Examples &amp; Extras/Scripts/TMP_TextInfoDebugTool.cs" />
     <Compile Include="Assets/Scripts/UI/Core/IconManager.cs" />
     <Compile Include="Assets/Scripts/Framework/Boot/RuntimeTuner.cs" />
-    <Compile Include="Assets/Scripts/Framework/Network/Handlers/RemoteControlHandler.cs" />
+    <Compile Include="Assets/Scripts/UI/ViewModels/SentryCtrlResultViewModel.cs" />
     <Compile Include="Assets/Scripts/UI/HUD/HUDBoot.cs" />
     <Compile Include="Assets/Scripts/Framework/Network/UdpClientService.cs" />
     <Compile Include="Assets/Scripts/UI/ViewModels/DeployModeStatusSyncViewModel.cs" />
@@ -173,12 +174,14 @@
     <Compile Include="Assets/Scripts/UI/ViewModels/ProtoAutoViewModel.cs" />
     <Compile Include="Assets/Scripts/Framework/Network/Handlers/CustomByteBlockHandler.cs" />
     <Compile Include="Assets/TextMesh Pro/Examples &amp; Extras/Scripts/CameraController.cs" />
+    <Compile Include="Assets/Scripts/UI/ViewModels/RadarInfoToClientViewModel.cs" />
     <Compile Include="Assets/TextMesh Pro/Examples &amp; Extras/Scripts/Benchmark03.cs" />
-    <Compile Include="Assets/Scripts/UI/ViewModels/RemoteControlViewModel.cs" />
+    <Compile Include="Assets/Scripts/Framework/Network/Handlers/KeyboardMouseControlHandler.cs" />
     <Compile Include="Assets/Scripts/UI/HUD/CrosshairRingHUD.cs" />
     <Compile Include="Assets/Scripts/UI/Views/RobotStaticStatusView.cs" />
+    <Compile Include="Assets/Scripts/Framework/Network/Handlers/SentryStatusSyncHandler.cs" />
+    <Compile Include="Assets/Scripts/UI/ViewModels/CustomControlViewModel.cs" />
     <Compile Include="Assets/Scripts/Framework/Network/Handlers/TechCoreMotionStateSyncHandler.cs" />
-    <Compile Include="Assets/Scripts/Framework/Network/Handlers/RaderInfoToClientHandler.cs" />
     <Compile Include="Assets/Scripts/UI/Views/RobotRespawnStatusView.cs" />
     <Compile Include="Assets/TextMesh Pro/Examples &amp; Extras/Scripts/DropdownSample.cs" />
     <Compile Include="Assets/TextMesh Pro/Examples &amp; Extras/Scripts/VertexColorCycler.cs" />
@@ -209,7 +212,7 @@
     <Compile Include="Assets/Scripts/UI/HUD/HealthBarHUD.cs" />
     <Compile Include="Assets/Scripts/UI/Views/DartSelectTargetStatusSyncView.cs" />
     <Compile Include="Assets/Scripts/UI/UIManager.cs" />
-    <Compile Include="Assets/Scripts/UI/ViewModels/RaderInfoToClientViewModel.cs" />
+    <Compile Include="Assets/Scripts/Framework/Network/Handlers/RadarInfoToClientHandler.cs" />
     <Compile Include="Assets/Scripts/Framework/Network/IMessageHandler.cs" />
   </ItemGroup>
   <ItemGroup>

@@ -11,7 +11,6 @@ namespace UI.Views
         public TMP_Text BuffLevelText;
         public TMP_Text BuffMaxTimeText;
         public TMP_Text BuffLeftTimeText;
-        public TMP_Text MsgParamsText;
 
         protected override BuffViewModel CreateViewModel() => new BuffViewModel();
 
@@ -23,7 +22,6 @@ namespace UI.Views
             if (BuffLevelText) BuffLevelText.text = vm.BuffLevel.ToString();
             if (BuffMaxTimeText) BuffMaxTimeText.text = vm.BuffMaxTime.ToString();
             if (BuffLeftTimeText) BuffLeftTimeText.text = vm.BuffLeftTime.ToString();
-            if (MsgParamsText) MsgParamsText.text = vm.MsgParams ?? string.Empty;
         }
     }
 }

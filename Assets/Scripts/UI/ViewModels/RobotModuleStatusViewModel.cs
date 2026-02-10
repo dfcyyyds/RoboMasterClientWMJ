@@ -14,6 +14,7 @@ namespace UI.ViewModels
         private uint videoTransmission;
         private uint capacitor;
         private uint mainController;
+        private uint laserDetectionModule;
 
         public uint PowerManager { get => powerManager; set { if (powerManager != value) { powerManager = value; OnPropertyChanged(); } } }
         public uint Rfid { get => rfid; set { if (rfid != value) { rfid = value; OnPropertyChanged(); } } }
@@ -25,6 +26,7 @@ namespace UI.ViewModels
         public uint VideoTransmission { get => videoTransmission; set { if (videoTransmission != value) { videoTransmission = value; OnPropertyChanged(); } } }
         public uint Capacitor { get => capacitor; set { if (capacitor != value) { capacitor = value; OnPropertyChanged(); } } }
         public uint MainController { get => mainController; set { if (mainController != value) { mainController = value; OnPropertyChanged(); } } }
+        public uint LaserDetectionModule { get => laserDetectionModule; set { if (laserDetectionModule != value) { laserDetectionModule = value; OnPropertyChanged(); } } }
 
         protected override void UpdateFrom(RobotModuleStatus msg)
         {
@@ -38,6 +40,7 @@ namespace UI.ViewModels
             VideoTransmission = msg.VideoTransmission;
             Capacitor = msg.Capacitor;
             MainController = msg.MainController;
+            LaserDetectionModule = msg.LaserDetectionModule;
         }
     }
 }

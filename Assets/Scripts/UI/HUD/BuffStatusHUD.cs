@@ -187,7 +187,7 @@ namespace UI.HUD
 
         public void SetNotificationHUD(NotificationHUD n) => notifications = n;
 
-        public void UpdateBuff(uint buffType, int level, uint maxTime, uint leftTime, string msgParams)
+        public void UpdateBuff(uint buffType, int level, uint maxTime, uint leftTime)
         {
             if (leftTime == 0 || maxTime == 0)
             {

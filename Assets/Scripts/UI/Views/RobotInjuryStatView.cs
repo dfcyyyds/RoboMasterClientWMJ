@@ -12,7 +12,7 @@ namespace UI.Views
         public TMP_Text LargeProjectileDamageText;
         public TMP_Text DartSplashDamageText;
         public TMP_Text ModuleOfflineDamageText;
-        public TMP_Text WifiOfflineDamageText;
+        public TMP_Text OfflineDamageText;
         public TMP_Text PenaltyDamageText;
         public TMP_Text ServerKillDamageText;
         public TMP_Text KillerIdText;
@@ -28,7 +28,7 @@ namespace UI.Views
             if (LargeProjectileDamageText) LargeProjectileDamageText.text = vm.LargeProjectileDamage.ToString();
             if (DartSplashDamageText) DartSplashDamageText.text = vm.DartSplashDamage.ToString();
             if (ModuleOfflineDamageText) ModuleOfflineDamageText.text = vm.ModuleOfflineDamage.ToString();
-            if (WifiOfflineDamageText) WifiOfflineDamageText.text = vm.WifiOfflineDamage.ToString();
+            if (OfflineDamageText) OfflineDamageText.text = vm.OfflineDamage.ToString();
             if (PenaltyDamageText) PenaltyDamageText.text = vm.PenaltyDamage.ToString();
             if (ServerKillDamageText) ServerKillDamageText.text = vm.ServerKillDamage.ToString();
             if (KillerIdText) KillerIdText.text = vm.KillerId.ToString();

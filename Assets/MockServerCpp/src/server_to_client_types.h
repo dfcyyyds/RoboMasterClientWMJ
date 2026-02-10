@@ -1,8 +1,7 @@
 // 服务器->自定义客户端 消息类型列表
-// 参考 RoboMasterClientMessage.proto 注释和实际业务
-// 可根据实际协议注释补充
-
+// 参考 RoboMasterClientMessage.proto V1.2.0
 // 仅服务器->自定义客户端方向的topic列表
+
 const std::vector<std::string> server_to_client_types = {
     "GameStatus",
     "GlobalUnitStatus",
@@ -18,12 +17,12 @@ const std::vector<std::string> server_to_client_types = {
     "Buff",
     "PenaltyInfo",
     "RobotPathPlanInfo",
-    "RaderInfoToClient",
+    "RadarInfoToClient",
     "TechCoreMotionStateSync",
     "RobotPerformanceSelectionSync",
     "DeployModeStatusSync",
     "RuneStatusSync",
-    "SentinelStatusSync",
+    "SentryStatusSync",
     "DartSelectTargetStatusSync",
-    "GuardCtrlResult",
+    "SentryCtrlResult",
     "AirSupportStatusSync"};

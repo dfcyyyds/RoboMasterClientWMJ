@@ -2,7 +2,10 @@ using Google.Protobuf;
 
 namespace UI.ViewModels
 {
-    public class RemoteControlViewModel : ProtoViewModelBase<RemoteControl>
+    /// <summary>
+    /// 键鼠控制 ViewModel（原 RemoteControlViewModel，V1.2.0 拆分后去除 Data 字段）
+    /// </summary>
+    public class KeyboardMouseControlViewModel : ProtoViewModelBase<KeyboardMouseControl>
     {
         private int mouseX;
         private int mouseY;
@@ -11,7 +14,6 @@ namespace UI.ViewModels
         private bool rightButtonDown;
         private uint keyboardValue;
         private bool midButtonDown;
-        private ByteString data = ByteString.Empty;
 
         public int MouseX { get => mouseX; set { if (mouseX != value) { mouseX = value; OnPropertyChanged(); } } }
         public int MouseY { get => mouseY; set { if (mouseY != value) { mouseY = value; OnPropertyChanged(); } } }
@@ -20,9 +22,8 @@ namespace UI.ViewModels
         public bool RightButtonDown { get => rightButtonDown; set { if (rightButtonDown != value) { rightButtonDown = value; OnPropertyChanged(); } } }
         public uint KeyboardValue { get => keyboardValue; set { if (keyboardValue != value) { keyboardValue = value; OnPropertyChanged(); } } }
         public bool MidButtonDown { get => midButtonDown; set { if (midButtonDown != value) { midButtonDown = value; OnPropertyChanged(); } } }
-        public ByteString Data { get => data; set { if (data != value) { data = value; OnPropertyChanged(); } } }
 
-        protected override void UpdateFrom(RemoteControl msg)
+        protected override void UpdateFrom(KeyboardMouseControl msg)
         {
             MouseX = msg.MouseX;
             MouseY = msg.MouseY;
@@ -31,7 +32,6 @@ namespace UI.ViewModels
             RightButtonDown = msg.RightButtonDown;
             KeyboardValue = msg.KeyboardValue;
             MidButtonDown = msg.MidButtonDown;
-            Data = msg.Data ?? ByteString.Empty;
         }
     }
 }

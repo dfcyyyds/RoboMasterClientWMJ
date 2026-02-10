@@ -10,7 +10,7 @@ namespace UI.ViewModels
         private uint largeProjectileDamage;
         private uint dartSplashDamage;
         private uint moduleOfflineDamage;
-        private uint wifiOfflineDamage;
+        private uint offlineDamage;
         private uint penaltyDamage;
         private uint serverKillDamage;
         private uint killerId;
@@ -21,7 +21,7 @@ namespace UI.ViewModels
         public uint LargeProjectileDamage { get => largeProjectileDamage; set { if (largeProjectileDamage != value) { largeProjectileDamage = value; OnPropertyChanged(); } } }
         public uint DartSplashDamage { get => dartSplashDamage; set { if (dartSplashDamage != value) { dartSplashDamage = value; OnPropertyChanged(); } } }
         public uint ModuleOfflineDamage { get => moduleOfflineDamage; set { if (moduleOfflineDamage != value) { moduleOfflineDamage = value; OnPropertyChanged(); } } }
-        public uint WifiOfflineDamage { get => wifiOfflineDamage; set { if (wifiOfflineDamage != value) { wifiOfflineDamage = value; OnPropertyChanged(); } } }
+        public uint OfflineDamage { get => offlineDamage; set { if (offlineDamage != value) { offlineDamage = value; OnPropertyChanged(); } } }
         public uint PenaltyDamage { get => penaltyDamage; set { if (penaltyDamage != value) { penaltyDamage = value; OnPropertyChanged(); } } }
         public uint ServerKillDamage { get => serverKillDamage; set { if (serverKillDamage != value) { serverKillDamage = value; OnPropertyChanged(); } } }
         public uint KillerId { get => killerId; set { if (killerId != value) { killerId = value; OnPropertyChanged(); } } }
@@ -34,7 +34,7 @@ namespace UI.ViewModels
             LargeProjectileDamage = msg.LargeProjectileDamage;
             DartSplashDamage = msg.DartSplashDamage;
             ModuleOfflineDamage = msg.ModuleOfflineDamage;
-            WifiOfflineDamage = msg.WifiOfflineDamage;
+            OfflineDamage = msg.OfflineDamage;
             PenaltyDamage = msg.PenaltyDamage;
             ServerKillDamage = msg.ServerKillDamage;
             KillerId = msg.KillerId;

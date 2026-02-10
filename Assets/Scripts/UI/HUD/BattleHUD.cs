@@ -158,7 +158,7 @@ namespace UI.HUD
                 if (bt != lastBuffType || blt != lastBuffLeftTime)
                 {
                     buffStatus.UpdateBuff(bt, buffVM.BuffLevel,
-                        buffVM.BuffMaxTime, blt, buffVM.MsgParams);
+                        buffVM.BuffMaxTime, blt);
                     lastBuffType = bt;
                     lastBuffLeftTime = blt;
                 }
