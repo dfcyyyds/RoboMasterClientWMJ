@@ -129,7 +129,7 @@ namespace UI.RobotSelection
                     if (chineseFont != null)
                     {
                         chineseFont.name = "ChineseFont Dynamic";
-                        wmj.DebugTools.Info("[RobotSelectionPanel] 已从 TTF 动态创建中文字体", wmj.DebugTools.LogCategory.UI);
+                        wmj.Log.I("[RobotSelectionPanel] 已从 TTF 动态创建中文字体", wmj.Log.Tag.UI);
                     }
                 }
             }
@@ -138,7 +138,7 @@ namespace UI.RobotSelection
             {
                 // 方法3: 使用 TMP 默认字体作为后备
                 chineseFont = TMP_Settings.defaultFontAsset;
-                wmj.DebugTools.Warn("[RobotSelectionPanel] 未找到中文字体，使用默认字体。请在 Unity 中创建 TMP 字体资源。", wmj.DebugTools.LogCategory.UI);
+                wmj.Log.W("[RobotSelectionPanel] 未找到中文字体，使用默认字体。请在 Unity 中创建 TMP 字体资源。", wmj.Log.Tag.UI);
             }
         }
 

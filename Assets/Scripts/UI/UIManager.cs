@@ -35,7 +35,7 @@ namespace UI
         {
             if (_activePanels.ContainsKey(panelId))
             {
-                wmj.DebugTools.Warn($"[UIManager] 面板 {panelId} 已存在，将被替换", wmj.DebugTools.LogCategory.UI);
+                wmj.Log.W($"[UIManager] 面板 {panelId} 已存在，将被替换", wmj.Log.Tag.UI);
                 UnregisterPanel(panelId);
             }
 
@@ -48,7 +48,7 @@ namespace UI
                 canvas.sortingOrder = _nextSortingOrder++;
             }
 
-            wmj.DebugTools.Debug($"[UIManager] 注册面板: {panelId}", wmj.DebugTools.LogCategory.UI);
+            wmj.Log.D($"[UIManager] 注册面板: {panelId}", wmj.Log.Tag.UI);
         }
 
         /// <summary>
@@ -63,7 +63,7 @@ namespace UI
                 {
                     Destroy(panel);
                 }
-                wmj.DebugTools.Debug($"[UIManager] 注销面板: {panelId}", wmj.DebugTools.LogCategory.UI);
+                wmj.Log.D($"[UIManager] 注销面板: {panelId}", wmj.Log.Tag.UI);
             }
         }
 

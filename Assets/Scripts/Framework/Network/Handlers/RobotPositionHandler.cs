@@ -15,11 +15,7 @@ public class RobotPositionHandler : IMessageHandler
         }
         catch (Exception ex)
         {
-#if UNITY_EDITOR
-            wmj.DebugTools.Error($"[RobotPositionHandler] 解析失败: {ex.Message}");
-            wmj.DebugTools.Error("[RobotPositionHandler] 解析失败: " + ex.Message);
-#endif
-            wmj.DebugTools.Error("[RobotPositionHandler] 解析失败: " + ex.Message);
+            wmj.Log.E($"[RobotPositionHandler] 解析失败: {ex.Message}", wmj.Log.Tag.Network);
         }
     }
 }

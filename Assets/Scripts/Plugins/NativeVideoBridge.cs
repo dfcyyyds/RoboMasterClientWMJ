@@ -60,18 +60,18 @@ public static class NativeVideoBridge
         catch (DllNotFoundException ex)
         {
             Available = false;
-            wmj.DebugTools.WriteRunLog("[NativeVideoBridge] DllNotFound: " + ex.Message, "WARN");
+            wmj.Log.W("[NativeVideoBridge] DllNotFound: " + ex.Message, wmj.Log.Tag.Decoder);
             return -2;
         }
         catch (EntryPointNotFoundException ex)
         {
             Available = false;
-            wmj.DebugTools.WriteRunLog("[NativeVideoBridge] EntryPointNotFound: " + ex.Message, "WARN");
+            wmj.Log.W("[NativeVideoBridge] EntryPointNotFound: " + ex.Message, wmj.Log.Tag.Decoder);
             return -3;
         }
         catch (Exception ex)
         {
-            wmj.DebugTools.WriteRunLog("[NativeVideoBridge] Init异常: " + ex.Message, "ERROR");
+            wmj.Log.E("[NativeVideoBridge] Init异常: " + ex.Message, wmj.Log.Tag.Decoder);
             return -4;
         }
     }
@@ -95,7 +95,7 @@ public static class NativeVideoBridge
         }
         catch (Exception ex)
         {
-            wmj.DebugTools.WriteRunLog("[NativeVideoBridge] Push异常: " + ex.Message, "ERROR");
+            wmj.Log.E("[NativeVideoBridge] Push异常: " + ex.Message, wmj.Log.Tag.Decoder);
             return -2;
         }
     }
@@ -109,7 +109,7 @@ public static class NativeVideoBridge
         }
         catch (Exception ex)
         {
-            wmj.DebugTools.WriteRunLog("[NativeVideoBridge] GetLatestTextureId异常: " + ex.Message, "ERROR");
+            wmj.Log.E("[NativeVideoBridge] GetLatestTextureId异常: " + ex.Message, wmj.Log.Tag.Decoder);
             return 0;
         }
     }
@@ -124,7 +124,7 @@ public static class NativeVideoBridge
         }
         catch (Exception ex)
         {
-            wmj.DebugTools.WriteRunLog("[NativeVideoBridge] GetStats异常: " + ex.Message, "ERROR");
+            wmj.Log.E("[NativeVideoBridge] GetStats异常: " + ex.Message, wmj.Log.Tag.Decoder);
             return false;
         }
     }
@@ -138,7 +138,7 @@ public static class NativeVideoBridge
         }
         catch (Exception ex)
         {
-            wmj.DebugTools.WriteRunLog("[NativeVideoBridge] Shutdown异常: " + ex.Message, "ERROR");
+            wmj.Log.E("[NativeVideoBridge] Shutdown异常: " + ex.Message, wmj.Log.Tag.Decoder);
         }
     }
 

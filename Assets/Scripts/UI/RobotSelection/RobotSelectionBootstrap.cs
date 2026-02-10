@@ -80,7 +80,7 @@ namespace UI.RobotSelection
             // 将选择结果写入 ConfigLoader
             ApplyToConfig(result);
 
-            wmj.DebugTools.Info($"[RobotSelection] 选择完成: {result}", wmj.DebugTools.LogCategory.UI);
+            wmj.Log.I($"[RobotSelection] 选择完成: {result}", wmj.Log.Tag.UI);
 
             OnSelectionCompleted?.Invoke(result);
         }
@@ -99,11 +99,11 @@ namespace UI.RobotSelection
             if (ConfigLoader.config != null)
             {
                 ConfigLoader.config.RobotID = result.RobotId;
-                wmj.DebugTools.Info($"[RobotSelection] 已将 RobotID={result.RobotId} 写入 ConfigLoader", wmj.DebugTools.LogCategory.UI);
+                wmj.Log.I($"[RobotSelection] 已将 RobotID={result.RobotId} 写入 ConfigLoader", wmj.Log.Tag.UI);
             }
             else
             {
-                wmj.DebugTools.Warn("[RobotSelection] ConfigLoader.config 为空，无法写入 RobotID", wmj.DebugTools.LogCategory.UI);
+                wmj.Log.W("[RobotSelection] ConfigLoader.config 为空，无法写入 RobotID", wmj.Log.Tag.UI);
             }
         }
 

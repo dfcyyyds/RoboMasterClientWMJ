@@ -15,11 +15,7 @@ public class CustomByteBlockHandler : IMessageHandler
         }
         catch (Exception ex)
         {
-#if UNITY_EDITOR
-            wmj.DebugTools.Error($"[CustomByteBlockHandler] 解析失败: {ex.Message}");
-            wmj.DebugTools.Error("[CustomByteBlockHandler] 解析失败: " + ex.Message);
-#endif
-            wmj.DebugTools.Error("[CustomByteBlockHandler] 解析失败: " + ex.Message);
+            wmj.Log.E($"[CustomByteBlockHandler] 解析失败: {ex.Message}", wmj.Log.Tag.Network);
         }
     }
 }

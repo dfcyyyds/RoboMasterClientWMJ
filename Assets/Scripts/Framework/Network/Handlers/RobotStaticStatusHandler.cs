@@ -15,11 +15,7 @@ public class RobotStaticStatusHandler : IMessageHandler
         }
         catch (Exception ex)
         {
-#if UNITY_EDITOR
-            wmj.DebugTools.Error($"[RobotStaticStatusHandler] 解析失败: {ex.Message}");
-            wmj.DebugTools.Error("[RobotStaticStatusHandler] 解析失败: " + ex.Message);
-#endif
-            wmj.DebugTools.Error("[RobotStaticStatusHandler] 解析失败: " + ex.Message);
+            wmj.Log.E($"[RobotStaticStatusHandler] 解析失败: {ex.Message}", wmj.Log.Tag.Network);
         }
     }
 }

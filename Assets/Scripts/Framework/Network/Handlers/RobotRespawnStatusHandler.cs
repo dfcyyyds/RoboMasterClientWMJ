@@ -15,11 +15,7 @@ public class RobotRespawnStatusHandler : IMessageHandler
         }
         catch (Exception ex)
         {
-#if UNITY_EDITOR
-            wmj.DebugTools.Error($"[RobotRespawnStatusHandler] 解析失败: {ex.Message}");
-            wmj.DebugTools.Error("[RobotRespawnStatusHandler] 解析失败: " + ex.Message);
-#endif
-            wmj.DebugTools.Error("[RobotRespawnStatusHandler] 解析失败: " + ex.Message);
+            wmj.Log.E($"[RobotRespawnStatusHandler] 解析失败: {ex.Message}", wmj.Log.Tag.Network);
         }
     }
 }

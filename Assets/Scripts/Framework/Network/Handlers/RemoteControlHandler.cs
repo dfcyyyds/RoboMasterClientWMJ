@@ -15,11 +15,7 @@ public class RemoteControlHandler : IMessageHandler
         }
         catch (Exception ex)
         {
-#if UNITY_EDITOR
-            wmj.DebugTools.Error($"[RemoteControlHandler] 解析失败: {ex.Message}");
-            wmj.DebugTools.WriteDebugLog("[RemoteControlHandler] 解析失败: " + ex.Message, "ERROR");
-#endif
-            wmj.DebugTools.WriteRunLog("[RemoteControlHandler] 解析失败: " + ex.Message, "ERROR");
+            wmj.Log.E($"[RemoteControlHandler] 解析失败: {ex.Message}", wmj.Log.Tag.Network);
         }
     }
 }

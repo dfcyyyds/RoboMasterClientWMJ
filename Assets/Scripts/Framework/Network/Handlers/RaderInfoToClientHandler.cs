@@ -15,11 +15,7 @@ public class RaderInfoToClientHandler : IMessageHandler
         }
         catch (Exception ex)
         {
-#if UNITY_EDITOR
-            wmj.DebugTools.Error($"[RaderInfoToClientHandler] 解析失败: {ex.Message}");
-            wmj.DebugTools.Error("[RaderInfoToClientHandler] 解析失败: " + ex.Message);
-#endif
-            wmj.DebugTools.Error("[RaderInfoToClientHandler] 解析失败: " + ex.Message);
+            wmj.Log.E($"[RaderInfoToClientHandler] 解析失败: {ex.Message}", wmj.Log.Tag.Network);
         }
     }
 }

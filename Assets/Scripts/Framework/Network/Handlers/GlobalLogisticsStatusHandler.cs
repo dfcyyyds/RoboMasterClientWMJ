@@ -15,11 +15,7 @@ public class GlobalLogisticsStatusHandler : IMessageHandler
         }
         catch (Exception ex)
         {
-#if UNITY_EDITOR
-            wmj.DebugTools.Error($"[GlobalLogisticsStatusHandler] 解析失败: {ex.Message}");
-            wmj.DebugTools.Error("[GlobalLogisticsStatusHandler] 解析失败: " + ex.Message);
-#endif
-            wmj.DebugTools.Error("[GlobalLogisticsStatusHandler] 解析失败: " + ex.Message);
+            wmj.Log.E($"[GlobalLogisticsStatusHandler] 解析失败: {ex.Message}", wmj.Log.Tag.Network);
         }
     }
 }

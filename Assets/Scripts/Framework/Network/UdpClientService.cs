@@ -47,11 +47,7 @@ public class UdpClientService
     {
         if (udpClient != null)
             StopReceive();
-#if UNITY_EDITOR
-            wmj.DebugTools.Info($"[UdpClientService] 开始监听UDP: {ip}:{port}");
-            wmj.DebugTools.WriteDebugLog("[UdpClientService] 开始监听UDP: "+ ip + ":" + port,"INFO");
-#endif
-        wmj.DebugTools.WriteRunLog("[UdpClientService] 开始监听UDP: " + ip + ":" + port, "INFO");
+        wmj.Log.I($"[UdpClientService] 开始监听UDP: {ip}:{port}", wmj.Log.Tag.Network);
         // 为提高兼容性，统一绑定到 Any 地址，避免容器/命名空间导致的 127.0.0.1 隔离问题
         // 仍保留日志中打印的目标IP，方便排查
         try
@@ -63,20 +59,12 @@ public class UdpClientService
                 udpClient = new UdpClient(AddressFamily.InterNetworkV6);
                 try { udpClient.Client.DualMode = true; } catch { try { udpClient.Client.SetSocketOption(SocketOptionLevel.IPv6, (SocketOptionName)27 /*DualMode*/, true); } catch { } }
                 udpClient.Client.Bind(new IPEndPoint(IPAddress.IPv6Any, port));
-#if UNITY_EDITOR
-                wmj.DebugTools.Info($"[UdpClientService] 采用 IPv6 双栈绑定: [::]:{port}");
-                wmj.DebugTools.WriteDebugLog("[UdpClientService] 采用 IPv6 双栈绑定: [::]:" + port, "INFO");
-#endif
-                wmj.DebugTools.WriteRunLog("[UdpClientService] 采用 IPv6 双栈绑定: [::]:" + port, "INFO");
+                wmj.Log.I($"[UdpClientService] 采用 IPv6 双栈绑定: [::]:{port}", wmj.Log.Tag.Network);
                 boundWithIPv6Dual = true;
             }
             catch (System.Exception ipv6Ex)
             {
-#if UNITY_EDITOR
-                wmj.DebugTools.Warn($"[UdpClientService] IPv6 双栈绑定失败，将回退到 IPv4: {ipv6Ex.Message}");
-                wmj.DebugTools.WriteDebugLog("[UdpClientService] IPv6 双栈绑定失败，将回退到 IPv4: " + ipv6Ex.Message, "WARN");
-#endif
-                wmj.DebugTools.WriteRunLog("[UdpClientService] IPv6 双栈绑定失败，将回退到 IPv4: " + ipv6Ex.Message, "WARN");
+                wmj.Log.W($"[UdpClientService] IPv6 双栈绑定失败，将回退到 IPv4: {ipv6Ex.Message}", wmj.Log.Tag.Network);
             }
             if (!boundWithIPv6Dual)
             {
@@ -87,14 +75,10 @@ public class UdpClientService
             try { udpClient.Client.ReceiveBufferSize = 1 << 20; } catch { }
             try { udpClient.Client.SendBufferSize = 1 << 18; } catch { }
 #if UNITY_EDITOR || DIAGNOSE_UDP
-            wmj.DebugTools.Info($"[UdpClientService] 🔗 已绑定 0.0.0.0:{port}，监听来自任意源的 UDP 包");
+            wmj.Log.I($"[UdpClientService] 🔗 已绑定 0.0.0.0:{port}，监听来自任意源的 UDP 包", wmj.Log.Tag.Network);
             diagLastReport = UnityEngine.Time.realtimeSinceStartup;
 #endif
-#if UNITY_EDITOR
-            wmj.DebugTools.Info($"[UdpClientService] 已绑定 0.0.0.0:{port}，开始接收UDP");
-            wmj.DebugTools.WriteDebugLog("[UdpClientService] 已绑定 0.0.0.0:" + port + "，开始接收UDP","INFO");
-#endif
-            wmj.DebugTools.WriteRunLog("[UdpClientService] 已绑定 0.0.0.0:" + port + "，开始接收UDP", "INFO");
+            wmj.Log.I($"[UdpClientService] 已绑定 0.0.0.0:{port}，开始接收UDP", wmj.Log.Tag.Network);
             isReceiving = true;
             OnStarted?.Invoke();
 
@@ -103,19 +87,11 @@ public class UdpClientService
             {
                 recvThread = new Thread(BlockingReceiveLoop) { IsBackground = true, Name = "UdpBlockingReceive" };
                 recvThread.Start();
-#if UNITY_EDITOR
-                wmj.DebugTools.Info("[UdpClientService] 已启动阻塞接收线程");
-                wmj.DebugTools.WriteDebugLog("[UdpClientService] 已启动阻塞接收线程", "INFO");
-#endif
-                wmj.DebugTools.WriteRunLog("[UdpClientService] 已启动阻塞接收线程", "INFO");
+                wmj.Log.I("[UdpClientService] 已启动阻塞接收线程", wmj.Log.Tag.Network);
             }
             catch (System.Exception ex)
             {
-#if UNITY_EDITOR
-                wmj.DebugTools.Error($"[UdpClientService] 启动阻塞接收线程失败: {ex.Message}");
-                wmj.DebugTools.WriteDebugLog("[UdpClientService] 启动阻塞接收线程失败: " + ex.Message, "ERROR");
-#endif
-                wmj.DebugTools.WriteRunLog("[UdpClientService] 启动阻塞接收线程失败: " + ex.Message, "ERROR");
+                wmj.Log.E($"[UdpClientService] 启动阻塞接收线程失败: {ex.Message}", wmj.Log.Tag.Network);
             }
 
             // 在主线程开启队列耗尽协程（仅启动一次）
@@ -131,11 +107,7 @@ public class UdpClientService
         }
         catch (System.Exception ex)
         {
-#if UNITY_EDITOR
-            wmj.DebugTools.Error($"[UdpClientService] 绑定端口失败 {port}: {ex.Message}");
-            wmj.DebugTools.WriteDebugLog("[UdpClientService] 绑定端口失败 " + port + ": " + ex.Message, "ERROR");
-#endif
-            wmj.DebugTools.WriteRunLog("[UdpClientService] 绑定端口失败 " + port + ": " + ex.Message, "ERROR");
+            wmj.Log.E($"[UdpClientService] 绑定端口失败 {port}: {ex.Message}", wmj.Log.Tag.Network);
         }
     }
     // 阻塞接收循环（运行于后台线程）
@@ -164,7 +136,7 @@ public class UdpClientService
                     diagLastRemote = pkt.Remote;
                     if (!diagFirstPacketAnnounced)
                     {
-                        wmj.DebugTools.Info($"[UdpClientService] ✅ 首个UDP包已到达: 来自 {diagLastRemote}, 长度={received}");
+                        wmj.Log.I($"[UdpClientService] ✅ 首个UDP包已到达: 来自 {diagLastRemote}, 长度={received}", wmj.Log.Tag.Network);
                         diagFirstPacketAnnounced = true;
                     }
 #endif
@@ -179,12 +151,12 @@ public class UdpClientService
             }
             catch (SocketException sex)
             {
-                wmj.DebugTools.Warn($"[UdpClientService] Receive异常: {sex.Message} (code={sex.ErrorCode})");
+                wmj.Log.W($"[UdpClientService] Receive异常: {sex.Message} (code={sex.ErrorCode})", wmj.Log.Tag.Network);
                 Thread.Sleep(1);
             }
             catch (System.Exception ex)
             {
-                wmj.DebugTools.Warn($"[UdpClientService] Receive异常: {ex.Message}");
+                wmj.Log.W($"[UdpClientService] Receive异常: {ex.Message}", wmj.Log.Tag.Network);
                 Thread.Sleep(1);
             }
             finally
@@ -207,10 +179,9 @@ public class UdpClientService
                     var seg = new ArraySegment<byte>(item.Buffer, 0, item.Length);
                     // 高频日志仅在编辑器调试时输出，避免IO阻塞
 #if UNITY_EDITOR && UDP_VERBOSE_LOG
-                    wmj.DebugTools.Info($"[UdpClientService] 收到UDP包: 来自 {item.Remote}, 长度={item.Length}", wmj.DebugTools.LogCategory.Network);
-                    wmj.DebugTools.WriteDebugLog("[UdpClientService] 收到UDP包: 来自 " + item.Remote + ", 长度=" + item.Length, "INFO");
+                    wmj.Log.I($"[UdpClientService] 收到UDP包: 来自 {item.Remote}, 长度={item.Length}", wmj.Log.Tag.Network);
 #endif
-                    // 移除高频WriteRunLog调用，避免每秒30000+次IO导致卡死
+                    // 高频日志已移除，避免每秒30000+次IO导致卡死
 
                     // 优先使用零拷贝的Segment版本，避免重复分发
                     if (OnMessageReceivedSegment != null)
@@ -226,11 +197,7 @@ public class UdpClientService
                 }
                 catch (System.Exception ex)
                 {
-#if UNITY_EDITOR
-                    wmj.DebugTools.Error($"[UdpClientService] 分发UDP消息异常: {ex.Message}");
-                    wmj.DebugTools.WriteDebugLog("[UdpClientService] 分发UDP消息异常: " + ex.Message, "ERROR");
-#endif
-                    wmj.DebugTools.WriteRunLog("[UdpClientService] 分发UDP消息异常: " + ex.Message, "ERROR");
+                    wmj.Log.E($"[UdpClientService] 分发UDP消息异常: {ex.Message}", wmj.Log.Tag.Network);
                 }
                 finally
                 {
@@ -243,12 +210,7 @@ public class UdpClientService
 #if UNITY_EDITOR || DIAGNOSE_UDP
             if (now - diagLastReport >= 1.0f)
             {
-                wmj.DebugTools.Info($"[UdpClientService] 📊 诊断: 包 {diagPacketsReceived}, 字节 {diagBytesReceived}, 来自 {diagLastRemote}");
-#if UNITY_EDITOR
-                wmj.DebugTools.Info($"[UdpClientService] 诊断: 每秒到达 包={diagPacketsReceived}, 字节={diagBytesReceived}, 最后来源={diagLastRemote}", wmj.DebugTools.LogCategory.Network);
-                wmj.DebugTools.WriteDebugLog("[UdpClientService] 诊断: 每秒到达 包=" + diagPacketsReceived + ", 字节=" + diagBytesReceived + ", 最后来源=" + diagLastRemote, "INFO");
-#endif
-                wmj.DebugTools.WriteRunLog("[UdpClientService] 诊断: 每秒到达 包=" + diagPacketsReceived + ", 字节=" + diagBytesReceived + ", 最后来源=" + diagLastRemote, "INFO");
+                wmj.Log.I($"[UdpClientService] 📊 诊断: 包 {diagPacketsReceived}, 字节 {diagBytesReceived}, 来自 {diagLastRemote}", wmj.Log.Tag.Network);
                 diagPacketsReceived = 0;
                 diagBytesReceived = 0;
                 diagLastReport = now;
@@ -283,20 +245,12 @@ public class UdpClientService
                 // 假装 AnnexB: 00 00 00 01（起始码），足以走通解析与日志
                 pkt[8] = 0x00; pkt[9] = 0x00; pkt[10] = 0x00; pkt[11] = 0x01;
                 sender.Send(pkt, pkt.Length, target);
-#if UNITY_EDITOR
-                wmj.DebugTools.Info($"[UdpClientService] 自测包已发送到 {target}");
-                wmj.DebugTools.WriteDebugLog("[UdpClientService] 自测包已发送到 " + target, "INFO");
-#endif
-                wmj.DebugTools.WriteRunLog("[UdpClientService] 自测包已发送到 " + target, "INFO");
+                wmj.Log.I($"[UdpClientService] 自测包已发送到 {target}", wmj.Log.Tag.Network);
             }
         }
         catch (System.Exception ex)
         {
-#if UNITY_EDITOR
-            wmj.DebugTools.Warn($"[UdpClientService] 自测发送失败: {ex.Message}");
-            wmj.DebugTools.WriteDebugLog("[UdpClientService] 自测发送失败: " + ex.Message, "WARN");
-#endif
-            wmj.DebugTools.WriteRunLog("[UdpClientService] 自测发送失败: " + ex.Message, "WARN");
+            wmj.Log.W($"[UdpClientService] 自测发送失败: {ex.Message}", wmj.Log.Tag.Network);
         }
     }
 #endif
@@ -306,11 +260,9 @@ public class UdpClientService
         isReceiving = false;
         if (udpClient != null)
         {
-            wmj.DebugTools.Info("[UdpClientService] 停止UDP监听");
-            wmj.DebugTools.WriteDebugLog("[UdpClientService] 停止UDP监听", "INFO");
-            wmj.DebugTools.WriteRunLog("[UdpClientService] 停止UDP监听", "INFO");
+            wmj.Log.I("[UdpClientService] 停止UDP监听", wmj.Log.Tag.Network);
 #if UNITY_EDITOR || DIAGNOSE_UDP
-            wmj.DebugTools.Info($"[UdpClientService] ⏹️ UDP 接收已停止 (总计接收: {diagFramesReceived} 帧)");
+            wmj.Log.I($"[UdpClientService] ⏹️ UDP 接收已停止 (总计接收: {diagFramesReceived} 帧)", wmj.Log.Tag.Network);
 #endif
             udpClient.Close();
             udpClient = null;

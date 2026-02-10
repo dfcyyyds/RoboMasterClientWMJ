@@ -74,6 +74,7 @@
     <Compile Include="Assets/Scripts/Framework/Network/Handlers/AirSupportStatusSyncHandler.cs" />
     <Compile Include="Assets/Scripts/UI/Views/RobotPathPlanInfoView.cs" />
     <Compile Include="Assets/Scripts/UI/ViewModels/RobotInjuryStatViewModel.cs" />
+    <Compile Include="Assets/Utils/LogBridge.cs" />
     <Compile Include="Assets/Scripts/UI/ViewModels/GlobalLogisticsStatusViewModel.cs" />
     <Compile Include="Assets/Scripts/Framework/Network/Handlers/RobotDynamicStatusHandler.cs" />
     <Compile Include="Assets/Scripts/UI/ViewModels/PenaltyInfoViewModel.cs" />
@@ -125,6 +126,7 @@
     <Compile Include="Assets/Scripts/UI/Views/PenaltyInfoView.cs" />
     <Compile Include="Assets/Utils/ConfigLoader.cs" />
     <Compile Include="Assets/Scripts/UI/ViewModels/CustomByteBlockViewModel.cs" />
+    <Compile Include="Assets/Utils/Log.cs" />
     <Compile Include="Assets/Scripts/UI/Views/RuneStatusSyncView.cs" />
     <Compile Include="Assets/TextMesh Pro/Examples &amp; Extras/Scripts/TMP_TextInfoDebugTool.cs" />
     <Compile Include="Assets/Scripts/Framework/Boot/RuntimeTuner.cs" />

@@ -15,11 +15,7 @@ public class RobotInjuryStatHandler : IMessageHandler
         }
         catch (Exception ex)
         {
-#if UNITY_EDITOR
-            wmj.DebugTools.Error($"[RobotInjuryStatHandler] 解析失败: {ex.Message}");
-            wmj.DebugTools.Error("[RobotInjuryStatHandler] 解析失败: " + ex.Message);
-#endif
-            wmj.DebugTools.Error("[RobotInjuryStatHandler] 解析失败: " + ex.Message);
+            wmj.Log.E($"[RobotInjuryStatHandler] 解析失败: {ex.Message}", wmj.Log.Tag.Network);
         }
     }
 }

@@ -122,7 +122,7 @@ namespace UI.RobotSelection
                 Robot = SelectedRobot.Value
             };
 
-            wmj.DebugTools.Info($"[RobotSelection] 用户确认选择: {result}", wmj.DebugTools.LogCategory.UI);
+            wmj.Log.I($"[RobotSelection] 用户确认选择: {result}", wmj.Log.Tag.UI);
             SelectionCompleted?.Invoke(this, new RobotSelectionEventArgs(result));
         }
 

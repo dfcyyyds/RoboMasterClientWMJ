@@ -15,11 +15,7 @@ public class GameStatusHandler : IMessageHandler
         }
         catch (Exception ex)
         {
-#if UNITY_EDITOR
-            wmj.DebugTools.Error($"[GameStatusHandler] 解析失败: {ex.Message}");
-            wmj.DebugTools.WriteDebugLog("[GameStatusHandler] 解析失败: " + ex.Message, "ERROR");
-#endif
-            wmj.DebugTools.WriteRunLog("[GameStatusHandler] 解析失败: " + ex.Message, "ERROR");
+            wmj.Log.E($"[GameStatusHandler] 解析失败: {ex.Message}", wmj.Log.Tag.Network);
         }
     }
 }

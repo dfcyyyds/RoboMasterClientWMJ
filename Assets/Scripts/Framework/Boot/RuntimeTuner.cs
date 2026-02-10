@@ -13,30 +13,30 @@ public class RuntimeTuner : MonoBehaviour
     void Awake()
     {
         Application.runInBackground = true; // 后台仍刷新
-        
+
         // 根据 GPU 类型决定 VSync 策略：
         // - NVIDIA 高性能 GPU：关闭 VSync 追求低延迟
         // - Intel/AMD 集显：开启 VSync 避免画面撕裂
         string gpuName = SystemInfo.graphicsDeviceName.ToLowerInvariant();
         bool isNvidia = gpuName.Contains("nvidia") || gpuName.Contains("geforce") || gpuName.Contains("rtx") || gpuName.Contains("gtx");
         bool isIntelIntegrated = gpuName.Contains("intel") || gpuName.Contains("uhd") || gpuName.Contains("iris");
-        
+
         if (isNvidia)
         {
             QualitySettings.vSyncCount = 0;     // NVIDIA：关闭VSync以允许更高帧率和更低延迟
-            wmj.DebugTools.WriteRunLog("[RuntimeTuner] 检测到 NVIDIA GPU，关闭 VSync", "INFO");
+            wmj.Log.I("[RuntimeTuner] 检测到 NVIDIA GPU，关闭 VSync", wmj.Log.Tag.General);
         }
         else if (isIntelIntegrated)
         {
             QualitySettings.vSyncCount = 1;     // Intel 集显：开启VSync避免画面撕裂
-            wmj.DebugTools.WriteRunLog("[RuntimeTuner] 检测到 Intel 集显，开启 VSync 防撕裂", "INFO");
+            wmj.Log.I("[RuntimeTuner] 检测到 Intel 集显，开启 VSync 防撕裂", wmj.Log.Tag.General);
         }
         else
         {
             QualitySettings.vSyncCount = 1;     // 其他 GPU：默认开启VSync
-            wmj.DebugTools.WriteRunLog("[RuntimeTuner] 未知 GPU (" + gpuName + ")，默认开启 VSync", "INFO");
+            wmj.Log.I("[RuntimeTuner] 未知 GPU (" + gpuName + ")，默认开启 VSync", wmj.Log.Tag.General);
         }
-        
+
         int targetFps = ConfigLoader.config != null && ConfigLoader.config.targetFrameRate > 0
             ? ConfigLoader.config.targetFrameRate
             : 120;
@@ -57,7 +57,7 @@ public class RuntimeTuner : MonoBehaviour
         if (now - diagLast >= 1f)
         {
             float fps = diagFrames / (now - diagLast);
-            wmj.DebugTools.WriteRunLog("[RuntimeTuner] FPS诊断: target=" + Application.targetFrameRate + ", fps≈" + fps.ToString("F1"), "INFO");
+            wmj.Log.I("[RuntimeTuner] FPS诊断: target=" + Application.targetFrameRate + ", fps≈" + fps.ToString("F1"), wmj.Log.Tag.General);
             diagFrames = 0;
             diagLast = now;
         }
@@ -74,11 +74,11 @@ public class RuntimeTuner : MonoBehaviour
 #else
             string rr = res.refreshRate + "Hz";
 #endif
-            wmj.DebugTools.WriteRunLog(
+            wmj.Log.I(
                 "[RuntimeTuner] 环境快照: " + focus + ", " + bg + ", vSync=" + vSync +
                 ", target=" + Application.targetFrameRate + ", renderInterval=" + renderInterval +
                 ", screen=" + res.width + "x" + res.height + "@" + rr,
-                "INFO");
+                wmj.Log.Tag.General);
             snapshotLast = now;
         }
 #endif

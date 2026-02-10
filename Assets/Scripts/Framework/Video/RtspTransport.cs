@@ -64,11 +64,7 @@ namespace Framework.Video
             stdout = proc.StandardOutput.BaseStream;
             Task.Run(() => ReadStderrLoop(cts.Token));
             readerTask = Task.Run(() => ReadAnnexBLoop(cts.Token));
-#if UNITY_EDITOR
-            wmj.DebugTools.Info("[RtspTransport] 启动 ffmpeg RTSP 拉流: " + rtspUrl);
-            wmj.DebugTools.WriteDebugLog("[RtspTransport] 启动 ffmpeg RTSP 拉流: " + rtspUrl, "INFO");
-#endif
-            wmj.DebugTools.WriteRunLog("[RtspTransport] 启动 ffmpeg RTSP 拉流", "INFO");
+            wmj.Log.I("[RtspTransport] 启动 ffmpeg RTSP 拉流: " + rtspUrl, wmj.Log.Tag.Video);
         }
 
         public void Stop()
@@ -86,11 +82,7 @@ namespace Framework.Video
                 proc?.Dispose();
             }
             catch { }
-#if UNITY_EDITOR
-            wmj.DebugTools.Info("[RtspTransport] 停止 RTSP 传输");
-            wmj.DebugTools.WriteDebugLog("[RtspTransport] 停止 RTSP 传输", "INFO");
-#endif
-            wmj.DebugTools.WriteRunLog("[RtspTransport] 停止 RTSP 传输", "INFO");
+            wmj.Log.I("[RtspTransport] 停止 RTSP 传输", wmj.Log.Tag.Video);
         }
 
         private void ReadAnnexBLoop(CancellationToken token)
@@ -148,10 +140,7 @@ namespace Framework.Video
                         {
                             var annexB = frame.ToArray();
                             frame.Clear();
-#if UNITY_EDITOR
-                            wmj.DebugTools.WriteDebugLog("[RtspTransport] 组帧完成并上抛: bytes=" + annexB.Length, "INFO");
-#endif
-                            wmj.DebugTools.WriteRunLog("[RtspTransport] 组帧完成并上抛: bytes=" + annexB.Length, "INFO");
+                            wmj.Log.I("[RtspTransport] 组帧完成并上抛: bytes=" + annexB.Length, wmj.Log.Tag.Video);
                             OnAnnexBFrame?.Invoke(annexB);
                         }
 
@@ -174,7 +163,7 @@ namespace Framework.Video
                         pending.Clear();
                         var annexB = frame.ToArray();
                         frame.Clear();
-                        wmj.DebugTools.WriteRunLog("[RtspTransport] 兜底分帧: bytes=" + annexB.Length, "WARN");
+                        wmj.Log.W("[RtspTransport] 兆底分帧: bytes=" + annexB.Length, wmj.Log.Tag.Video);
                         OnAnnexBFrame?.Invoke(annexB);
                     }
                 }
@@ -184,7 +173,7 @@ namespace Framework.Video
                 }
                 catch (Exception ex)
                 {
-                    wmj.DebugTools.WriteRunLog("[RtspTransport] 读取/分帧异常: " + ex.Message, "WARN");
+                    wmj.Log.W("[RtspTransport] 读取/分帧异常: " + ex.Message, wmj.Log.Tag.Video);
                 }
             }
         }
@@ -198,13 +187,13 @@ namespace Framework.Video
                     string line;
                     while (!token.IsCancellationRequested && (line = sr.ReadLine()) != null)
                     {
-                        wmj.DebugTools.WriteRunLog("[RtspTransport][stderr] " + line, "WARN");
+                        wmj.Log.W("[RtspTransport][stderr] " + line, wmj.Log.Tag.Video);
                     }
                 }
             }
             catch (Exception ex)
             {
-                wmj.DebugTools.WriteRunLog("[RtspTransport] 读取stderr异常: " + ex.Message, "WARN");
+                wmj.Log.W("[RtspTransport] 读取stderr异常: " + ex.Message, wmj.Log.Tag.Video);
             }
         }
 

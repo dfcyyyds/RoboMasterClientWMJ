@@ -15,11 +15,7 @@ public class PenaltyInfoHandler : IMessageHandler
         }
         catch (Exception ex)
         {
-#if UNITY_EDITOR
-            wmj.DebugTools.Error($"[PenaltyInfoHandler] 解析失败: {ex.Message}");
-            wmj.DebugTools.Error("[PenaltyInfoHandler] 解析失败: " + ex.Message);
-#endif
-            wmj.DebugTools.Error("[PenaltyInfoHandler] 解析失败: " + ex.Message);
+            wmj.Log.E($"[PenaltyInfoHandler] 解析失败: {ex.Message}", wmj.Log.Tag.Network);
         }
     }
 }

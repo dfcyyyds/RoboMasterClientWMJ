@@ -15,11 +15,7 @@ public class RobotPathPlanInfoHandler : IMessageHandler
         }
         catch (Exception ex)
         {
-#if UNITY_EDITOR
-            wmj.DebugTools.Error($"[RobotPathPlanInfoHandler] 解析失败: {ex.Message}");
-            wmj.DebugTools.WriteDebugLog("[RobotPathPlanInfoHandler] 解析失败: " + ex.Message, "ERROR");
-#endif
-            wmj.DebugTools.WriteRunLog("[RobotPathPlanInfoHandler] 解析失败: " + ex.Message, "ERROR");
+            wmj.Log.E($"[RobotPathPlanInfoHandler] 解析失败: {ex.Message}", wmj.Log.Tag.Network);
         }
     }
 }

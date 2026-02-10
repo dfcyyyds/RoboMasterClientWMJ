@@ -102,7 +102,7 @@ namespace Framework.Boot
             if (overrideResult != null)
             {
                 _cachedResult = overrideResult;
-                wmj.DebugTools.Warn("[HardwareDetection] 使用覆盖配置: " + overrideResult.ToString(), wmj.DebugTools.LogCategory.General);
+                wmj.Log.W("[HardwareDetection] 使用覆盖配置: " + overrideResult.ToString(), wmj.Log.Tag.General);
                 return overrideResult;
             }
 
@@ -134,7 +134,7 @@ namespace Framework.Boot
             _cachedResult = result;
 
             // 输出探测结果
-            wmj.DebugTools.Info(result.ToString(), wmj.DebugTools.LogCategory.General);
+            wmj.Log.I(result.ToString(), wmj.Log.Tag.General);
 
             return result;
         }
@@ -407,7 +407,7 @@ namespace Framework.Boot
                 if (config == null || !config.enabled)
                     return null;
 
-                wmj.DebugTools.Warn("[HardwareDetection] 检测到硬件覆盖配置，将模拟: " + config.forceLevel + " 等级", wmj.DebugTools.LogCategory.General);
+                wmj.Log.W("[HardwareDetection] 检测到硬件覆盖配置，将模拟: " + config.forceLevel + " 等级", wmj.Log.Tag.General);
 
                 var result = new DetectionResult();
 
@@ -442,7 +442,7 @@ namespace Framework.Boot
             }
             catch (Exception ex)
             {
-                wmj.DebugTools.Error("[HardwareDetection] 加载覆盖配置失败: " + ex.Message, wmj.DebugTools.LogCategory.General);
+                wmj.Log.E("[HardwareDetection] 加载覆盖配置失败: " + ex.Message, wmj.Log.Tag.General);
                 return null;
             }
         }

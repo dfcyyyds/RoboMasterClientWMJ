@@ -32,11 +32,7 @@ public class MessageDispatcher
             // 窗口切换，输出上一窗口抑制摘要
             if (s.Suppressed > 0)
             {
-#if UNITY_EDITOR
-                wmj.DebugTools.Warn($"[MessageDispatcher] 日志节流: topic={topic}, 上一秒抑制={s.Suppressed}", wmj.DebugTools.LogCategory.Network);
-                wmj.DebugTools.WriteDebugLog("[MessageDispatcher] 日志节流: topic=" + topic + ", 上一秒抑制=" + s.Suppressed, "WARN");
-#endif
-                wmj.DebugTools.WriteRunLog("[MessageDispatcher] 日志节流: topic=" + topic + ", 上一秒抑制=" + s.Suppressed, "WARN");
+                wmj.Log.W($"[MessageDispatcher] 日志节流: topic={topic}, 上一秒抑制={s.Suppressed}", wmj.Log.Tag.Network);
             }
             s.WindowStartMs = now;
             s.Count = 0;
@@ -58,22 +54,10 @@ public class MessageDispatcher
     {
         bool replaced = handlers.ContainsKey(topic);
         handlers[topic] = handler;
-#if UNITY_EDITOR
         if (replaced)
-        {
-            wmj.DebugTools.Info($"[MessageDispatcher] 处理器覆盖: topic={topic}, handler={handler?.GetType().Name}", wmj.DebugTools.LogCategory.Network);
-            wmj.DebugTools.WriteDebugLog("[MessageDispatcher] 处理器覆盖: topic=" + topic + ", handler=" + handler?.GetType().Name, "INFO");
-        }
+            wmj.Log.I($"[MessageDispatcher] 处理器覆盖: topic={topic}, handler={handler?.GetType().Name}", wmj.Log.Tag.Network);
         else
-        {
-            wmj.DebugTools.Info($"[MessageDispatcher] 注册处理器: topic={topic}, handler={handler?.GetType().Name}", wmj.DebugTools.LogCategory.Network);
-            wmj.DebugTools.WriteDebugLog("[MessageDispatcher] 注册处理器: topic=" + topic + ", handler=" + handler?.GetType().Name, "INFO");
-        }
-#endif
-        if (replaced)
-            wmj.DebugTools.WriteRunLog("[MessageDispatcher] 处理器覆盖: topic=" + topic + ", handler=" + handler?.GetType().Name, "INFO");
-        else
-            wmj.DebugTools.WriteRunLog("[MessageDispatcher] 注册处理器: topic=" + topic + ", handler=" + handler?.GetType().Name, "INFO");
+            wmj.Log.I($"[MessageDispatcher] 注册处理器: topic={topic}, handler={handler?.GetType().Name}", wmj.Log.Tag.Network);
     }
 
     /// <summary>
@@ -84,19 +68,11 @@ public class MessageDispatcher
         if (handlers.ContainsKey(topic))
         {
             handlers.Remove(topic);
-#if UNITY_EDITOR
-            wmj.DebugTools.Info($"[MessageDispatcher] 注销处理器: topic={topic}");
-            wmj.DebugTools.WriteDebugLog("[MessageDispatcher] 注销处理器: topic=" + topic, "INFO");
-#endif
-            wmj.DebugTools.WriteRunLog("[MessageDispatcher] 注销处理器: topic=" + topic, "INFO");
+            wmj.Log.I($"[MessageDispatcher] 注销处理器: topic={topic}", wmj.Log.Tag.Network);
         }
         else
         {
-#if UNITY_EDITOR
-            wmj.DebugTools.Warn($"[MessageDispatcher] 注销处理器失败，未找到: topic={topic}");
-            wmj.DebugTools.WriteDebugLog("[MessageDispatcher] 注销处理器失败，未找到: topic=" + topic, "WARN");
-#endif
-            wmj.DebugTools.WriteRunLog("[MessageDispatcher] 注销处理器失败，未找到: topic=" + topic, "WARN");
+            wmj.Log.W($"[MessageDispatcher] 注销处理器失败，未找到: topic={topic}", wmj.Log.Tag.Network);
         }
     }
 
@@ -119,11 +95,7 @@ public class MessageDispatcher
         {
             if (ShouldLog(topic))
             {
-#if UNITY_EDITOR
-                wmj.DebugTools.Info($"[MessageDispatcher] 分发消息: topic={topic}, len={payload.Count}", wmj.DebugTools.LogCategory.Network);
-                wmj.DebugTools.WriteDebugLog("[MessageDispatcher] 分发消息: topic=" + topic + ", len=" + payload.Count, "INFO");
-#endif
-                wmj.DebugTools.WriteRunLog("[MessageDispatcher] 分发消息: topic=" + topic + ", len=" + payload.Count, "INFO");
+                wmj.Log.D($"[MessageDispatcher] 分发消息: topic={topic}, len={payload.Count}", wmj.Log.Tag.Network);
             }
 
             if (handler is IMessageSegmentHandler segHandler)
@@ -142,11 +114,7 @@ public class MessageDispatcher
         {
             if (ShouldLog(topic))
             {
-#if UNITY_EDITOR
-                wmj.DebugTools.Warn($"[MessageDispatcher] 未找到处理器，丢弃消息: topic={topic}, len={payload.Count}", wmj.DebugTools.LogCategory.Network);
-                wmj.DebugTools.WriteDebugLog("[MessageDispatcher] 未找到处理器，丢弃消息: topic=" + topic + ", len=" + payload.Count, "WARN");
-#endif
-                wmj.DebugTools.WriteRunLog("[MessageDispatcher] 未找到处理器，丢弃消息: topic=" + topic + ", len=" + payload.Count, "WARN");
+                wmj.Log.W($"[MessageDispatcher] 未找到处理器，丢弃消息: topic={topic}, len={payload.Count}", wmj.Log.Tag.Network);
             }
         }
     }

@@ -15,11 +15,7 @@ public class AirSupportStatusSyncHandler : IMessageHandler
         }
         catch (Exception ex)
         {
-#if UNITY_EDITOR
-            wmj.DebugTools.Error($"[AirSupportStatusSyncHandler] 解析失败: {ex.Message}");
-            wmj.DebugTools.Error("[AirSupportStatusSyncHandler] 解析失败: " + ex.Message);
-#endif
-            wmj.DebugTools.Error("[AirSupportStatusSyncHandler] 解析失败: " + ex.Message);
+            wmj.Log.E($"[AirSupportStatusSyncHandler] 解析失败: {ex.Message}", wmj.Log.Tag.Network);
         }
     }
 }

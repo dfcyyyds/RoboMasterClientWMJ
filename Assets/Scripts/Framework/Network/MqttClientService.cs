@@ -34,11 +34,7 @@ public class MqttClientService
         clientId = Guid.NewGuid().ToString();
         TryConnect();
         NetworkManager.Instance.StartCoroutine(ReconnectRoutine());
-#if UNITY_EDITOR
-        wmj.DebugTools.Info($"[MqttClientService] 当前重连间隔: {reconnectInterval}s (由参数系统ConfigLoader.config.mqttReconnectInterval控制)", wmj.DebugTools.LogCategory.Network);
-        wmj.DebugTools.WriteDebugLog("[MqttClientService] 当前重连间隔: " + reconnectInterval + "s (由参数系统ConfigLoader.config.mqttReconnectInterval控制)","INFO");
-#endif
-        wmj.DebugTools.WriteRunLog("[MqttClientService] 当前重连间隔: " + reconnectInterval + "s (由参数系统ConfigLoader.config.mqttReconnectInterval控制)", "INFO");
+        wmj.Log.I($"[MqttClientService] 当前重连间隔: {reconnectInterval}s (由参数系统ConfigLoader.config.mqttReconnectInterval控制)", wmj.Log.Tag.Network);
     }
 
     private void TryConnect()
@@ -48,22 +44,14 @@ public class MqttClientService
         // 否则尝试连接
         try
         {
-#if UNITY_EDITOR
-            wmj.DebugTools.Debug("[MqttClientService] 尝试连接MQTT...", wmj.DebugTools.LogCategory.Network);
-            wmj.DebugTools.WriteDebugLog("[MqttClientService] 尝试连接MQTT...","DEBUG");
-#endif
-            wmj.DebugTools.WriteRunLog("[MqttClientService] 尝试连接MQTT...", "DEBUG");
+            wmj.Log.D("[MqttClientService] 尝试连接MQTT...", wmj.Log.Tag.Network);
             // 以明文（非加密）方式连接指定IP和端口的MQTT服务器，不使用证书
             client = new MqttClient(brokerIp, brokerPort, false, null, null, MqttSslProtocols.None);
 
             // 为MQTT客户端注册消息接收回调，当MQTT客户端收到任意主题的消息时，自动执行大括号内的代码
             client.MqttMsgPublishReceived += (sender, e) =>
             {
-#if UNITY_EDITOR
-                wmj.DebugTools.Info($"[MqttClientService] 收到消息: Topic={e.Topic}, Length={e.Message.Length}", wmj.DebugTools.LogCategory.Network);
-                wmj.DebugTools.WriteDebugLog("[MqttClientService] 收到消息: Topic=" + e.Topic + ", Length=" + e.Message.Length,"INFO");
-#endif
-                wmj.DebugTools.WriteRunLog("[MqttClientService] 收到消息: Topic=" + e.Topic + ", Length=" + e.Message.Length, "INFO");
+                wmj.Log.I($"[MqttClientService] 收到消息: Topic={e.Topic}, Length={e.Message.Length}", wmj.Log.Tag.Network);
                 // 自定义消息接收事件
                 OnMessageReceived?.Invoke(e.Topic, e.Message);
             };
@@ -71,22 +59,14 @@ public class MqttClientService
             // 为MQTT客户端注册断线回调，当MQTT连接断开时，自动执行大括号内的代码
             client.ConnectionClosed += (sender, e) =>
             {
-#if UNITY_EDITOR
-                wmj.DebugTools.Fatal("[MqttClientService] MQTT连接断开");
-                wmj.DebugTools.WriteDebugLog("[MqttClientService] MQTT连接断开","FATAL");
-#endif
-                wmj.DebugTools.WriteRunLog("[MqttClientService] MQTT连接断开", "FATAL");
+                wmj.Log.F("[MqttClientService] MQTT连接断开", wmj.Log.Tag.Network);
                 // 自定义连接断开事件
                 OnDisconnected?.Invoke();
             };
 
             // 绑定本客户端ID
             client.Connect(clientId);
-#if UNITY_EDITOR
-            wmj.DebugTools.Info("[MqttClientService] MQTT连接成功", wmj.DebugTools.LogCategory.Network);
-            wmj.DebugTools.WriteDebugLog("[MqttClientService] MQTT连接成功","INFO");
-#endif
-            wmj.DebugTools.WriteRunLog("[MqttClientService] MQTT连接成功", "INFO");
+            wmj.Log.I("[MqttClientService] MQTT连接成功", wmj.Log.Tag.Network);
             // 自定义连接成功事件
             OnConnected?.Invoke();
 
@@ -95,33 +75,21 @@ public class MqttClientService
             {
                 foreach (var kvp in subscriptions)
                 {
-#if UNITY_EDITOR
-                    wmj.DebugTools.Info($"[MqttClientService] 重连/连接后自动订阅: {kvp.Key}, QoS={kvp.Value}", wmj.DebugTools.LogCategory.Network);
-                    wmj.DebugTools.WriteDebugLog($"[MqttClientService] 重连/连接后自动订阅: {kvp.Key}, QoS={kvp.Value}","INFO");
-#endif
-                    wmj.DebugTools.WriteRunLog($"[MqttClientService] 重连/连接后自动订阅: {kvp.Key}, QoS={kvp.Value}", "INFO");
+                    wmj.Log.I($"[MqttClientService] 重连/连接后自动订阅: {kvp.Key}, QoS={kvp.Value}", wmj.Log.Tag.Network);
                     try
                     {
                         client.Subscribe(new string[] { kvp.Key }, new byte[] { kvp.Value });
                     }
                     catch (Exception subEx)
                     {
-#if UNITY_EDITOR
-                        wmj.DebugTools.Warn($"[MqttClientService] 自动订阅失败: {kvp.Key}, {subEx.Message}", wmj.DebugTools.LogCategory.Network);
-                        wmj.DebugTools.WriteDebugLog($"[MqttClientService] 自动订阅失败: {kvp.Key}, {subEx.Message}","WARN");
-#endif
-                        wmj.DebugTools.WriteRunLog($"[MqttClientService] 自动订阅失败: {kvp.Key}, {subEx.Message}", "WARN");
+                        wmj.Log.W($"[MqttClientService] 自动订阅失败: {kvp.Key}, {subEx.Message}", wmj.Log.Tag.Network);
                     }
                 }
             }
         }
         catch (Exception ex)
         {
-#if UNITY_EDITOR
-            wmj.DebugTools.Error($"[MqttClientService] 连接失败: {ex.Message}", wmj.DebugTools.LogCategory.Network);
-            wmj.DebugTools.WriteDebugLog("[MqttClientService] 连接失败: " + ex.Message,"FATAL");
-#endif
-            wmj.DebugTools.WriteRunLog("[MqttClientService] 连接失败: " + ex.Message, "FATAL");
+            wmj.Log.F($"[MqttClientService] 连接失败: {ex.Message}", wmj.Log.Tag.Network);
         }
     }
 
@@ -171,11 +139,7 @@ public class MqttClientService
                 var payload = item.Value.Payload;
                 if (client != null && client.IsConnected)
                 {
-#if UNITY_EDITOR
-                    wmj.DebugTools.Info($"[MqttClientService] 发布消息: Topic={topic}, Length={payload?.Length}", wmj.DebugTools.LogCategory.Network);
-                    wmj.DebugTools.WriteDebugLog("[MqttClientService] 发布消息: Topic=" + topic + ", Length=" + payload?.Length,"INFO");
-#endif
-                    wmj.DebugTools.WriteRunLog("[MqttClientService] 发布消息: Topic=" + topic + ", Length=" + payload?.Length, "INFO");
+                    wmj.Log.I($"[MqttClientService] 发布消息: Topic={topic}, Length={payload?.Length}", wmj.Log.Tag.Network);
                     client.Publish(topic, payload);
                 }
                 yield return null; // 逐帧发送，防止阻塞
@@ -193,11 +157,7 @@ public class MqttClientService
     {
         if (client != null && client.IsConnected)
             client.Disconnect();
-#if UNITY_EDITOR
-        wmj.DebugTools.Info("[MqttClientService] 断开连接", wmj.DebugTools.LogCategory.Network);
-        wmj.DebugTools.WriteDebugLog("[MqttClientService] 断开连接","INFO");
-#endif
-        wmj.DebugTools.WriteRunLog("[MqttClientService] 断开连接", "INFO");
+        wmj.Log.I("[MqttClientService] 断开连接", wmj.Log.Tag.Network);
     }
 
     // 订阅指定主题
@@ -207,11 +167,7 @@ public class MqttClientService
         subscriptions[topic] = qos;
         if (client != null && client.IsConnected)
         {
-#if UNITY_EDITOR
-            wmj.DebugTools.Info($"[MqttClientService] 订阅主题: {topic}, QoS={qos}", wmj.DebugTools.LogCategory.Network);
-            wmj.DebugTools.WriteDebugLog($"[MqttClientService] 订阅主题: {topic}, QoS={qos}","INFO");
-#endif
-            wmj.DebugTools.WriteRunLog($"[MqttClientService] 订阅主题: {topic}, QoS={qos}", "INFO");
+            wmj.Log.I($"[MqttClientService] 订阅主题: {topic}, QoS={qos}", wmj.Log.Tag.Network);
             client.Subscribe(new string[] { topic }, new byte[] { qos });
         }
     }
@@ -223,11 +179,7 @@ public class MqttClientService
         if (subscriptions.ContainsKey(topic)) subscriptions.Remove(topic);
         if (client != null && client.IsConnected)
         {
-#if UNITY_EDITOR
-            wmj.DebugTools.Info($"[MqttClientService] 退订主题: {topic}", wmj.DebugTools.LogCategory.Network);
-            wmj.DebugTools.WriteDebugLog($"[MqttClientService] 退订主题: {topic}","INFO");
-#endif
-            wmj.DebugTools.WriteRunLog($"[MqttClientService] 退订主题: {topic}", "INFO");
+            wmj.Log.I($"[MqttClientService] 退订主题: {topic}", wmj.Log.Tag.Network);
             client.Unsubscribe(new string[] { topic });
         }
     }

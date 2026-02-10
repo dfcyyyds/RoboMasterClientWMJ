@@ -3,7 +3,6 @@ using System.Buffers;
 using System.Collections.Generic;
 using System.IO;
 using UnityEngine;
-using Framework.Utils;
 
 namespace Framework.Video
 {
@@ -17,7 +16,7 @@ namespace Framework.Video
             public int ActualLength;
             public bool IsPooled;
         }
-        
+
         private class FrameBuffer
         {
             public ushort FrameId;
@@ -26,7 +25,7 @@ namespace Framework.Video
             public int ReceivedBytes;
             public float LastUpdateTime;
             public float TimeoutSec;
-            
+
             /// <summary>归还所有分片到ArrayPool</summary>
             public void ReturnSlicesToPool()
             {
@@ -51,8 +50,11 @@ namespace Framework.Video
         // 可复用MemoryStream，避免每次组帧分配新的（容量自动增长）
         private readonly MemoryStream assembleStream = new MemoryStream(512 * 1024); // 初始512KB
         // 已输出帧号追踪：防止输出比已输出帧更旧的帧（帧回退）
+        // 暂时禁用帧回退防护以排查问题，保留字段供后续恢复
         private ushort lastOutputFrameId = 0;
+#pragma warning disable CS0414
         private bool hasOutputFrame = false;
+#pragma warning restore CS0414
 
         public AnnexBFrameAssembler(float timeoutSec = 0.1f, int maxBufferedFrames = 8, bool verbose = false, float bytesPerSecForTimeout = 800000f)
         {
@@ -67,7 +69,7 @@ namespace Framework.Video
         {
             // 清理超时/过旧帧
             CleanupOldFrames();
-            
+
             // 注意：暂时禁用帧回退防护以排查问题
             // 快速拒绝过时帧的分片（帧号比已输出帧更旧）
             // if (hasOutputFrame && !IsFrameNewer(slice.FrameId, lastOutputFrameId))
@@ -88,49 +90,28 @@ namespace Framework.Video
                 };
                 buffers[slice.FrameId] = fb;
                 if (verbose)
-                    DebugLog.Transport($"[AnnexBFrameAssembler] 新建帧缓冲: frame={slice.FrameId}, expected={slice.FrameLength}");
-#if UNITY_EDITOR
-                if (verbose)
-                {
-                    wmj.DebugTools.Info($"[AnnexBFrameAssembler] 新建帧缓冲: frame={slice.FrameId}, expected={slice.FrameLength}", wmj.DebugTools.LogCategory.Video);
-                    wmj.DebugTools.WriteDebugLog("[AnnexBFrameAssembler] 新建帧缓冲: frame=" + slice.FrameId + ", expected=" + slice.FrameLength, "DEBUG");
-                }
-#endif
-                if (verbose)
-                    wmj.DebugTools.WriteRunLog("[AnnexBFrameAssembler] 新建帧缓冲: frame=" + slice.FrameId + ", expected=" + slice.FrameLength, "DEBUG");
+                    wmj.Log.D($"[AnnexBFrameAssembler] 新建帧缓冲: frame={slice.FrameId}, expected={slice.FrameLength}", wmj.Log.Tag.Decoder);
             }
 
             // 若重复分片则忽略（归还重复的NALU到池）
             if (fb.Slices.ContainsKey(slice.SliceId))
             {
-                DebugLog.TransportWarning($"[AnnexBFrameAssembler] 重复分片忽略: frame={slice.FrameId}, slice={slice.SliceId}");
-#if UNITY_EDITOR
-                wmj.DebugTools.Warn($"[AnnexBFrameAssembler] 重复分片忽略: frame={slice.FrameId}, slice={slice.SliceId}", wmj.DebugTools.LogCategory.Video);
-                wmj.DebugTools.WriteDebugLog("[AnnexBFrameAssembler] 重复分片忽略: frame=" + slice.FrameId + ", slice=" + slice.SliceId, "WARN");
-#endif
-                wmj.DebugTools.WriteRunLog("[AnnexBFrameAssembler] 重复分片忽略: frame=" + slice.FrameId + ", slice=" + slice.SliceId, "WARN");
+                wmj.Log.W($"[AnnexBFrameAssembler] 重复分片忽略: frame={slice.FrameId}, slice={slice.SliceId}", wmj.Log.Tag.Decoder);
                 slice.ReturnNaluToPool(); // 归还重复分片的NALU
                 return;
             }
             // 存储分片数据及其元信息
             int actualLen = slice.NaluActualLength > 0 ? slice.NaluActualLength : (slice.Nalu?.Length ?? 0);
-            fb.Slices[slice.SliceId] = new SliceData 
-            { 
-                Data = slice.Nalu ?? Array.Empty<byte>(), 
+            fb.Slices[slice.SliceId] = new SliceData
+            {
+                Data = slice.Nalu ?? Array.Empty<byte>(),
                 ActualLength = actualLen,
-                IsPooled = slice.IsPooled 
+                IsPooled = slice.IsPooled
             };
             fb.ReceivedBytes += actualLen;
             fb.LastUpdateTime = Time.realtimeSinceStartup;
             if (verbose)
-                DebugLog.Transport($"[AnnexBFrameAssembler] 收片: frame={slice.FrameId}, slice={slice.SliceId}, recv={fb.ReceivedBytes}/{fb.ExpectedLength}, partLen={slice.Nalu?.Length}");
-#if UNITY_EDITOR
-            if (verbose)
-            {
-                wmj.DebugTools.Info($"[AnnexBFrameAssembler] 收片: frame={slice.FrameId}, slice={slice.SliceId}, recv={fb.ReceivedBytes}/{fb.ExpectedLength}, partLen={slice.Nalu?.Length}", wmj.DebugTools.LogCategory.Video);
-                wmj.DebugTools.WriteDebugLog("[AnnexBFrameAssembler] 收片: frame=" + slice.FrameId + ", slice=" + slice.SliceId + ", recv=" + fb.ReceivedBytes + "/" + fb.ExpectedLength + ", partLen=" + (slice.Nalu?.Length ?? 0), "INFO");
-            }
-#endif
+                wmj.Log.D($"[AnnexBFrameAssembler] 收片: frame={slice.FrameId}, slice={slice.SliceId}, recv={fb.ReceivedBytes}/{fb.ExpectedLength}, partLen={slice.Nalu?.Length}", wmj.Log.Tag.Decoder);
         }
 
         /// 是否存在完整帧可取
@@ -138,29 +119,24 @@ namespace Framework.Video
         {
             frameId = 0;
             annexB = null;
-            
+
             // 收集所有完整帧，找出帧号最小的那个（但必须比已输出帧更新）
             ushort? readyId = null;
             ushort minFrameId = ushort.MaxValue;
             tempRemoveList.Clear(); // 复用预分配List
-            
+
             foreach (var kv in buffers)
             {
                 var fb = kv.Value;
-                
+
                 // 若收到超出长度（错帧），标记移除
                 if (fb.ReceivedBytes > fb.ExpectedLength && fb.ExpectedLength > 0)
                 {
-                    DebugLog.TransportWarning($"[AnnexBFrameAssembler] 错帧丢弃: frame={fb.FrameId}, recv={fb.ReceivedBytes} > expected={fb.ExpectedLength}");
-#if UNITY_EDITOR
-                    wmj.DebugTools.Warn($"[AnnexBFrameAssembler] 错帧丢弃: frame={fb.FrameId}, recv={fb.ReceivedBytes} > expected={fb.ExpectedLength}", wmj.DebugTools.LogCategory.Video);
-                    wmj.DebugTools.WriteDebugLog("[AnnexBFrameAssembler] 错帧丢弃: frame=" + fb.FrameId + ", recv=" + fb.ReceivedBytes + " > expected=" + fb.ExpectedLength, "WARN");
-#endif
-                    wmj.DebugTools.WriteRunLog("[AnnexBFrameAssembler] 错帧丢弃: frame=" + fb.FrameId + ", recv=" + fb.ReceivedBytes + " > expected=" + fb.ExpectedLength, "WARN");
+                    wmj.Log.W($"[AnnexBFrameAssembler] 错帧丢弃: frame={fb.FrameId}, recv={fb.ReceivedBytes} > expected={fb.ExpectedLength}", wmj.Log.Tag.Decoder);
                     tempRemoveList.Add(fb.FrameId);
                     continue;
                 }
-                
+
                 // 注意：暂时禁用帧回退防护以排查问题
                 // 跳过已输出过的过时帧（防止帧回退）
                 // if (hasOutputFrame && !IsFrameNewer(fb.FrameId, lastOutputFrameId))
@@ -169,7 +145,7 @@ namespace Framework.Video
                 //     tempRemoveList.Add(fb.FrameId);
                 //     continue;
                 // }
-                
+
                 // 检查是否完整，并找最小帧号
                 if (fb.ReceivedBytes == fb.ExpectedLength && fb.ExpectedLength > 0)
                 {
@@ -181,7 +157,7 @@ namespace Framework.Video
                     }
                 }
             }
-            
+
             // 移除错帧和过时帧并归还其NALU到池
             foreach (var id in tempRemoveList)
             {
@@ -191,7 +167,7 @@ namespace Framework.Video
                     buffers.Remove(id);
                 }
             }
-            
+
             if (readyId.HasValue)
             {
                 var fb = buffers[readyId.Value];
@@ -205,31 +181,22 @@ namespace Framework.Video
                 }
                 frameId = fb.FrameId;
                 annexB = assembleStream.ToArray(); // 仍需分配输出数组（解码器需要独立副本）
-                
+
                 // 更新已输出帧号追踪（防止后续输出更旧的帧）
                 lastOutputFrameId = frameId;
                 hasOutputFrame = true;
-                
+
                 // 归还分片NALU到池后移除帧缓冲
                 fb.ReturnSlicesToPool();
                 buffers.Remove(fb.FrameId);
-                
+
                 if (verbose)
-                    DebugLog.Transport($"[AnnexBFrameAssembler] 组帧完成: frame={frameId}, bytes={annexB.Length}");
-#if UNITY_EDITOR
-                if (verbose)
-                {
-                    wmj.DebugTools.Info($"[AnnexBFrameAssembler] 组帧完成: frame={frameId}, bytes={annexB.Length}", wmj.DebugTools.LogCategory.Video);
-                    wmj.DebugTools.WriteDebugLog("[AnnexBFrameAssembler] 组帧完成: frame=" + frameId + ", bytes=" + annexB.Length, "INFO");
-                }
-#endif
-                if (verbose)
-                    wmj.DebugTools.WriteRunLog("[AnnexBFrameAssembler] 组帧完成: frame=" + frameId + ", bytes=" + annexB.Length, "INFO");
+                    wmj.Log.D($"[AnnexBFrameAssembler] 组帧完成: frame={frameId}, bytes={annexB.Length}", wmj.Log.Tag.Decoder);
                 return true;
             }
             return false;
         }
-        
+
         /// <summary>
         /// 带回绕的帧号比较：判断 frameA 是否比 frameB 更新（更大）
         /// 处理 ushort 从 65535 回绕到 0 的情况
@@ -257,12 +224,7 @@ namespace Framework.Video
             }
             foreach (var id in tempRemoveList)
             {
-                DebugLog.TransportWarning($"[AnnexBFrameAssembler] 缓冲超时移除: frame={id}");
-#if UNITY_EDITOR
-                wmj.DebugTools.Warn($"[AnnexBFrameAssembler] 缓冲超时移除: frame={id}");
-                wmj.DebugTools.WriteDebugLog("[AnnexBFrameAssembler] 缓冲超时移除: frame=" + id, "WARN");
-#endif
-                wmj.DebugTools.WriteRunLog("[AnnexBFrameAssembler] 缓冲超时移除: frame=" + id, "WARN");
+                wmj.Log.W($"[AnnexBFrameAssembler] 缓冲超时移除: frame={id}", wmj.Log.Tag.Decoder);
                 // 归还NALU到池后移除
                 if (buffers.TryGetValue(id, out var removeFb))
                 {
@@ -281,12 +243,7 @@ namespace Framework.Video
                 }
                 foreach (var id in tempRemoveList)
                 {
-                    DebugLog.TransportWarning($"[AnnexBFrameAssembler] 缓冲溢出裁剪: 移除 frame={id} (count={buffers.Count})");
-#if UNITY_EDITOR
-                    wmj.DebugTools.Warn($"[AnnexBFrameAssembler] 缓冲溢出裁剪: 移除 frame={id} (count={buffers.Count})");
-                    wmj.DebugTools.WriteDebugLog("[AnnexBFrameAssembler] 缓冲溢出裁剪: 移除 frame=" + id + " (count=" + buffers.Count + ")", "WARN");
-#endif
-                    wmj.DebugTools.WriteRunLog("[AnnexBFrameAssembler] 缓冲溢出裁剪: 移除 frame=" + id + " (count=" + buffers.Count + ")", "WARN");
+                    wmj.Log.W($"[AnnexBFrameAssembler] 缓冲溢出裁剪: 移除 frame={id} (count={buffers.Count})", wmj.Log.Tag.Decoder);
                     if (buffers.TryGetValue(id, out var overflowFb))
                     {
                         overflowFb.ReturnSlicesToPool();

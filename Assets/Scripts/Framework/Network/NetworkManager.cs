@@ -3,7 +3,6 @@ using System;
 using System.Collections.Generic;
 using uPLibrary.Networking.M2Mqtt;
 using uPLibrary.Networking.M2Mqtt.Messages;
-using Framework.Utils;
 
 /// 网络管理器，负责管理MQTT和UDP服务及消息分发
 public class NetworkManager : MonoBehaviour
@@ -43,32 +42,17 @@ public class NetworkManager : MonoBehaviour
             {
                 int oldLimit = currentQueueLimit;
                 currentQueueLimit = Math.Min(currentQueueLimit * 2, maxQueueLimit);
-#if UNITY_EDITOR
-                DebugLog.Network($"消息队列拥塞，触发自动扩容: {oldLimit} -> {currentQueueLimit}");
-                wmj.DebugTools.Info($"消息队列拥塞，触发自动扩容: {oldLimit} -> {currentQueueLimit}");
-                wmj.DebugTools.WriteDebugLog("消息队列拥塞，触发自动扩容: " + oldLimit + " -> " + currentQueueLimit,"INFO");
-#endif
-                wmj.DebugTools.WriteRunLog("消息队列拥塞，触发自动扩容: " + oldLimit + " -> " + currentQueueLimit, "INFO");
+                wmj.Log.I($"消息队列拥塞，触发自动扩容: {oldLimit} -> {currentQueueLimit}", wmj.Log.Tag.Network);
             }
             if (messageSendQueue.Count >= currentQueueLimit)
             {
                 var removed = messageSendQueue.Dequeue();
-#if UNITY_EDITOR
-                DebugLog.NetworkWarning($"消息发送队列已达上限 ({currentQueueLimit})，丢弃最早消息（长度: {removed?.Length}）");
-                wmj.DebugTools.Error($"消息发送队列已达上限 ({currentQueueLimit})，丢弃最早消息（长度: {removed?.Length}）");
-                wmj.DebugTools.WriteDebugLog("消息发送队列已达上限 (" + currentQueueLimit + ")，丢弃最早消息（长度: " + removed?.Length + "）","ERROR");
-#endif
-                wmj.DebugTools.WriteRunLog("消息发送队列已达上限 (" + currentQueueLimit + ")，丢弃最早消息（长度: " + removed?.Length + "）", "ERROR");
+                wmj.Log.E($"消息发送队列已达上限 ({currentQueueLimit})，丢弃最早消息（长度: {removed?.Length}）", wmj.Log.Tag.Network);
             }
         }
         // 入队新消息
         messageSendQueue.Enqueue(message);
-#if UNITY_EDITOR
-    DebugLog.Network($"入队待发送消息: 长度={message?.Length}，队列长度: {messageSendQueue.Count}/{currentQueueLimit}");
-    wmj.DebugTools.Info($"入队待发送消息: 长度={message?.Length}，队列长度: {messageSendQueue.Count}/{currentQueueLimit}");
-    wmj.DebugTools.WriteDebugLog("入队待发送消息: 长度=" + message?.Length + "，队列长度: " + messageSendQueue.Count + "/" + currentQueueLimit,"INFO");
-#endif
-        wmj.DebugTools.WriteRunLog("入队待发送消息: 长度=" + message?.Length + "，队列长度: " + messageSendQueue.Count + "/" + currentQueueLimit, "INFO");
+        wmj.Log.D($"入队待发送消息: 长度={message?.Length}，队列长度: {messageSendQueue.Count}/{currentQueueLimit}", wmj.Log.Tag.Network);
     }
 
     /// <summary>
@@ -79,12 +63,7 @@ public class NetworkManager : MonoBehaviour
         if (messageSendQueue.Count > 0)
         {
             message = messageSendQueue.Dequeue();
-#if UNITY_EDITOR
-            DebugLog.Network($"出队待发送消息: 长度={message?.Length}，队列长度: {messageSendQueue.Count}/{currentQueueLimit}");
-            wmj.DebugTools.Info($"出队待发送消息: 长度={message?.Length}，队列长度: {messageSendQueue.Count}/{currentQueueLimit}");
-            wmj.DebugTools.WriteDebugLog("出队待发送消息: 长度=" + message?.Length + "，队列长度: " + messageSendQueue.Count + "/" + currentQueueLimit,"INFO");
-#endif
-            wmj.DebugTools.WriteRunLog("出队待发送消息: 长度=" + message?.Length + "，队列长度: " + messageSendQueue.Count + "/" + currentQueueLimit, "INFO");
+            wmj.Log.D($"出队待发送消息: 长度={message?.Length}，队列长度: {messageSendQueue.Count}/{currentQueueLimit}", wmj.Log.Tag.Network);
             return true;
         }
         message = null;
@@ -98,16 +77,11 @@ public class NetworkManager : MonoBehaviour
         {
             currentQueueLimit = ConfigLoader.config.initialFileQueueSize;
             maxQueueLimit = ConfigLoader.config.maxFileQueueSize;
-#if UNITY_EDITOR
-            DebugLog.Network($"初始化文件队列: 初始={currentQueueLimit}, 上限={maxQueueLimit}");
-            wmj.DebugTools.Info($"初始化文件队列: 初始={currentQueueLimit}, 上限={maxQueueLimit}", wmj.DebugTools.LogCategory.Network);
-            wmj.DebugTools.WriteDebugLog("初始化文件队列: 初始=" + currentQueueLimit + ", 上限=" + maxQueueLimit, "INFO");
-#endif
-            wmj.DebugTools.WriteRunLog("初始化文件队列: 初始=" + currentQueueLimit + ", 上限=" + maxQueueLimit, "INFO");
+            wmj.Log.I($"初始化文件队列: 初始={currentQueueLimit}, 上限={maxQueueLimit}", wmj.Log.Tag.Network);
         }
         catch (Exception ex)
         {
-            wmj.DebugTools.Warn($"[NetworkManager] 读取队列配置失败，使用默认值(8/32): {ex.Message}");
+            wmj.Log.W($"[NetworkManager] 读取队列配置失败，使用默认值(8/32): {ex.Message}", wmj.Log.Tag.Network);
             currentQueueLimit = 8;
             maxQueueLimit = 32;
         }
@@ -188,12 +162,7 @@ public class NetworkManager : MonoBehaviour
         {
             var go = new GameObject("VideoStreamService");
             go.AddComponent<VideoStreamService>();
-#if UNITY_EDITOR
-            DebugLog.Network("[NetworkManager] 自动创建 VideoStreamService");
-            wmj.DebugTools.Info("[NetworkManager] 自动创建 VideoStreamService");
-            wmj.DebugTools.WriteDebugLog("[NetworkManager] 自动创建 VideoStreamService", "INFO");
-#endif
-            wmj.DebugTools.WriteRunLog("[NetworkManager] 自动创建 VideoStreamService", "INFO");
+            wmj.Log.I("[NetworkManager] 自动创建 VideoStreamService", wmj.Log.Tag.Network);
         }
 
         // 订阅消息接收事件
@@ -211,20 +180,10 @@ public class NetworkManager : MonoBehaviour
         // 业务层订阅ProtobufManager数据变更（如用于MVVM、Loxodon等）
         Framework.Network.ProtobufManager.Instance.OnDataUpdated += (typeName, data) =>
         {
-#if UNITY_EDITOR
-                DebugLog.Network($"[业务] ProtobufManager数据更新: {typeName}");
-                wmj.DebugTools.Info($"[业务] ProtobufManager数据更新: {typeName}");
-                wmj.DebugTools.WriteDebugLog("[业务] ProtobufManager数据更新: " + typeName, "INFO");
-#endif
-            wmj.DebugTools.WriteRunLog("[业务] ProtobufManager数据更新: " + typeName, "INFO");
+            wmj.Log.D($"[业务] ProtobufManager数据更新: {typeName}", wmj.Log.Tag.Network);
         };
 
-#if UNITY_EDITOR
-    DebugLog.Network("[NetworkManager] Awake 完成");
-    wmj.DebugTools.Info("[NetworkManager] Awake 完成");
-    wmj.DebugTools.WriteDebugLog("[NetworkManager] Awake 完成","INFO");
-#endif
-        wmj.DebugTools.WriteRunLog("[NetworkManager] Awake 完成", "INFO");
+        wmj.Log.I("[NetworkManager] Awake 完成", wmj.Log.Tag.Network);
     }
 
     // Start is called once before the first execution of Update after the MonoBehaviour is created
@@ -232,12 +191,7 @@ public class NetworkManager : MonoBehaviour
     {
         try
         {
-#if UNITY_EDITOR
-            DebugLog.Network("[NetworkManager] 启动网络服务...");
-            wmj.DebugTools.Info("[NetworkManager] 启动网络服务...");
-            wmj.DebugTools.WriteDebugLog("[NetworkManager] 启动网络服务...","DEBUG");
-#endif
-            wmj.DebugTools.WriteRunLog("[NetworkManager] 启动网络服务...", "DEBUG");
+            wmj.Log.I("[NetworkManager] 启动网络服务...", wmj.Log.Tag.Network);
 
             // 连接MQTT服务器，启动UDP接收
             mqttService.Connect(ConfigLoader.config.ip, ConfigLoader.config.dataPort);
@@ -245,12 +199,7 @@ public class NetworkManager : MonoBehaviour
         }
         catch (Exception ex)
         {
-#if UNITY_EDITOR
-            DebugLog.NetworkWarning($"[NetworkManager] 启动网络服务异常: {ex.Message}");
-            wmj.DebugTools.Error($"[NetworkManager] 启动网络服务异常: {ex.Message}");
-            wmj.DebugTools.WriteDebugLog("[NetworkManager] 启动网络服务异常: " + ex.Message, "ERROR");
-#endif
-            wmj.DebugTools.WriteRunLog("[NetworkManager] 启动网络服务异常: " + ex.Message, "ERROR");
+            wmj.Log.E($"[NetworkManager] 启动网络服务异常: {ex.Message}", wmj.Log.Tag.Network);
         }
     }
 
@@ -258,23 +207,13 @@ public class NetworkManager : MonoBehaviour
     {
         try
         {
-#if UNITY_EDITOR
-            DebugLog.Network("[NetworkManager] 销毁释放资源...");
-            wmj.DebugTools.Info("[NetworkManager] 销毁释放资源...");
-            wmj.DebugTools.WriteDebugLog("[NetworkManager] 销毁释放资源...","DEBUG");
-#endif
-            wmj.DebugTools.WriteRunLog("[NetworkManager] 销毁释放资源...", "DEBUG");
+            wmj.Log.I("[NetworkManager] 销毁释放资源...", wmj.Log.Tag.Network);
             mqttService?.Disconnect();
             udpService?.StopReceive();
         }
         catch (Exception ex)
         {
-#if UNITY_EDITOR
-            DebugLog.NetworkWarning($"[NetworkManager] 销毁释放异常: {ex.Message}");
-            wmj.DebugTools.Error($"[NetworkManager] 销毁释放异常: {ex.Message}");
-            wmj.DebugTools.WriteDebugLog("[NetworkManager] 销毁释放异常: " + ex.Message, "ERROR");
-#endif
-            wmj.DebugTools.WriteRunLog("[NetworkManager] 销毁释放异常: " + ex.Message, "ERROR");
+            wmj.Log.E($"[NetworkManager] 销毁释放异常: {ex.Message}", wmj.Log.Tag.Network);
         }
     }
 
@@ -282,23 +221,13 @@ public class NetworkManager : MonoBehaviour
     {
         try
         {
-#if UNITY_EDITOR
-            DebugLog.Network("[NetworkManager] OnApplicationQuit 释放资源");
-            wmj.DebugTools.Info("[NetworkManager] OnApplicationQuit 释放资源");
-            wmj.DebugTools.WriteDebugLog("[NetworkManager] OnApplicationQuit 释放资源","DEBUG");
-#endif
-            wmj.DebugTools.WriteRunLog("[NetworkManager] OnApplicationQuit 释放资源", "DEBUG");
+            wmj.Log.I("[NetworkManager] OnApplicationQuit 释放资源", wmj.Log.Tag.Network);
             mqttService?.Disconnect();
             udpService?.StopReceive();
         }
         catch (Exception ex)
         {
-#if UNITY_EDITOR
-            DebugLog.NetworkWarning($"[NetworkManager] 应用退出释放异常: {ex.Message}");
-            wmj.DebugTools.Error($"[NetworkManager] 应用退出释放异常: {ex.Message}");
-            wmj.DebugTools.WriteDebugLog("[NetworkManager] 应用退出释放异常: " + ex.Message, "ERROR");
-#endif
-            wmj.DebugTools.WriteRunLog("[NetworkManager] 应用退出释放异常: " + ex.Message, "ERROR");
+            wmj.Log.E($"[NetworkManager] 应用退出释放异常: {ex.Message}", wmj.Log.Tag.Network);
         }
     }
 

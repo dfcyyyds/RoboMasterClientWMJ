@@ -1,6 +1,5 @@
 using System;
 using UnityEngine;
-using Framework.Utils;
 
 namespace Framework.Video
 {
@@ -28,12 +27,7 @@ namespace Framework.Video
             if (started) return;
             started = true;
             NetworkManager.Instance.OnUdpVideoFrame += OnUdpSlice;
-            DebugLog.Transport("[UdpAnnexBTransport] 已订阅 UDP 视频分片事件");
-#if UNITY_EDITOR
-            wmj.DebugTools.Info("[UdpAnnexBTransport] 已订阅 UDP 视频分片事件");
-            wmj.DebugTools.WriteDebugLog("[UdpAnnexBTransport] 已订阅 UDP 视频分片事件", "INFO");
-#endif
-            wmj.DebugTools.WriteRunLog("[UdpAnnexBTransport] 已订阅 UDP 视频分片事件", "INFO");
+            wmj.Log.I("[UdpAnnexBTransport] 已订阅 UDP 视频分片事件", wmj.Log.Tag.Transport);
         }
 
         public void Stop()
@@ -41,12 +35,7 @@ namespace Framework.Video
             if (!started) return;
             started = false;
             NetworkManager.Instance.OnUdpVideoFrame -= OnUdpSlice;
-            DebugLog.Transport("[UdpAnnexBTransport] 已取消订阅 UDP 视频分片事件");
-#if UNITY_EDITOR
-            wmj.DebugTools.Info("[UdpAnnexBTransport] 已取消订阅 UDP 视频分片事件");
-            wmj.DebugTools.WriteDebugLog("[UdpAnnexBTransport] 已取消订阅 UDP 视频分片事件", "INFO");
-#endif
-            wmj.DebugTools.WriteRunLog("[UdpAnnexBTransport] 已取消订阅 UDP 视频分片事件", "INFO");
+            wmj.Log.I("[UdpAnnexBTransport] 已取消订阅 UDP 视频分片事件", wmj.Log.Tag.Transport);
         }
 
         private void OnUdpSlice(UdpVideoFrame slice)
@@ -57,16 +46,7 @@ namespace Framework.Video
             while (assembler.TryAssemble(out var frameId, out var annexB))
             {
                 if (verbose)
-                    DebugLog.Transport($"[UdpAnnexBTransport] 组帧完成并上抛: frame={frameId}, bytes={annexB?.Length}");
-#if UNITY_EDITOR
-                if (verbose)
-                {
-                    wmj.DebugTools.Info($"[UdpAnnexBTransport] 组帧完成并上抛: frame={frameId}, bytes={annexB?.Length}", wmj.DebugTools.LogCategory.Transport);
-                    wmj.DebugTools.WriteDebugLog("[UdpAnnexBTransport] 组帧完成并上抛: frame=" + frameId + ", bytes=" + (annexB?.Length ?? 0), "INFO");
-                }
-#endif
-                if (verbose)
-                    wmj.DebugTools.WriteRunLog("[UdpAnnexBTransport] 组帧完成并上抛: frame=" + frameId, "INFO");
+                    wmj.Log.I($"[UdpAnnexBTransport] 组帧完成并上抛: frame={frameId}, bytes={annexB?.Length}", wmj.Log.Tag.Transport);
                 OnAnnexBFrame?.Invoke(annexB);
             }
         }

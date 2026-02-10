@@ -15,11 +15,7 @@ public class DartSelectTargetStatusSyncHandler : IMessageHandler
         }
         catch (Exception ex)
         {
-#if UNITY_EDITOR
-            wmj.DebugTools.Error($"[DartSelectTargetStatusSyncHandler] 解析失败: {ex.Message}");
-            wmj.DebugTools.WriteDebugLog("[DartSelectTargetStatusSyncHandler] 解析失败: " + ex.Message, "ERROR");
-#endif
-            wmj.DebugTools.WriteRunLog("[DartSelectTargetStatusSyncHandler] 解析失败: " + ex.Message, "ERROR");
+            wmj.Log.E($"[DartSelectTargetStatusSyncHandler] 解析失败: {ex.Message}", wmj.Log.Tag.Network);
         }
     }
 }

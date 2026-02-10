@@ -59,13 +59,13 @@ public static class ConfigLoader
         // 如果分档配置不存在，回退到默认配置
         if (!File.Exists(_configPath))
         {
-            wmj.DebugTools.Warn($"[ConfigLoader] 分档配置 {configFileName} 不存在，回退到默认配置");
+            wmj.Log.W($"[ConfigLoader] 分档配置 {configFileName} 不存在，回退到默认配置", wmj.Log.Tag.General);
             _configPath = Path.Combine(Application.streamingAssetsPath, "Config/params.json");
         }
 
         if (!File.Exists(_configPath))
         {
-            wmj.DebugTools.Error($"[ConfigLoader] 配置文件不存在: {_configPath}");
+            wmj.Log.E($"[ConfigLoader] 配置文件不存在: {_configPath}", wmj.Log.Tag.General);
             return;
         }
 
@@ -79,7 +79,7 @@ public static class ConfigLoader
         // 应用硬件探测推荐的配置（如果配置文件中的值为默认值）
         ApplyHardwareRecommendations(detection);
 
-        wmj.DebugTools.Info($"[ConfigLoader] 已加载配置: {_configPath} (硬件等级: {_detectedLevel})");
+        wmj.Log.I($"[ConfigLoader] 已加载配置: {_configPath} (硬件等级: {_detectedLevel})", wmj.Log.Tag.General);
     }
 
     /// <summary>
@@ -111,11 +111,11 @@ public static class ConfigLoader
             _config.targetFrameRate = detection.RecommendedTargetFps;
 
         // 日志输出当前生效的关键配置
-        wmj.DebugTools.Info($"[ConfigLoader] 生效配置: " +
+        wmj.Log.I($"[ConfigLoader] 生效配置: " +
             $"分辨率={_config.decoderOutputWidth}x{_config.decoderOutputHeight}, " +
             $"目标帧率={_config.targetFrameRate}, " +
             $"解码队列={_config.decoderQueueSize}, " +
-            $"推荐加速={detection.Accel}");
+            $"推荐加速={detection.Accel}", wmj.Log.Tag.General);
     }
 
     /// <summary>
@@ -125,14 +125,14 @@ public static class ConfigLoader
     {
         if (_config == null)
         {
-            wmj.DebugTools.Error("[ConfigLoader] 无法保存，参数未初始化");
+            wmj.Log.E("[ConfigLoader] 无法保存，参数未初始化", wmj.Log.Tag.General);
             return;
         }
         if (_configPath == null)
             _configPath = GetConfigPath();
         string jsonStr = JsonUtility.ToJson(_config, true);
         File.WriteAllText(_configPath, jsonStr);
-        wmj.DebugTools.Info($"[ConfigLoader] 参数已保存到 {_configPath}");
+        wmj.Log.I($"[ConfigLoader] 参数已保存到 {_configPath}", wmj.Log.Tag.General);
     }
 
     private static string GetConfigPath()
@@ -155,13 +155,13 @@ public static class ConfigLoader
 
         if (!File.Exists(path))
         {
-            wmj.DebugTools.Warn($"[ConfigLoader] 分档配置 {configFileName} 不存在，回退到默认配置");
+            wmj.Log.W($"[ConfigLoader] 分档配置 {configFileName} 不存在，回退到默认配置", wmj.Log.Tag.General);
             path = Path.Combine(Application.streamingAssetsPath, "Config/params.json");
         }
 
         if (!File.Exists(path))
         {
-            wmj.DebugTools.Error($"[ConfigLoader] 配置文件不存在: {path}");
+            wmj.Log.E($"[ConfigLoader] 配置文件不存在: {path}", wmj.Log.Tag.General);
             yield break;
         }
 
@@ -174,11 +174,9 @@ public static class ConfigLoader
             yield return www.SendWebRequest();
             if (www.result != UnityWebRequest.Result.Success)
             {
-                wmj.DebugTools.Error($"[ConfigLoader] 加载配置文件失败: {www.error}");
-                wmj.DebugTools.Error($"[ConfigLoader] 加载配置文件失败: {www.error}");
+                wmj.Log.E($"[ConfigLoader] 加载配置文件失败: {www.error}", wmj.Log.Tag.General);
 #if UNITY_EDITOR
                 UnityEditor.EditorApplication.isPlaying = false;
-                wmj.DebugTools.Error($"[ConfigLoader] 加载配置文件失败: {www.error}");
 #endif
                 yield break;
             }
@@ -188,11 +186,9 @@ public static class ConfigLoader
                 jsonStr = jsonStr.Substring(1);
             if (string.IsNullOrEmpty(jsonStr))
             {
-                wmj.DebugTools.Error($"[ConfigLoader] 找不到配置文件 {path}");
-                wmj.DebugTools.Error($"[ConfigLoader] 找不到配置文件 {path}");
+                wmj.Log.E($"[ConfigLoader] 找不到配置文件 {path}", wmj.Log.Tag.General);
 #if UNITY_EDITOR
                 UnityEditor.EditorApplication.isPlaying = false;
-                wmj.DebugTools.Error($"[ConfigLoader] 找不到配置文件 {path}");
 #endif
                 yield break;
             }
@@ -201,7 +197,7 @@ public static class ConfigLoader
             _isLoaded = true;
 
             ApplyHardwareRecommendations(detection);
-            wmj.DebugTools.Info($"[ConfigLoader] 已加载配置: {path} (硬件等级: {_detectedLevel})");
+            wmj.Log.I($"[ConfigLoader] 已加载配置: {path} (硬件等级: {_detectedLevel})", wmj.Log.Tag.General);
         }
     }
 #else
@@ -217,13 +213,13 @@ public static class ConfigLoader
 
         if (!File.Exists(path))
         {
-            wmj.DebugTools.Warn($"[ConfigLoader] 分档配置 {configFileName} 不存在，回退到默认配置");
+            wmj.Log.W($"[ConfigLoader] 分档配置 {configFileName} 不存在，回退到默认配置", wmj.Log.Tag.General);
             path = Path.Combine(Application.streamingAssetsPath, "Config/params.json");
         }
 
         if (!File.Exists(path))
         {
-            wmj.DebugTools.Error($"[ConfigLoader] 配置文件不存在: {path}");
+            wmj.Log.E($"[ConfigLoader] 配置文件不存在: {path}", wmj.Log.Tag.General);
             return;
         }
 
@@ -233,11 +229,9 @@ public static class ConfigLoader
             jsonStr = jsonStr.Substring(1);
         if (string.IsNullOrEmpty(jsonStr))
         {
-            wmj.DebugTools.Error($"[ConfigLoader] 找不到配置文件 {path}");
-            wmj.DebugTools.Error($"[ConfigLoader] 找不到配置文件 {path}");
+            wmj.Log.E($"[ConfigLoader] 找不到配置文件 {path}", wmj.Log.Tag.General);
 #if UNITY_EDITOR
             UnityEditor.EditorApplication.isPlaying = false;
-            wmj.DebugTools.Error($"[ConfigLoader] 找不到配置文件 {path}");
 #endif
             return;
         }
@@ -246,7 +240,7 @@ public static class ConfigLoader
         _isLoaded = true;
 
         ApplyHardwareRecommendations(detection);
-        wmj.DebugTools.Info($"[ConfigLoader] 已加载配置: {path} (硬件等级: {_detectedLevel})");
+        wmj.Log.I($"[ConfigLoader] 已加载配置: {path} (硬件等级: {_detectedLevel})", wmj.Log.Tag.General);
     }
 #endif
 

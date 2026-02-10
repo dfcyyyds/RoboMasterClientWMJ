@@ -15,11 +15,7 @@ public class EventHandler : IMessageHandler
         }
         catch (Exception ex)
         {
-#if UNITY_EDITOR
-            wmj.DebugTools.Error($"[EventHandler] 解析失败: {ex.Message}");
-            wmj.DebugTools.Error("[EventHandler] 解析失败: " + ex.Message);
-#endif
-            wmj.DebugTools.Error("[EventHandler] 解析失败: " + ex.Message);
+            wmj.Log.E($"[EventHandler] 解析失败: {ex.Message}", wmj.Log.Tag.Network);
         }
     }
 }

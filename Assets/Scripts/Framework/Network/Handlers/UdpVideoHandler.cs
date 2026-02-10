@@ -1,7 +1,6 @@
 using System;
 using System.Buffers;
 using UnityEngine;
-using Framework.Utils;
 
 // 处理 UDP 图传数据包
 public class UdpVideoHandler : IMessageHandler, IMessageSegmentHandler
@@ -32,12 +31,7 @@ public class UdpVideoHandler : IMessageHandler, IMessageSegmentHandler
         // topic 为 remoteEP.ToString()，payload 为原始 UDP 包
         if (payload.Count < 8)
         {
-            DebugLog.TransportWarning("[UdpVideoHandler] UDP 包长度不足8字节，丢弃");
-#if UNITY_EDITOR
-            wmj.DebugTools.Warn("[UdpVideoHandler] UDP 包长度不足8字节，丢弃");
-            wmj.DebugTools.WriteDebugLog("[UdpVideoHandler] UDP 包长度不足8字节，丢弃", "WARN");
-#endif
-            wmj.DebugTools.WriteRunLog("[UdpVideoHandler] UDP 包长度不足8字节，丢弃", "WARN");
+            wmj.Log.W("[UdpVideoHandler] UDP 包长度不足8字节，丢弃", wmj.Log.Tag.Transport);
             return;
         }
         var span = new ReadOnlySpan<byte>(payload.Array, payload.Offset, payload.Count);
@@ -58,30 +52,21 @@ public class UdpVideoHandler : IMessageHandler, IMessageSegmentHandler
         float now = UnityEngine.Time.realtimeSinceStartup;
         if (now - diagLastReport >= 1.0f)
         {
-            wmj.DebugTools.Info($"[UdpVideoHandler] 📈 诊断: {diagFramesThisSecond} 帧, {diagSlicesThisSecond} 切片抵达");
+            wmj.Log.D($"[UdpVideoHandler] 📈 诊断: {diagFramesThisSecond} 帧, {diagSlicesThisSecond} 切片抵达", wmj.Log.Tag.Transport);
             diagSlicesThisSecond = 0;
             diagFramesThisSecond = 0;
             diagLastReport = now;
         }
 #endif
 
-        DebugLog.Transport($"[UdpVideoHandler] 收到切片: frame={frameId}, slice={sliceId}, frameLen={frameLen}, naluLen={nalu.Length}, totalSlices={totalSlices}");
-#if UNITY_EDITOR
-    wmj.DebugTools.Info($"[UdpVideoHandler] 收到切片: frame={frameId}, slice={sliceId}, frameLen={frameLen}, naluLen={nalu.Length}, totalSlices={totalSlices}", wmj.DebugTools.LogCategory.Network);
-    wmj.DebugTools.WriteDebugLog("[UdpVideoHandler] 收到切片: frame=" + frameId + ", slice=" + sliceId + ", frameLen=" + frameLen + ", naluLen=" + nalu.Length + ", totalSlices=" + totalSlices, "INFO");
-#endif
+        wmj.Log.D($"[UdpVideoHandler] 收到切片: frame={frameId}, slice={sliceId}, frameLen={frameLen}, naluLen={nalu.Length}, totalSlices={totalSlices}", wmj.Log.Tag.Transport);
+
         if (!firstValidSliceAnnounced)
         {
-            DebugLog.Transport($"[UdpVideoHandler] 首个有效视频切片已到达: frame={frameId}, slice={sliceId}, naluLen={nalu.Length}");
-#if UNITY_EDITOR
-            wmj.DebugTools.Info($"[UdpVideoHandler] 首个有效视频切片已到达: frame={frameId}, slice={sliceId}, naluLen={nalu.Length}", wmj.DebugTools.LogCategory.Network);
-            wmj.DebugTools.WriteDebugLog("[UdpVideoHandler] 首个有效视频切片已到达: frame=" + frameId + ", slice=" + sliceId + ", naluLen=" + nalu.Length, "INFO");
-#endif
-            wmj.DebugTools.WriteRunLog("[UdpVideoHandler] 首个有效视频切片已到达: frame=" + frameId + ", slice=" + sliceId + ", naluLen=" + nalu.Length, "INFO");
+            wmj.Log.I($"[UdpVideoHandler] 首个有效视频切片已到达: frame={frameId}, slice={sliceId}, naluLen={nalu.Length}", wmj.Log.Tag.Transport);
             firstValidSliceAnnounced = true;
         }
-        // 移除高频日志调用，每秒约30000次调用会导致IO阻塞和卡死
-        // 如需调试可启用: wmj.DebugTools.WriteRunLog("[UdpVideoHandler] 收到切片: frame=" + frameId + ", slice=" + sliceId + ", naluLen=" + nalu.Length, "INFO");
+
         var frame = new UdpVideoFrame
         {
             FrameId = frameId,
@@ -103,7 +88,7 @@ public class UdpVideoFrame
     public byte[] Nalu;
     public int NaluActualLength; // 实际NALU长度（Rent可能返回更大数组）
     public bool IsPooled;        // 是否来自ArrayPool
-    
+
     /// <summary>归还NALU到ArrayPool（组帧完成后调用）</summary>
     public void ReturnNaluToPool()
     {

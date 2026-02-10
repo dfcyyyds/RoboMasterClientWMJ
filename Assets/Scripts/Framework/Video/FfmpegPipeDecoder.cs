@@ -5,7 +5,6 @@ using System.IO;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
-using Framework.Utils;
 using Framework.Boot;
 
 namespace Framework.Video
@@ -129,18 +128,8 @@ namespace Framework.Video
                 }
                 stdin = proc.StandardInput.BaseStream;
                 stdout = proc.StandardOutput.BaseStream;
-#if UNITY_EDITOR
-                wmj.DebugTools.Info("[FfmpegPipeDecoder] 启动 ffmpeg 进程: " + proc.StartInfo.Arguments);
-                wmj.DebugTools.WriteDebugLog("[FfmpegPipeDecoder] 启动 ffmpeg 进程", "INFO");
-#endif
-                if (verboseFrameLogs)
-                {
-                    DebugLog.Decoder("[FfmpegPipeDecoder] 启动 ffmpeg 进程: " + proc.StartInfo.Arguments);
-                    wmj.DebugTools.WriteRunLog("[FfmpegPipeDecoder] 已启动 ffmpeg 管道解码", "INFO");
-                }
-                wmj.DebugTools.WriteRunLog("[FfmpegPipeDecoder] 已启动 ffmpeg 管道解码", "INFO");
-                wmj.DebugTools.WriteRunLog("[FfmpegPipeDecoder] 解码加速模式: " + accelMode, "INFO");
-                wmj.DebugTools.WriteRunLog("[FfmpegPipeDecoder] ffmpeg 命令参数: " + proc.StartInfo.Arguments, "INFO");
+                wmj.Log.I("[FfmpegPipeDecoder] 启动 ffmpeg 进程: " + proc.StartInfo.Arguments, wmj.Log.Tag.Decoder);
+                wmj.Log.I("[FfmpegPipeDecoder] 解码加速模式: " + accelMode, wmj.Log.Tag.Decoder);
                 // 异步读取stdout，根据输出格式解析帧
                 readerTask = Task.Run(() =>
             {
@@ -162,13 +151,11 @@ namespace Framework.Video
             }
             catch (Exception ex)
             {
-                wmj.DebugTools.WriteRunLog("[FfmpegPipeDecoder] ffmpeg启动异常: " + ex.Message, "ERROR");
-                if (enableStderrLog)
-                    wmj.DebugTools.WriteRunLog("[FfmpegPipeDecoder] ffmpeg启动异常: " + ex.Message, "ERROR");
+                wmj.Log.E("[FfmpegPipeDecoder] ffmpeg启动异常: " + ex.Message, wmj.Log.Tag.Decoder);
                 // 只有在硬件路径确实启动失败时才回退软解
                 if (!fallbackToSoftware && accelMode != AccelMode.Software)
                 {
-                    wmj.DebugTools.WriteRunLog("[FfmpegPipeDecoder] 硬件解码不可用，尝试回退软解", "WARN");
+                    wmj.Log.W("[FfmpegPipeDecoder] 硬件解码不可用，尝试回退软解", wmj.Log.Tag.Decoder);
                     StartProcess(AccelMode.Software, fallbackToSoftware: true);
                 }
             }
@@ -182,7 +169,7 @@ namespace Framework.Video
                 return;
             }
             lastRestartTime = DateTime.UtcNow;
-            wmj.DebugTools.WriteRunLog("[FfmpegPipeDecoder] 重启ffmpeg进程: " + reason, "WARN");
+            wmj.Log.W("[FfmpegPipeDecoder] 重启ffmpeg进程: " + reason, wmj.Log.Tag.Decoder);
             try
             {
                 try { cts?.Cancel(); } catch { }
@@ -293,7 +280,7 @@ namespace Framework.Video
                         detectedCodec = detected;
                     if (detected != null && detected != "hevc")
                     {
-                        wmj.DebugTools.WriteRunLog("[FfmpegPipeDecoder] 强制HEVC模式收到非HEVC NAL，保持hevc解码路径", "WARN");
+                        wmj.Log.W("[FfmpegPipeDecoder] 强制HEVC模式收到非HEVC NAL，保持hevc解码路径", wmj.Log.Tag.Decoder);
                     }
                 }
                 else
@@ -301,21 +288,13 @@ namespace Framework.Video
                     if (detected != null && detectedCodec == null)
                     {
                         detectedCodec = detected;
-                        wmj.DebugTools.WriteRunLog("[FfmpegPipeDecoder] 自动检测到编解码器: " + detectedCodec, "INFO");
-                        wmj.DebugTools.WriteRunLog("[FfmpegPipeDecoder] Codec=" + detectedCodec, "INFO");
-                        if (verboseFrameLogs)
-                        {
-                            wmj.DebugTools.WriteRunLog("[FfmpegPipeDecoder] 自动检测到编解码器: " + detectedCodec, "INFO");
-                            wmj.DebugTools.WriteRunLog("[FfmpegPipeDecoder] Codec=" + detectedCodec, "INFO");
-                        }
+                        wmj.Log.I("[FfmpegPipeDecoder] 自动检测到编解码器: " + detectedCodec, wmj.Log.Tag.Decoder);
                     }
                     if (detectedCodec != null && detectedCodec != inputCodec)
                     {
                         inputCodec = detectedCodec; // 更新输入格式
                         RestartProcess("切换输入编解码器为: " + inputCodec);
-                        wmj.DebugTools.WriteRunLog("[FfmpegPipeDecoder] Codec=" + inputCodec, "INFO");
-                        if (verboseFrameLogs)
-                            wmj.DebugTools.WriteRunLog("[FfmpegPipeDecoder] Codec=" + inputCodec, "INFO");
+                        wmj.Log.I("[FfmpegPipeDecoder] Codec=" + inputCodec, wmj.Log.Tag.Decoder);
                         if (proc == null || proc.HasExited || stdin == null) return;
                     }
                 }
@@ -341,13 +320,7 @@ namespace Framework.Video
                         stdin.Write(parameterSetCache, 0, parameterSetCache.Length);
                     }
                     parameterSetsSent = true;
-                    wmj.DebugTools.WriteRunLog("[FfmpegPipeDecoder] 首次发送参数集: " + parameterSetCache.Length + " bytes", "DEBUG");
-                    DebugLog.Decoder("[FfmpegPipeDecoder] 首次发送参数集: " + parameterSetCache.Length + " bytes");
-                    if (verboseFrameLogs)
-                    {
-                        wmj.DebugTools.WriteRunLog("[FfmpegPipeDecoder] 首次发送参数集: " + parameterSetCache.Length + " bytes", "DEBUG");
-                        DebugLog.Decoder("[FfmpegPipeDecoder] 首次发送参数集: " + parameterSetCache.Length + " bytes");
-                    }
+                    wmj.Log.D("[FfmpegPipeDecoder] 首次发送参数集: " + parameterSetCache.Length + " bytes", wmj.Log.Tag.Decoder);
                 }
 
                 // 若检测到IDR帧，且参数集尚未发送过，则发送参数集
@@ -360,8 +333,7 @@ namespace Framework.Video
                         stdin.Write(parameterSetCache, 0, parameterSetCache.Length);
                     }
                     parameterSetsSent = true;
-                    wmj.DebugTools.WriteRunLog("[FfmpegPipeDecoder] IDR前发送参数集: " + parameterSetCache.Length + " bytes", "DEBUG");
-                    DebugLog.Decoder("[FfmpegPipeDecoder] IDR前发送参数集: " + parameterSetCache.Length + " bytes");
+                    wmj.Log.D("[FfmpegPipeDecoder] IDR前发送参数集: " + parameterSetCache.Length + " bytes", wmj.Log.Tag.Decoder);
                 }
 
                 // 然后发送当前帧
@@ -370,17 +342,12 @@ namespace Framework.Video
                     stdin.Write(annexBBytes, 0, annexBBytes.Length);
                 }
                 if (verboseFrameLogs)
-                {
-                    wmj.DebugTools.WriteRunLog("[FfmpegPipeDecoder] 写入帧: " + annexBBytes.Length + " bytes" + (containsIdr ? " (IDR)" : ""), "DEBUG");
-                    DebugLog.Decoder("[FfmpegPipeDecoder] 写入帧: " + annexBBytes.Length + " bytes" + (containsIdr ? " (IDR)" : ""));
-                }
+                    wmj.Log.D("[FfmpegPipeDecoder] 写入帧: " + annexBBytes.Length + " bytes" + (containsIdr ? " (IDR)" : ""), wmj.Log.Tag.Decoder);
                 pushedFrames++;
             }
             catch (Exception ex)
             {
-                wmj.DebugTools.WriteRunLog("[FfmpegPipeDecoder] Push异常: " + ex.Message, "ERROR");
-                if (enableStderrLog)
-                    wmj.DebugTools.WriteRunLog("[FfmpegPipeDecoder] Push异常: " + ex.Message, "ERROR");
+                wmj.Log.E("[FfmpegPipeDecoder] Push异常: " + ex.Message, wmj.Log.Tag.Decoder);
                 RestartProcess("Push写入异常: " + ex.Message);
             }
         }
@@ -454,7 +421,7 @@ namespace Framework.Video
                     if (i + startCodeLen < annexBBytes.Length)
                     {
                         byte nalHeader = annexBBytes[i + startCodeLen];
-                        
+
                         // 根据 codec 类型判断是否为参数集
                         bool isParamSet = false;
                         if (isHevcCodec)
@@ -499,10 +466,7 @@ namespace Framework.Video
             if (paramSets.Count > 0)
             {
                 parameterSetCache = paramSets.ToArray();
-                DebugLog.Decoder("[FfmpegPipeDecoder] 缓存参数集: " + parameterSetCache.Length + " bytes");
-                wmj.DebugTools.WriteRunLog("[FfmpegPipeDecoder] 缓存参数集: " + parameterSetCache.Length + " bytes", "DEBUG");
-                if (verboseFrameLogs)
-                    wmj.DebugTools.WriteRunLog("[FfmpegPipeDecoder] 缓存参数集: " + parameterSetCache.Length + " bytes", "DEBUG");
+                wmj.Log.D("[FfmpegPipeDecoder] 缓存参数集: " + parameterSetCache.Length + " bytes", wmj.Log.Tag.Decoder);
             }
         }
 
@@ -572,7 +536,7 @@ namespace Framework.Video
         private void ReadPpmLoop(CancellationToken token)
         {
             var reader = new BinaryReader(stdout, Encoding.ASCII);
-            wmj.DebugTools.WriteRunLog("[FfmpegPipeDecoder] PPM读取线程启动", "DEBUG");
+            wmj.Log.D("[FfmpegPipeDecoder] PPM读取线程启动", wmj.Log.Tag.Decoder);
             while (!token.IsCancellationRequested)
             {
                 try
@@ -609,23 +573,10 @@ namespace Framework.Video
                         frameQueue.Enqueue(new DecodedFrame { Width = width, Height = height, Pixels = pixels });
                         int q = Interlocked.Increment(ref queueCount);
                         lastFrameTime = DateTime.UtcNow;
-                        if (dropped && verboseFrameLogs)
-                            wmj.DebugTools.WriteRunLog("[FfmpegPipeDecoder] 队列过长，已丢弃旧帧", "WARN");
-#if UNITY_EDITOR || DIAG_DECODE
-                        DebugLog.Decoder($"[FfmpegPipeDecoder] 解码成功: {width}x{height}, queue={q}");
-                        wmj.DebugTools.WriteDebugLog("[FfmpegPipeDecoder] 解码成功: " + width + "x" + height + ", queue=" + q, "INFO");
-#endif
-#if UNITY_EDITOR
-                        DebugLog.Video($"[FfmpegPipeDecoder] 解码帧: {width}x{height}, size={pixels.Length}");
-#if UNITY_EDITOR
-                        wmj.DebugTools.Info($"[FfmpegPipeDecoder] 解码帧: {width}x{height}, size={pixels.Length}", wmj.DebugTools.LogCategory.Decoder);
-                        wmj.DebugTools.WriteDebugLog("[FfmpegPipeDecoder] 解码帧: " + width + "x" + height + ", size=" + pixels.Length, "DEBUG");
-#endif
-#endif
-                        wmj.DebugTools.WriteRunLog("[FfmpegPipeDecoder] 解码帧: " + width + "x" + height, "DEBUG");
+                        wmj.Log.D($"[FfmpegPipeDecoder] 解码帧: {width}x{height}, queue={q}", wmj.Log.Tag.Decoder);
                     }
                     if (dropped && verboseFrameLogs)
-                        wmj.DebugTools.WriteRunLog("[FfmpegPipeDecoder] 队列过长，已丢弃旧帧", "WARN");
+                        wmj.Log.W("[FfmpegPipeDecoder] 队列过长，已丢弃旧帧", wmj.Log.Tag.Decoder);
                 }
                 catch (EndOfStreamException)
                 {
@@ -633,14 +584,14 @@ namespace Framework.Video
                 }
                 catch (Exception ex)
                 {
-                    wmj.DebugTools.WriteRunLog("[FfmpegPipeDecoder] 读帧异常: " + ex.Message, "WARN");
+                    wmj.Log.W("[FfmpegPipeDecoder] 读帧异常: " + ex.Message, wmj.Log.Tag.Decoder);
                 }
             }
         }
 
         private void ReadRawVideoLoop(CancellationToken token, int width, int height)
         {
-            wmj.DebugTools.WriteRunLog("[FfmpegPipeDecoder] RAW读取线程启动", "DEBUG");
+            wmj.Log.D("[FfmpegPipeDecoder] RAW读取线程启动", wmj.Log.Tag.Decoder);
             int dataSize = width * height * 3;
             // 使用ArrayPool减少GC压力，每帧仍需独立缓冲区避免数据覆盖
             var pool = System.Buffers.ArrayPool<byte>.Shared;
@@ -675,25 +626,15 @@ namespace Framework.Video
                         frameQueue.Enqueue(new DecodedFrame { Width = width, Height = height, Pixels = framePixels, PixelArraySize = dataSize, IsPooled = true });
                         int q = Interlocked.Increment(ref queueCount);
                         lastFrameTime = DateTime.UtcNow;
-                        if (dropped && verboseFrameLogs)
-                            wmj.DebugTools.WriteRunLog("[FfmpegPipeDecoder] 队列过长，已丢弃旧帧", "WARN");
-                        if (verboseFrameLogs)
-                        {
-                            DebugLog.Video("[FfmpegPipeDecoder] 解码帧: " + width + "x" + height);
-                            wmj.DebugTools.WriteRunLog("[FfmpegPipeDecoder] 解码帧: " + width + "x" + height, "DEBUG");
-                        }
-#if UNITY_EDITOR || DIAG_DECODE
-                        DebugLog.Decoder($"[FfmpegPipeDecoder] 解码成功: {width}x{height}, queue={q}");
-                        wmj.DebugTools.WriteDebugLog("[FfmpegPipeDecoder] 解码成功: " + width + "x" + height + ", queue=" + q, "INFO");
-#endif
+                        wmj.Log.D($"[FfmpegPipeDecoder] 解码帧: {width}x{height}, queue={q}", wmj.Log.Tag.Decoder);
                     }
                     if (dropped && verboseFrameLogs)
-                        wmj.DebugTools.WriteRunLog("[FfmpegPipeDecoder] 队列过长，已丢弃旧帧", "WARN");
+                        wmj.Log.W("[FfmpegPipeDecoder] 队列过长，已丢弃旧帧", wmj.Log.Tag.Decoder);
                 }
                 catch (EndOfStreamException) { break; }
                 catch (Exception ex)
                 {
-                    wmj.DebugTools.WriteRunLog("[FfmpegPipeDecoder] 读RAW帧异常: " + ex.Message, "WARN");
+                    wmj.Log.W("[FfmpegPipeDecoder] 读RAW帧异常: " + ex.Message, wmj.Log.Tag.Decoder);
                 }
             }
         }
@@ -707,25 +648,13 @@ namespace Framework.Video
                     string line;
                     while (!token.IsCancellationRequested && (line = sr.ReadLine()) != null)
                     {
-                        DebugLog.DecoderWarning("[FfmpegPipeDecoder][stderr] " + line);
-#if UNITY_EDITOR
-                        wmj.DebugTools.Warn("[FfmpegPipeDecoder][stderr] " + line);
-                        wmj.DebugTools.WriteDebugLog("[FfmpegPipeDecoder][stderr] " + line, "WARN");
-#endif
-                        wmj.DebugTools.WriteRunLog("[FfmpegPipeDecoder][stderr] " + line, "WARN");
-                        if (enableStderrLog)
-                        {
-                            DebugLog.DecoderWarning("[FfmpegPipeDecoder][stderr] " + line);
-                            wmj.DebugTools.WriteRunLog("[FfmpegPipeDecoder][stderr] " + line, "WARN");
-                        }
+                        wmj.Log.W("[FfmpegPipeDecoder][stderr] " + line, wmj.Log.Tag.Decoder);
                     }
                 }
             }
             catch (Exception ex)
             {
-                wmj.DebugTools.WriteRunLog("[FfmpegPipeDecoder] 读取stderr异常: " + ex.Message, "WARN");
-                if (enableStderrLog)
-                    wmj.DebugTools.WriteRunLog("[FfmpegPipeDecoder] 读取stderr异常: " + ex.Message, "WARN");
+                wmj.Log.W("[FfmpegPipeDecoder] 读取stderr异常: " + ex.Message, wmj.Log.Tag.Decoder);
             }
         }
 
@@ -737,7 +666,7 @@ namespace Framework.Video
                 {
                     if (proc == null || proc.HasExited)
                     {
-                        wmj.DebugTools.WriteRunLog("[FfmpegPipeDecoder] 看门狗检测到ffmpeg退出，硬解重启", "WARN");
+                        wmj.Log.W("[FfmpegPipeDecoder] 看门狗检测到ffmpeg退出，硬解重启", wmj.Log.Tag.Decoder);
                         RestartProcess("ffmpeg进程退出", fallbackToSoftware: false);
                         return;
                     }
@@ -751,7 +680,7 @@ namespace Framework.Video
 
                     if ((DateTime.UtcNow - lastFrameTime) > noFrameTimeout)
                     {
-                        wmj.DebugTools.WriteRunLog("[FfmpegPipeDecoder] 看门狗检测到超时无帧输出，保持硬解重启", "WARN");
+                        wmj.Log.W("[FfmpegPipeDecoder] 看门狗检测到超时无帧输出，保持硬解重启", wmj.Log.Tag.Decoder);
                         // 重启但保持当前硬件模式，避免轻易回退软解
                         RestartProcess("无帧输出超时", fallbackToSoftware: false);
                         // 清空队列，等待下一 IDR 同步
@@ -764,7 +693,7 @@ namespace Framework.Video
                 }
                 catch (Exception ex)
                 {
-                    wmj.DebugTools.WriteRunLog("[FfmpegPipeDecoder] 看门狗异常: " + ex.Message, "WARN");
+                    wmj.Log.W("[FfmpegPipeDecoder] 看门狗异常: " + ex.Message, wmj.Log.Tag.Decoder);
                 }
 
                 Thread.Sleep(500);
@@ -832,12 +761,12 @@ namespace Framework.Video
                         // 避免每次Flush，提高管道吞吐
                         stdin.Write(parameterSetCache, 0, parameterSetCache.Length);
                     }
-                    wmj.DebugTools.WriteRunLog("[FfmpegPipeDecoder] 看门狗重发参数集: " + parameterSetCache.Length + " bytes", "WARN");
+                    wmj.Log.W("[FfmpegPipeDecoder] 看门狗重发参数集: " + parameterSetCache.Length + " bytes", wmj.Log.Tag.Decoder);
                 }
             }
             catch (System.Exception ex)
             {
-                wmj.DebugTools.WriteRunLog("[FfmpegPipeDecoder] 重发参数集异常: " + ex.Message, "WARN");
+                wmj.Log.W("[FfmpegPipeDecoder] 重发参数集异常: " + ex.Message, wmj.Log.Tag.Decoder);
             }
         }
 

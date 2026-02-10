@@ -15,11 +15,7 @@ public class RuneStatusSyncHandler : IMessageHandler
         }
         catch (Exception ex)
         {
-#if UNITY_EDITOR
-            wmj.DebugTools.Error($"[RuneStatusSyncHandler] 解析失败: {ex.Message}");
-            wmj.DebugTools.WriteDebugLog("[RuneStatusSyncHandler] 解析失败: " + ex.Message, "ERROR");
-#endif
-            wmj.DebugTools.WriteRunLog("[RuneStatusSyncHandler] 解析失败: " + ex.Message, "ERROR");
+            wmj.Log.E($"[RuneStatusSyncHandler] 解析失败: {ex.Message}", wmj.Log.Tag.Network);
         }
     }
 }

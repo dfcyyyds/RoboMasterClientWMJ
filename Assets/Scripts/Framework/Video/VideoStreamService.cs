@@ -3,7 +3,6 @@ using System.Collections.Concurrent;
 using UnityEngine;
 using UnityEngine.Scripting;
 using Framework.Video;
-using Framework.Utils;
 using Framework.Boot;
 
 /// 视频流服务：订阅UDP帧，后台组装/解码，在主线程分发纹理
@@ -66,12 +65,14 @@ public class VideoStreamService : MonoBehaviour
     [Header("Gate & Catch-up Tuning")]
     [Tooltip("未检测到IDR时的超时放开门控秒数（>0）")]
     [SerializeField] private float gateTimeoutSec = 0.8f;
+#pragma warning disable CS0414 // Inspector-exposed tuning fields, code-side usage pending
     [Tooltip("追帧最小积压帧数阈值")]
     [SerializeField] private int backlogMinFrames = 2;  // 降低阈值，更早追帧
     [Tooltip("追帧阈值分母（effectiveFps/分母）")]
     [SerializeField] private int backlogDivisor = 10;
     [Tooltip("临时取消限频的窗口秒数")]
     [SerializeField] private float overrideWindowSec = 1.5f;
+#pragma warning restore CS0414
     [Tooltip("每次Update最多消耗解码帧数")]
     [SerializeField] private int maxDrainPerUpdate = 16;  // 大幅提升以确保队列不积压
     // 记住解码器配置，便于在运行期切换回退
@@ -94,7 +95,7 @@ public class VideoStreamService : MonoBehaviour
     {
         if (Instance != null)
         {
-            wmj.DebugTools.WriteRunLog("[VideoStreamService] 检测到重复实例，销毁自身", "WARN");
+            wmj.Log.W("[VideoStreamService] 检测到重复实例，销毁自身", wmj.Log.Tag.Video);
             Destroy(gameObject);
             return;
         }
@@ -108,7 +109,7 @@ public class VideoStreamService : MonoBehaviour
         if (decodeBackend == DecodeBackend.NativeNvdec && detection.Accel != HardwareCapabilityDetector.RecommendedAccel.NvdecCuda)
         {
             decodeBackend = DecodeBackend.FfmpegPipe;
-            wmj.DebugTools.Warn("[VideoStreamService] 当前硬件不支持 NVDEC，已自动切换到 ffmpeg 解码", wmj.DebugTools.LogCategory.Video);
+            wmj.Log.W("[VideoStreamService] 当前硬件不支持 NVDEC，已自动切换到 ffmpeg 解码", wmj.Log.Tag.Video);
         }
 
         // 根据配置设置纹理上传上限（避免低配过高负载）
@@ -122,7 +123,7 @@ public class VideoStreamService : MonoBehaviour
         {
             int oldFps = maxApplyFps;
             maxApplyFps = 60;
-            wmj.DebugTools.WriteRunLog("[VideoStreamService] 检测到过低的纹理上传帧率上限(" + oldFps + "), 已提升至 " + maxApplyFps, "WARN");
+            wmj.Log.W("[VideoStreamService] 检测到过低的纹理上传帧率上限(" + oldFps + "), 已提升至 " + maxApplyFps, wmj.Log.Tag.Video);
         }
 
         // 选择传输模式
@@ -166,12 +167,7 @@ public class VideoStreamService : MonoBehaviour
 
         transport.OnAnnexBFrame += OnAnnexBFrame;
         transport.Start();
-        DebugLog.Video("[VideoStreamService] 初始化完成，已订阅UDP帧并启动解码循环 (输出=rawvideo 1280x720)");
-#if UNITY_EDITOR
-    wmj.DebugTools.Info("[VideoStreamService] 初始化完成，已订阅UDP帧并启动解码循环");
-    wmj.DebugTools.WriteDebugLog("[VideoStreamService] 初始化完成 (输出=rawvideo 1280x720)", "INFO");
-#endif
-        wmj.DebugTools.WriteRunLog("[VideoStreamService] 初始化完成 (输出=rawvideo 1280x720)", "INFO");
+        wmj.Log.I("[VideoStreamService] 初始化完成，已订阅UDP帧并启动解码循环 (输出=rawvideo 1280x720)", wmj.Log.Tag.Video);
         startTime = Time.realtimeSinceStartup;
         lastDiagTime = startTime;
         hasEntered = false;
@@ -200,7 +196,7 @@ public class VideoStreamService : MonoBehaviour
 
         nativeTexWidth = decoderOutW;
         nativeTexHeight = decoderOutH;
-        wmj.DebugTools.WriteRunLog("[VideoStreamService] 正在初始化原生 NVDEC (延迟模式)...", "INFO");
+        wmj.Log.I("[VideoStreamService] 正在初始化原生 NVDEC (延迟模式)...", wmj.Log.Tag.Video);
 
         int init = -99;
         try
@@ -209,18 +205,18 @@ public class VideoStreamService : MonoBehaviour
         }
         catch (Exception ex)
         {
-            wmj.DebugTools.WriteRunLog("[VideoStreamService] NVDEC init 异常: " + ex.Message, "ERROR");
+            wmj.Log.E("[VideoStreamService] NVDEC init 异常: " + ex.Message, wmj.Log.Tag.Video);
             init = -100;
         }
 
         if (init != 0)
         {
-            wmj.DebugTools.WriteRunLog("[VideoStreamService] Native NVDEC init 失败 (code=" + init + ")，保持原生模式等待重试", "WARN");
+            wmj.Log.W("[VideoStreamService] Native NVDEC init 失败 (code=" + init + ")，保持原生模式等待重试", wmj.Log.Tag.Video);
             nvdecDelayedInitDone = false; // 允许重试
         }
         else
         {
-            wmj.DebugTools.WriteRunLog("[VideoStreamService] Native NVDEC 初始化成功", "INFO");
+            wmj.Log.I("[VideoStreamService] Native NVDEC 初始化成功", wmj.Log.Tag.Video);
             nvdecStartTime = Time.realtimeSinceStartup;
             nvdecFallbackTriggered = false;
         }
@@ -266,12 +262,8 @@ public class VideoStreamService : MonoBehaviour
         // 传输层已非主线程组帧完成，直接推入解码器
         decoder?.Push(annexB);
         statFramesAssembled++;
-        DebugLog.Transport("[VideoStreamService] 推送至解码: bytes=" + (annexB?.Length ?? 0));
-#if UNITY_EDITOR
-    wmj.DebugTools.WriteDebugLog("[VideoStreamService] 推送至解码: bytes=" + (annexB?.Length ?? 0), "DEBUG");
-#endif
         if (verbosePerFrameLog)
-            wmj.DebugTools.WriteRunLog("[VideoStreamService] 推送至解码", "DEBUG");
+            wmj.Log.D("[VideoStreamService] 推送至解码: bytes=" + (annexB?.Length ?? 0), wmj.Log.Tag.Video);
     }
 
     void Update()
@@ -289,8 +281,7 @@ public class VideoStreamService : MonoBehaviour
             {
                 if (sizeStats.width != nativeTexWidth || sizeStats.height != nativeTexHeight)
                 {
-                    DebugLog.Video($"[VideoStreamService] 视频尺寸变化: {nativeTexWidth}x{nativeTexHeight} -> {sizeStats.width}x{sizeStats.height}");
-                    wmj.DebugTools.WriteRunLog($"[VideoStreamService] 视频尺寸变化: {nativeTexWidth}x{nativeTexHeight} -> {sizeStats.width}x{sizeStats.height}", "INFO");
+                    wmj.Log.I($"[VideoStreamService] 视频尺寸变化: {nativeTexWidth}x{nativeTexHeight} -> {sizeStats.width}x{sizeStats.height}", wmj.Log.Tag.Video);
                     nativeTexWidth = sizeStats.width;
                     nativeTexHeight = sizeStats.height;
                     // 强制重新创建纹理
@@ -319,8 +310,7 @@ public class VideoStreamService : MonoBehaviour
                     }
                     // Vulkan 模式使用 RGBA32 格式
                     CurrentTexture = Texture2D.CreateExternalTexture(nativeTexWidth, nativeTexHeight, TextureFormat.RGBA32, false, false, vkImage);
-                    DebugLog.Video("[VideoStreamService] 绑定 Vulkan 纹理: handle=" + vkImage + ", " + nativeTexWidth + "x" + nativeTexHeight);
-                    wmj.DebugTools.WriteRunLog("[VideoStreamService] 绑定 Vulkan 纹理: handle=" + vkImage, "INFO");
+                    wmj.Log.I("[VideoStreamService] 绑定 Vulkan 纹理: handle=" + vkImage + ", " + nativeTexWidth + "x" + nativeTexHeight, wmj.Log.Tag.Video);
                 }
             }
             else
@@ -335,8 +325,7 @@ public class VideoStreamService : MonoBehaviour
                         UnityEngine.Object.Destroy(CurrentTexture);
                     }
                     CurrentTexture = Texture2D.CreateExternalTexture(nativeTexWidth, nativeTexHeight, TextureFormat.RGB24, false, false, (IntPtr)nativeTextureId);
-                    DebugLog.Video("[VideoStreamService] 绑定 OpenGL 纹理: id=" + nativeTexWidth + "x" + nativeTexHeight + ", id=" + nativeTextureId);
-                    wmj.DebugTools.WriteRunLog("[VideoStreamService] 绑定 OpenGL 纹理: " + nativeTexWidth + "x" + nativeTexHeight + ", id=" + nativeTextureId, "INFO");
+                    wmj.Log.I("[VideoStreamService] 绑定 OpenGL 纹理: " + nativeTexWidth + "x" + nativeTexHeight + ", id=" + nativeTextureId, wmj.Log.Tag.Video);
                 }
             }
 
@@ -345,8 +334,7 @@ public class VideoStreamService : MonoBehaviour
             {
                 nvdecLastStatLog = Time.realtimeSinceStartup;
                 string mode = stats.vulkanEnabled != 0 ? "Vulkan" : "OpenGL";
-                DebugLog.Video($"[VideoStreamService][NVDEC] 统计 mode={mode}, tex={stats.tex}, pbo={stats.pbo}, cuPbo={stats.cuPbo}, glReady={stats.glReady}, glFailed={stats.glFailed}, decoded={stats.framesDecoded}, displayed={stats.framesDisplayed}, size={stats.width}x{stats.height}, slices={statSlicesIn}, assembled={statFramesAssembled}");
-                wmj.DebugTools.WriteRunLog("[VideoStreamService][NVDEC] 统计 mode=" + mode + ", tex=" + stats.tex + ", pbo=" + stats.pbo + ", cuPbo=" + stats.cuPbo + ", glReady=" + stats.glReady + ", glFailed=" + stats.glFailed + ", decoded=" + stats.framesDecoded + ", displayed=" + stats.framesDisplayed + ", size=" + stats.width + "x" + stats.height + ", slices=" + statSlicesIn + ", assembled=" + statFramesAssembled, "INFO");
+                wmj.Log.I($"[VideoStreamService][NVDEC] 统计 mode={mode}, tex={stats.tex}, pbo={stats.pbo}, cuPbo={stats.cuPbo}, glReady={stats.glReady}, glFailed={stats.glFailed}, decoded={stats.framesDecoded}, displayed={stats.framesDisplayed}, size={stats.width}x{stats.height}, slices={statSlicesIn}, assembled={statFramesAssembled}", wmj.Log.Tag.Video);
                 statSlicesIn = 0;
                 statFramesAssembled = 0;
             }
@@ -371,11 +359,11 @@ public class VideoStreamService : MonoBehaviour
         int currentQueueSize = 0;
         var ffCheck = decoder as FfmpegPipeDecoder;
         if (ffCheck != null) currentQueueSize = ffCheck.GetQueueCount();
-        
+
         // 积压判断：队列超过 4 帧认为需要追赶
         const int queueBacklogThreshold = 4;
         bool needCatchUp = currentQueueSize > queueBacklogThreshold;
-        
+
         if (needCatchUp)
         {
             // 追赶模式：丢弃较旧帧，只保留最新帧
@@ -418,7 +406,7 @@ public class VideoStreamService : MonoBehaviour
                 if (!hasEntered && stGate.IdrsSeen > 0)
                 {
                     hasEntered = true;
-                    wmj.DebugTools.WriteRunLog("[VideoStreamService] 入场完成，解除IDR门控", "INFO");
+                    wmj.Log.I("[VideoStreamService] 入场完成，解除IDR门控", wmj.Log.Tag.Video);
                 }
                 else if (!hasEntered)
                 {
@@ -427,7 +415,7 @@ public class VideoStreamService : MonoBehaviour
                     if (gateTimeoutSec > 0f && sinceStart >= gateTimeoutSec && statFramesDecoded > 0)
                     {
                         hasEntered = true;
-                        wmj.DebugTools.WriteRunLog("[VideoStreamService] 超时放开门控：未检测到IDR但已有解码帧(sinceStart=" + sinceStart.ToString("F2") + ", gateTimeout=" + gateTimeoutSec.ToString("F2") + ")", "WARN");
+                        wmj.Log.W("[VideoStreamService] 超时放开门控：未检测到IDR但已有解码帧(sinceStart=" + sinceStart.ToString("F2") + ", gateTimeout=" + gateTimeoutSec.ToString("F2") + ")", wmj.Log.Tag.Video);
                     }
                 }
             }
@@ -436,7 +424,7 @@ public class VideoStreamService : MonoBehaviour
             {
                 if (!gateNotified)
                 {
-                    wmj.DebugTools.WriteRunLog("[VideoStreamService] IDR未捕获，暂不应用纹理（门控生效）", "WARN");
+                    wmj.Log.W("[VideoStreamService] IDR未捕获，暂不应用纹理（门控生效）", wmj.Log.Tag.Video);
                     gateNotified = true;
                 }
                 // 门控生效时归还帧到池
@@ -447,7 +435,7 @@ public class VideoStreamService : MonoBehaviour
             bool needCreate = CurrentTexture == null || CurrentTexture.width != latest.Width || CurrentTexture.height != latest.Height || CurrentTexture.format != UnityEngine.TextureFormat.RGB24;
             bool needCreateBack = useDoubleBuffer && (backBuffer == null || backBuffer.width != latest.Width || backBuffer.height != latest.Height || backBuffer.format != UnityEngine.TextureFormat.RGB24);
             float now = Time.realtimeSinceStartup;
-            
+
             // 双缓冲逻辑：写入后台纹理，然后交换
             if (useDoubleBuffer)
             {
@@ -468,8 +456,7 @@ public class VideoStreamService : MonoBehaviour
                         UnityEngine.Object.Destroy(CurrentTexture);
                     }
                     CurrentTexture = new UnityEngine.Texture2D(latest.Width, latest.Height, UnityEngine.TextureFormat.RGB24, false);
-                    DebugLog.Video($"[VideoStreamService] 新建/调整纹理(双缓冲): {latest.Width}x{latest.Height}");
-                    wmj.DebugTools.WriteRunLog("[VideoStreamService] 新建/调整纹理(双缓冲): " + latest.Width + "x" + latest.Height, "INFO");
+                    wmj.Log.I($"[VideoStreamService] 新建/调整纹理(双缓冲): {latest.Width}x{latest.Height}", wmj.Log.Tag.Video);
                 }
                 // 写入后台缓冲
                 backBuffer.LoadRawTextureData(latest.Pixels);
@@ -489,12 +476,7 @@ public class VideoStreamService : MonoBehaviour
                         UnityEngine.Object.Destroy(CurrentTexture);
                     }
                     CurrentTexture = new UnityEngine.Texture2D(latest.Width, latest.Height, UnityEngine.TextureFormat.RGB24, false);
-                    DebugLog.Video($"[VideoStreamService] 新建/调整纹理: {latest.Width}x{latest.Height}");
-#if UNITY_EDITOR
-                    wmj.DebugTools.Info($"[VideoStreamService] 新建/调整纹理: {latest.Width}x{latest.Height}");
-                    wmj.DebugTools.WriteDebugLog("[VideoStreamService] 新建/调整纹理: " + latest.Width + "x" + latest.Height, "INFO");
-#endif
-                    wmj.DebugTools.WriteRunLog("[VideoStreamService] 新建/调整纹理: " + latest.Width + "x" + latest.Height, "INFO");
+                    wmj.Log.I($"[VideoStreamService] 新建/调整纹理: {latest.Width}x{latest.Height}", wmj.Log.Tag.Video);
                 }
                 CurrentTexture.LoadRawTextureData(latest.Pixels);
                 CurrentTexture.Apply(false, false);
@@ -517,16 +499,11 @@ public class VideoStreamService : MonoBehaviour
                 var s = ff.GetStats();
                 st = ", IdrsSeen=" + s.IdrsSeen + ", HasParamSets=" + s.HasParameterSets + ", Q=" + ff.GetQueueCount();
             }
-            DebugLog.Video($"[VideoStreamService] 每秒统计 slices={statSlicesIn}, assembled={statFramesAssembled}, decoded={statFramesDecoded}, applied={statTexturesApplied}{st}");
-#if UNITY_EDITOR
-            wmj.DebugTools.Info($"[VideoStreamService] 每秒统计 slices={statSlicesIn}, assembled={statFramesAssembled}, decoded={statFramesDecoded}, applied={statTexturesApplied}{st}", wmj.DebugTools.LogCategory.Video);
-            wmj.DebugTools.WriteDebugLog("[VideoStreamService] 每秒统计 slices=" + statSlicesIn + ", assembled=" + statFramesAssembled + ", decoded=" + statFramesDecoded + ", applied=" + statTexturesApplied + st, "INFO");
-#endif
-            wmj.DebugTools.WriteRunLog("[VideoStreamService] 每秒统计 slices=" + statSlicesIn + ", assembled=" + statFramesAssembled + ", decoded=" + statFramesDecoded + ", applied=" + statTexturesApplied + st, "INFO");
+            wmj.Log.I($"[VideoStreamService] 每秒统计 slices={statSlicesIn}, assembled={statFramesAssembled}, decoded={statFramesDecoded}, applied={statTexturesApplied}{st}", wmj.Log.Tag.Video);
             // 诊断：若 decoded 远大于 applied，说明可能有队列积压或帧丢失
             if (statFramesDecoded >= 15 && statTexturesApplied <= 1)
             {
-                wmj.DebugTools.WriteRunLog("[VideoStreamService] 诊断: decoded=" + statFramesDecoded + " 但 applied=" + statTexturesApplied + "，可能存在队列积压", "WARN");
+                wmj.Log.W("[VideoStreamService] 诊断: decoded=" + statFramesDecoded + " 但 applied=" + statTexturesApplied + "，可能存在队列积压", wmj.Log.Tag.Video);
             }
             statSlicesIn = 0;
             statFramesAssembled = 0;
@@ -543,10 +520,10 @@ public class VideoStreamService : MonoBehaviour
             if (ff != null)
             {
                 var st = ff.GetStats();
-                wmj.DebugTools.WriteRunLog("[VideoStreamService][诊断] 未入场: HasParamSets=" + st.HasParameterSets + ", IdrsSeen=" + st.IdrsSeen + ", PushedFrames=" + st.PushedFrames + ", Codec=" + st.Codec, "WARN");
+                wmj.Log.W("[VideoStreamService][诊断] 未入场: HasParamSets=" + st.HasParameterSets + ", IdrsSeen=" + st.IdrsSeen + ", PushedFrames=" + st.PushedFrames + ", Codec=" + st.Codec, wmj.Log.Tag.Video);
                 // 看门狗：未入场时重发参数集以促进入场
                 ff.ResendParameterSets();
-                wmj.DebugTools.WriteRunLog("[VideoStreamService][看门狗] 重发参数集以促进入场", "WARN");
+                wmj.Log.W("[VideoStreamService][看门狗] 重发参数集以促进入场", wmj.Log.Tag.Video);
             }
             lastDiagTime = nowDiag;
         }
@@ -561,16 +538,16 @@ public class VideoStreamService : MonoBehaviour
                 ffWatch.ResendParameterSets();
                 watchdogAttempts++;
                 lastWatchdogSend = nowW;
-                wmj.DebugTools.WriteRunLog("[VideoStreamService][看门狗] 周期性重发参数集 尝试=" + watchdogAttempts, "WARN");
+                wmj.Log.W("[VideoStreamService][看门狗] 周期性重发参数集 尝试=" + watchdogAttempts, wmj.Log.Tag.Video);
             }
             // 入场后重置尝试计数
             if (hasEntered && watchdogAttempts > 0)
             {
-                wmj.DebugTools.WriteRunLog("[VideoStreamService] 入场后重置看门狗计数（" + watchdogAttempts + ")", "INFO");
+                wmj.Log.I("[VideoStreamService] 入场后重置看门狗计数（" + watchdogAttempts + ")", wmj.Log.Tag.Video);
                 watchdogAttempts = 0;
             }
         }
-        
+
         // 增量GC辅助：定期发送GC提示以避免大块内存累积导致突发GC停顿
         framesSinceLastGcHint++;
         if (framesSinceLastGcHint >= GC_HINT_INTERVAL_FRAMES)
@@ -584,7 +561,7 @@ public class VideoStreamService : MonoBehaviour
                 GarbageCollector.CollectIncremental(1000000); // 1ms
             }
         }
-        
+
         // 低优先级完整GC：在空闲时段（帧率稳定且无大量解码积压）进行
         float nowGc = Time.realtimeSinceStartup;
         if (nowGc - lastFullGcTime >= FULL_GC_INTERVAL_SEC)
@@ -605,7 +582,7 @@ public class VideoStreamService : MonoBehaviour
             return;
 
         nvdecFallbackTriggered = true;
-        wmj.DebugTools.WriteRunLog("[VideoStreamService] 切换到 Ffmpeg 回退：" + reason, "WARN");
+        wmj.Log.W("[VideoStreamService] 切换到 Ffmpeg 回退：" + reason, wmj.Log.Tag.Video);
         NativeVideoBridge.Shutdown();
         decodeBackend = DecodeBackend.FfmpegPipe;
         // 释放原生纹理引用，防止旧纹理残留

@@ -15,11 +15,7 @@ public class GuardCtrlResultHandler : IMessageHandler
         }
         catch (Exception ex)
         {
-#if UNITY_EDITOR
-            wmj.DebugTools.Error($"[GuardCtrlResultHandler] 解析失败: {ex.Message}");
-            wmj.DebugTools.Error("[GuardCtrlResultHandler] 解析失败: " + ex.Message);
-#endif
-            wmj.DebugTools.Error("[GuardCtrlResultHandler] 解析失败: " + ex.Message);
+            wmj.Log.E($"[GuardCtrlResultHandler] 解析失败: {ex.Message}", wmj.Log.Tag.Network);
         }
     }
 }
