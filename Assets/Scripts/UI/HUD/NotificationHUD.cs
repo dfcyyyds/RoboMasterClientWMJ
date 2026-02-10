@@ -15,6 +15,7 @@ namespace UI.HUD
             public TextMeshProUGUI text;
             public float expireTime;
             public RectTransform rt;
+            public bool isPopup;
         }
 
         private readonly List<NotifEntry> entries = new List<NotifEntry>();
@@ -91,7 +92,6 @@ namespace UI.HUD
             notifBorder.raycastTarget = false;
 
             var bgRt = bgGo.GetComponent<RectTransform>();
-            // 通知条不倾斜（作为容器）
 
             // 把文字移到背景下
             txt.transform.SetParent(bgGo.transform, false);
@@ -109,6 +109,56 @@ namespace UI.HUD
             LayoutEntries();
         }
 
+        /// <summary>推送醒目的 BUFF/DEBUFF 弹窗通知（大号白色文字 + 自定义背景色 + 自定义边框色）</summary>
+        public void PushBuffPopup(string message, Color textColor, Color bgColor, Color borderColor, float duration = -1)
+        {
+            if (duration <= 0) duration = UILayoutManager.Settings.notificationDuration + 0.5f;
+
+            while (entries.Count >= maxNotifs && entries.Count > 0)
+            {
+                if (entries[0].rt) Destroy(entries[0].rt.gameObject);
+                entries.RemoveAt(0);
+            }
+
+            int fontSize = Mathf.Max(UILayoutManager.Settings.notificationFontSize + 4, 34);
+            var txt = UIFactory.CreateText(rootRt, $"BuffPopup_{entries.Count}", message,
+                fontSize, TextAlignmentOptions.Center, Color.white, FontStyles.Bold);
+            txt.textWrappingMode = TextWrappingModes.Normal;
+            txt.alpha = 1f;
+
+            var bgGo = new GameObject("BuffPopupBg");
+            bgGo.transform.SetParent(rootRt, false);
+            var bg = bgGo.AddComponent<UnityEngine.UI.Image>();
+            bg.color = bgColor;
+            UIFactory.ApplyRoundedCorners(bg, 48, 10);
+            bg.raycastTarget = false;
+
+            // 边框 — 使用传入的边框色
+            var border = UIFactory.CreateImage(bgGo.transform, "Border", borderColor);
+            UIFactory.ApplyRoundedCorners(border, 48, 10);
+            UIFactory.SetFullStretch(border.rectTransform);
+            border.rectTransform.offsetMin = new Vector2(-2, -2);
+            border.rectTransform.offsetMax = new Vector2(2, 2);
+            border.raycastTarget = false;
+
+            var bgRt = bgGo.GetComponent<RectTransform>();
+
+            txt.transform.SetParent(bgGo.transform, false);
+            UIFactory.SetFullStretch(txt.rectTransform);
+            txt.rectTransform.offsetMin = new Vector2(18, 6);
+            txt.rectTransform.offsetMax = new Vector2(-18, -6);
+
+            entries.Add(new NotifEntry
+            {
+                text = txt,
+                expireTime = Time.time + duration,
+                rt = bgRt,
+                isPopup = true
+            });
+
+            LayoutEntries();
+        }
+
         private void LayoutEntries()
         {
             float y = 0;
@@ -116,12 +166,15 @@ namespace UI.HUD
             {
                 var e = entries[i];
                 if (e.rt == null) continue;
-                e.rt.anchorMin = new Vector2(0.1f, 1f);
-                e.rt.anchorMax = new Vector2(0.9f, 1f);
+                float h = e.isPopup ? 62f : 48f;
+                float xMin = e.isPopup ? 0.05f : 0.1f;
+                float xMax = e.isPopup ? 0.95f : 0.9f;
+                e.rt.anchorMin = new Vector2(xMin, 1f);
+                e.rt.anchorMax = new Vector2(xMax, 1f);
                 e.rt.pivot = new Vector2(0.5f, 1f);
                 e.rt.anchoredPosition = new Vector2(0, -y);
-                e.rt.sizeDelta = new Vector2(0, 48);
-                y += 52;
+                e.rt.sizeDelta = new Vector2(0, h);
+                y += h + 4f;
             }
         }
     }

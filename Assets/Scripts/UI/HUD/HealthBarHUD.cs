@@ -25,15 +25,15 @@ namespace UI.HUD
         void Awake()
         {
             var s = UILayoutManager.Settings;
-            float barW = Mathf.Max(s.healthBarWidth, 600f);
-            float barH = Mathf.Max(s.healthBarHeight, 28f);
+            float barW = Mathf.Max(s.healthBarWidth, 700f);
+            float barH = Mathf.Max(s.healthBarHeight, 34f);
             int fSize = s.healthBarFontSize;
 
             barRoot = gameObject.AddComponent<RectTransform>();
             barRoot.anchorMin = new Vector2(0.5f, 0f);
             barRoot.anchorMax = new Vector2(0.5f, 0f);
             barRoot.pivot = new Vector2(0.5f, 0f);
-            barRoot.anchoredPosition = new Vector2(0, 50);
+            barRoot.anchoredPosition = new Vector2(0, 55);
             barRoot.sizeDelta = new Vector2(barW, barH);
 
             // 外发光层

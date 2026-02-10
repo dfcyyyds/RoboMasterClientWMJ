@@ -87,8 +87,9 @@ namespace UI.HUD
             var healthGO = new GameObject("HealthBar");
             healthGO.transform.SetParent(root, false);
             healthBar = healthGO.AddComponent<HealthBarHUD>();
+            ApplyPointLayout(healthGO, "HealthBar", 0.5f, 0.06f);
 
-            // 受击视效
+            // 受击视效（全屏效果，不需要布局定位）
             var vignetteGO = new GameObject("DamageVignette");
             vignetteGO.transform.SetParent(root, false);
             damageVignette = vignetteGO.AddComponent<DamageVignetteHUD>();
@@ -97,13 +98,15 @@ namespace UI.HUD
             var crosshairGO = new GameObject("CrosshairRing");
             crosshairGO.transform.SetParent(root, false);
             crosshairRing = crosshairGO.AddComponent<CrosshairRingHUD>();
+            ApplyPointLayout(crosshairGO, "CrosshairRing", 0.5f, 0.5f);
 
             // 通知
             var notifGO = new GameObject("Notifications");
             notifGO.transform.SetParent(root, false);
             notifications = notifGO.AddComponent<NotificationHUD>();
+            ApplyStretchLayout(notifGO, "Notifications", 0.5f, 0.88f, 0.20f, 0.065f);
 
-            // 开镜
+            // 开镜（无视觉布局）
             var zoomGO = new GameObject("AimZoom");
             zoomGO.transform.SetParent(root, false);
             aimZoom = zoomGO.AddComponent<AimZoomHUD>();
@@ -112,6 +115,7 @@ namespace UI.HUD
             var buffGO = new GameObject("BuffStatus");
             buffGO.transform.SetParent(root, false);
             buffStatus = buffGO.AddComponent<BuffStatusHUD>();
+            ApplyBuffLayout(buffGO, "BuffStatus", 0.08f, 0.5f);
             buffStatus.SetNotificationHUD(notifications);
         }
 
@@ -177,6 +181,23 @@ namespace UI.HUD
             buffStatus = null;
         }
 
+        /// <summary>
+        /// 销毁并重建 HUD，用于设置更改后的实时预览
+        /// </summary>
+        public void RebuildHUD()
+        {
+            if (!isInitialized) return;
+            // 销毁旧画布
+            if (hudCanvas != null) Destroy(hudCanvas.gameObject);
+            hudCanvas = null; healthBar = null; damageVignette = null;
+            crosshairRing = null; notifications = null; aimZoom = null;
+            buffStatus = null;
+            // 不调用 Load()：内存中的 _data 已是最新（Save 已写入磁盘），
+            // 重新 Load 会替换 _data 引用导致设置面板滑块 lambda 指向孤儿对象
+            BuildHUD();
+            wmj.Log.I("[BattleHUD] HUD 已重建（设置预览）", wmj.Log.Tag.UI);
+        }
+
         public void PushNotification(string text, Color color, float duration = -1)
         {
             if (notifications) notifications.Push(text, color, duration);
@@ -190,6 +211,50 @@ namespace UI.HUD
         public void UpdateEnemyInfo(uint enemyHealth, uint enemyMaxHealth, int bulletsToKill)
         {
             if (crosshairRing) crosshairRing.UpdateEnemyInfo(enemyHealth, enemyMaxHealth, bulletsToKill);
+        }
+
+        // ─── 布局应用辅助方法 ───
+
+        /// <summary>点锚点布局：元素中心对齐到布局位置</summary>
+        private void ApplyPointLayout(GameObject go, string id, float defX, float defY)
+        {
+            var layout = UILayoutManager.GetElement(id, defX, defY);
+            var rt = go.GetComponent<RectTransform>();
+            if (rt == null) return;
+            rt.anchorMin = new Vector2(layout.anchorX, layout.anchorY);
+            rt.anchorMax = new Vector2(layout.anchorX, layout.anchorY);
+            rt.pivot = new Vector2(0.5f, 0.5f);
+            rt.anchoredPosition = Vector2.zero;
+            // sizeDelta 保留组件 Awake() 中设定的值
+        }
+
+        /// <summary>拉伸锚点布局：以布局中心 ± 半宽/半高展开</summary>
+        private void ApplyStretchLayout(GameObject go, string id,
+            float defX, float defY, float halfW, float halfH)
+        {
+            var layout = UILayoutManager.GetElement(id, defX, defY);
+            var rt = go.GetComponent<RectTransform>();
+            if (rt == null) return;
+            float cx = Mathf.Clamp(layout.anchorX, halfW, 1f - halfW);
+            float cy = Mathf.Clamp(layout.anchorY, halfH, 1f - halfH);
+            rt.anchorMin = new Vector2(cx - halfW, cy - halfH);
+            rt.anchorMax = new Vector2(cx + halfW, cy + halfH);
+            rt.offsetMin = Vector2.zero;
+            rt.offsetMax = Vector2.zero;
+        }
+
+        /// <summary>BUFF 栏布局：水平位置可调，垂直范围保持拉伸</summary>
+        private void ApplyBuffLayout(GameObject go, string id, float defX, float defY)
+        {
+            var layout = UILayoutManager.GetElement(id, defX, defY);
+            var rt = go.GetComponent<RectTransform>();
+            if (rt == null) return;
+            // layout.anchorX 表示 BUFF 区域中心，计算左边缘锚点
+            float totalW = UILayoutManager.Settings.buffColumnWidth * 2f + 12f;
+            float halfNorm = totalW / 1920f / 2f;
+            float leftAnchor = Mathf.Max(0f, layout.anchorX - halfNorm);
+            rt.anchorMin = new Vector2(leftAnchor, rt.anchorMin.y);
+            rt.anchorMax = new Vector2(leftAnchor, rt.anchorMax.y);
         }
     }
 }

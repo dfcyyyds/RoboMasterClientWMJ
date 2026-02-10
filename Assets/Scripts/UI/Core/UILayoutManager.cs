@@ -44,18 +44,23 @@ namespace UI.Core
         public float lowHealthThreshold = 0.6f;        // 血量低于此比例开始红色提示
 
         // 准星环
-        public float crosshairRingRadius = 140f;       // 准星环半径 (px)
-        public float crosshairRingThickness = 2.5f;    // 准星环线宽
+        public float crosshairRingRadius = 80f;        // 准星环半径 (px)
+        public float crosshairRingThickness = 10f;     // 准星环线宽
         public float crosshairDotSize = 8f;
         public float crosshairLineLength = 40f;
+        public float crosshairHeatRingGap = 8f;        // 热量环与弹药环间距
 
-        // 血条
-        public float healthBarWidth = 650f;
-        public float healthBarHeight = 28f;
+        // 血条（放大默认值）
+        public float healthBarWidth = 800f;
+        public float healthBarHeight = 36f;
+
+        // BUFF 状态栏
+        public int buffMaxVisible = 6;                 // 单列最大可见 BUFF 数
+        public float buffColumnWidth = 220f;           // BUFF 栏固定宽度
 
         // 每模块字体大小
         public int crosshairFontSize = 36;
-        public int healthBarFontSize = 30;
+        public int healthBarFontSize = 34;
         public int notificationFontSize = 32;
         public int buffFontSize = 26;
         public float textOpacity = 1.0f;
