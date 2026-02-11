@@ -228,7 +228,7 @@ namespace UI.HUD
             enemyHpValueText.rectTransform.anchorMax = new Vector2(0.95f, 0.74f);
             enemyHpValueText.rectTransform.offsetMin = Vector2.zero;
             enemyHpValueText.rectTransform.offsetMax = Vector2.zero;
-            enemyHpValueText.enableWordWrapping = false;
+            enemyHpValueText.textWrappingMode = TextWrappingModes.NoWrap;
             enemyHpValueText.overflowMode = TextOverflowModes.Overflow;
 
             enemyHpBarBg = UIFactory.CreateImage(prt, "HpBg",
@@ -256,7 +256,7 @@ namespace UI.HUD
             bulletsToKillText.rectTransform.anchorMax = new Vector2(0.95f, 0.30f);
             bulletsToKillText.rectTransform.offsetMin = Vector2.zero;
             bulletsToKillText.rectTransform.offsetMax = Vector2.zero;
-            bulletsToKillText.enableWordWrapping = false;
+            bulletsToKillText.textWrappingMode = TextWrappingModes.NoWrap;
             bulletsToKillText.overflowMode = TextOverflowModes.Overflow;
         }
 

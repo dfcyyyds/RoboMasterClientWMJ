@@ -3,6 +3,7 @@ using System;
 using System.Collections.Generic;
 using uPLibrary.Networking.M2Mqtt;
 using uPLibrary.Networking.M2Mqtt.Messages;
+using UI.HUD;
 
 /// 网络管理器，负责管理MQTT和UDP服务及消息分发
 public class NetworkManager : MonoBehaviour
@@ -149,7 +150,7 @@ public class NetworkManager : MonoBehaviour
         RegisterAndSync<DartSelectTargetStatusSyncHandler, DartSelectTargetStatusSync>("DartSelectTargetStatusSync");
         RegisterAndSync<SentryCtrlResultHandler, SentryCtrlResult>("SentryCtrlResult");
         RegisterAndSync<AirSupportStatusSyncHandler, AirSupportStatusSync>("AirSupportStatusSync");
-        // 其它协议类型如需补充可继续添加...
+        RegisterAndSync<CustomByteBlockHandler, CustomByteBlock>("CustomByteBlock");
 
         // UDP 图传处理器（统一用 "VideoStream" 主题）
         var udpVideoHandler = new UdpVideoHandler();
@@ -182,6 +183,14 @@ public class NetworkManager : MonoBehaviour
         {
             wmj.Log.D($"[业务] ProtobufManager数据更新: {typeName}", wmj.Log.Tag.Network);
         };
+
+        // 初始化事件通知服务（MonoBehaviour），将 Event / PenaltyInfo 转为 HUD 通知
+        if (EventNotificationService.Instance == null)
+        {
+            var evtGO = new GameObject("EventNotificationService");
+            evtGO.AddComponent<EventNotificationService>();
+            wmj.Log.I("[NetworkManager] 自动创建 EventNotificationService", wmj.Log.Tag.Network);
+        }
 
         wmj.Log.I("[NetworkManager] Awake 完成", wmj.Log.Tag.Network);
     }

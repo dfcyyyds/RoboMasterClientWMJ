@@ -1,4 +1,5 @@
 #include "protocol.h"
+#include "game_simulator.h"
 
 #include <chrono>
 #include <ctime>
@@ -51,7 +52,24 @@ auto rand_uint = [](unsigned min, unsigned max) {
   std::uniform_int_distribution<unsigned> dist(min, max);
   return dist(rng);
 };
+
+// 仿真器实例
+static GameSimulator g_sim;
 }  // namespace
+
+void init_simulator(int self_robot_index, bool fast_mode) {
+  g_sim.init(self_robot_index, fast_mode);
+}
+
+void tick_simulator(float dt) {
+  g_sim.tick(dt);
+}
+
+std::pair<std::string, std::vector<uint8_t>> build_simulated_message(
+    const std::string& type) {
+  auto payload = g_sim.buildMessageForTopic(type);
+  return {type, payload};
+}
 
 // 支持指定类型生成
 std::pair<std::string, std::vector<uint8_t>> build_random_message(

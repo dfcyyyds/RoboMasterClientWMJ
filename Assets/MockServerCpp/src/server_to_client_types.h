@@ -25,4 +25,5 @@ const std::vector<std::string> server_to_client_types = {
     "SentryStatusSync",
     "DartSelectTargetStatusSync",
     "SentryCtrlResult",
-    "AirSupportStatusSync"};
+    "AirSupportStatusSync",
+    "CustomByteBlock"};

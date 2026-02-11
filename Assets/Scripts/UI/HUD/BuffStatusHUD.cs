@@ -16,16 +16,29 @@ namespace UI.HUD
     /// </summary>
     public class BuffStatusHUD : MonoBehaviour
     {
-        // ─── BUFF 定义 ───
+        // ─── BUFF 定义（键=协议 buff_type，1-based，与 BuffTypes 常量一致）───
         private static readonly Dictionary<uint, BuffDef> BuffDefs = new Dictionary<uint, BuffDef>
         {
-            { 0, new BuffDef("攻击加成", "攻", false) },
-            { 1, new BuffDef("防御加成", "防", false) },
-            { 2, new BuffDef("回血",    "回", false) },
-            { 3, new BuffDef("冷却加速", "冷", false) },
-            { 4, new BuffDef("伤害惩罚", "罚", true) },
-            { 5, new BuffDef("移速加成", "速", false) },
-            { 6, new BuffDef("能量增益", "能", false) },
+            {  1, new BuffDef("攻击加成",     "攻", false) },
+            {  2, new BuffDef("防御加成",     "防", false) },
+            {  3, new BuffDef("冷却加速",     "冷", false) },
+            {  4, new BuffDef("缓冲能量",     "缓", false) },
+            {  5, new BuffDef("回血",         "回", false) },
+            {  6, new BuffDef("易伤",         "伤", true)  },
+            {  7, new BuffDef("无敌",         "盾", false) },
+            {  8, new BuffDef("虚弱",         "弱", true)  },
+            {  9, new BuffDef("补给回血",     "补", false) },
+            { 10, new BuffDef("越障加速",     "越", false) },
+            { 11, new BuffDef("小能量机关",   "符", false) },
+            { 12, new BuffDef("大符·攻击",   "符攻", false) },
+            { 13, new BuffDef("大符·防御",   "符防", false) },
+            { 14, new BuffDef("大符·冷却",   "符冷", false) },
+            { 15, new BuffDef("工程前期防御", "工防", false) },
+            { 16, new BuffDef("装配防御",     "装防", false) },
+            { 17, new BuffDef("哨兵姿态",     "哨", false) },
+            { 18, new BuffDef("英雄部署",     "英", false) },
+            { 19, new BuffDef("雷达易伤",     "雷", true)  },
+            { 20, new BuffDef("堡垒增益",     "堡", false) },
         };
 
         private struct BuffDef
@@ -159,7 +172,6 @@ namespace UI.HUD
         void Update()
         {
             var toRemove = new List<uint>();
-            bool needRebuild = false;
             foreach (var kv in activeBuffs)
             {
                 var b = kv.Value;
@@ -178,7 +190,7 @@ namespace UI.HUD
                     if (b.flashTimer <= 0) b.flashOverlay.gameObject.SetActive(false);
                 }
             }
-            foreach (var t in toRemove) { RemoveBuff(t); needRebuild = true; }
+            foreach (var t in toRemove) { RemoveBuff(t); }
 
             var kb = Keyboard.current;
             if (kb != null && kb.tabKey.wasPressedThisFrame)
@@ -267,7 +279,7 @@ namespace UI.HUD
             iconTxt.rectTransform.anchorMax = new Vector2(0.16f, 0.92f);
             iconTxt.rectTransform.offsetMin = Vector2.zero;
             iconTxt.rectTransform.offsetMax = Vector2.zero;
-            iconTxt.enableWordWrapping = false;
+            iconTxt.textWrappingMode = TextWrappingModes.NoWrap;
             iconTxt.overflowMode = TextOverflowModes.Overflow;
 
             // 名称
@@ -561,7 +573,7 @@ namespace UI.HUD
                 ico.rectTransform.anchorMax = new Vector2(0.07f, 0.92f);
                 ico.rectTransform.offsetMin = Vector2.zero;
                 ico.rectTransform.offsetMax = Vector2.zero;
-                ico.enableWordWrapping = false;
+                ico.textWrappingMode = TextWrappingModes.NoWrap;
                 ico.overflowMode = TextOverflowModes.Overflow;
 
                 // 标签
@@ -572,7 +584,7 @@ namespace UI.HUD
                 tagTxt.rectTransform.anchorMax = new Vector2(0.18f, 0.92f);
                 tagTxt.rectTransform.offsetMin = Vector2.zero;
                 tagTxt.rectTransform.offsetMax = Vector2.zero;
-                tagTxt.enableWordWrapping = false;
+                tagTxt.textWrappingMode = TextWrappingModes.NoWrap;
 
                 // 名称
                 var nameTxt = UIFactory.CreateText(rowRt, "Name", $"{d.name}{lv}",
@@ -581,7 +593,7 @@ namespace UI.HUD
                 nameTxt.rectTransform.anchorMax = new Vector2(0.58f, 0.92f);
                 nameTxt.rectTransform.offsetMin = Vector2.zero;
                 nameTxt.rectTransform.offsetMax = Vector2.zero;
-                nameTxt.enableWordWrapping = false;
+                nameTxt.textWrappingMode = TextWrappingModes.NoWrap;
                 nameTxt.overflowMode = TextOverflowModes.Ellipsis;
 
                 // 进度条
@@ -613,7 +625,7 @@ namespace UI.HUD
                 timeTxt.rectTransform.anchorMax = new Vector2(0.98f, 0.92f);
                 timeTxt.rectTransform.offsetMin = Vector2.zero;
                 timeTxt.rectTransform.offsetMax = Vector2.zero;
-                timeTxt.enableWordWrapping = false;
+                timeTxt.textWrappingMode = TextWrappingModes.NoWrap;
             }
         }
 

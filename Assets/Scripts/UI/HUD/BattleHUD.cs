@@ -155,7 +155,8 @@ namespace UI.HUD
             {
                 uint bt = buffVM.BuffType;
                 uint blt = buffVM.BuffLeftTime;
-                if (bt != lastBuffType || blt != lastBuffLeftTime)
+                // buff_type=0 表示当前无buff，跳过（不发给BuffStatusHUD）
+                if (bt != 0 && (bt != lastBuffType || blt != lastBuffLeftTime))
                 {
                     buffStatus.UpdateBuff(bt, buffVM.BuffLevel,
                         buffVM.BuffMaxTime, blt);
@@ -212,6 +213,9 @@ namespace UI.HUD
         {
             if (crosshairRing) crosshairRing.UpdateEnemyInfo(enemyHealth, enemyMaxHealth, bulletsToKill);
         }
+
+        // 提供给事件通知服务访问的 NotificationHUD 引用
+        public NotificationHUD NotificationHUD => notifications;
 
         // ─── 布局应用辅助方法 ───
 

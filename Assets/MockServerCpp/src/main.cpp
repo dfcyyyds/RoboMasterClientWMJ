@@ -84,9 +84,12 @@ int main(int argc, char* argv[]) {
               << "  --interval <ms>    （保留参数，当前仅收消息）\n"
               << "  --codec <hevc|h264>  视频编解码器，默认 hevc\n"
               << "  --gop <frames>       关键帧间隔（IDR周期），默认 15\n"
+              << "  --fast             快速模式，6秒内进入比赛（默认）\n"
+              << "  --real-timing      真实比赛计时（准备180s+自检15s+倒计时5s）\n"
               << "  -h, --help         显示本帮助\n";
     return 0;
   }
+  bool fast_mode = true;  // 默认快速模式
   for (int i = 1; i < argc; ++i) {
     if (std::string(argv[i]) == "--host" && i + 1 < argc)
       host = argv[++i];
@@ -106,6 +109,10 @@ int main(int argc, char* argv[]) {
       video_codec = argv[++i];
     else if (std::string(argv[i]) == "--gop" && i + 1 < argc)
       video_gop = std::stoi(argv[++i]);
+    else if (std::string(argv[i]) == "--fast")
+      fast_mode = true;
+    else if (std::string(argv[i]) == "--real-timing")
+      fast_mode = false;
   }
   std::string address = "tcp://" + host + ":" + std::to_string(port);
   mqtt::async_client client(address, "mock_server_cpp");
@@ -132,13 +139,13 @@ int main(int argc, char* argv[]) {
     client.connect(connOpts)->wait();
     std::cout << "[MockServerCpp] Connected to " << address << std::endl;
     log("[MockServerCpp] Connected to " + address);
-    // 订阅客户端上行的协议化topic，严格符合官方示例（RemoteControl等）
-    client.subscribe("RemoteControl", 1)->wait();
-    std::cout << "[MockServerCpp] Subscribed to RemoteControl" << std::endl;
-    log("[MockServerCpp] Subscribed to RemoteControl");
-    client.subscribe("CustomRobotData", 1)->wait();
-    std::cout << "[MockServerCpp] Subscribed to CustomRobotData" << std::endl;
-    log("[MockServerCpp] Subscribed to CustomRobotData");
+    // 订阅客户端上行的协议化topic，严格符合V1.2.0协议（KeyboardMouseControl等）
+    client.subscribe("KeyboardMouseControl", 1)->wait();
+    std::cout << "[MockServerCpp] Subscribed to KeyboardMouseControl" << std::endl;
+    log("[MockServerCpp] Subscribed to KeyboardMouseControl");
+    client.subscribe("CustomControl", 1)->wait();
+    std::cout << "[MockServerCpp] Subscribed to CustomControl" << std::endl;
+    log("[MockServerCpp] Subscribed to CustomControl");
     client.subscribe("MapClickInfoNotify", 1)->wait();
     std::cout << "[MockServerCpp] Subscribed to MapClickInfoNotify"
               << std::endl;
@@ -162,12 +169,15 @@ int main(int argc, char* argv[]) {
     client.subscribe("DartCommand", 1)->wait();
     std::cout << "[MockServerCpp] Subscribed to DartCommand" << std::endl;
     log("[MockServerCpp] Subscribed to DartCommand");
-    client.subscribe("GuardCtrlCommand", 1)->wait();
-    std::cout << "[MockServerCpp] Subscribed to GuardCtrlCommand" << std::endl;
-    log("[MockServerCpp] Subscribed to GuardCtrlCommand");
+    client.subscribe("SentryCtrlCommand", 1)->wait();
+    std::cout << "[MockServerCpp] Subscribed to SentryCtrlCommand" << std::endl;
+    log("[MockServerCpp] Subscribed to SentryCtrlCommand");
     client.subscribe("AirSupportCommand", 1)->wait();
     std::cout << "[MockServerCpp] Subscribed to AirSupportCommand" << std::endl;
     log("[MockServerCpp] Subscribed to AirSupportCommand");
+    client.subscribe("CommonCommand", 1)->wait();
+    std::cout << "[MockServerCpp] Subscribed to CommonCommand" << std::endl;
+    log("[MockServerCpp] Subscribed to CommonCommand");
     // 保持对旧通道的订阅，便于兼容
     client.subscribe(topic, 1)->wait();
     std::cout << "[MockServerCpp] Subscribed to " << topic << std::endl;
@@ -180,13 +190,22 @@ int main(int argc, char* argv[]) {
     // 启动视频流发送（默认本机127.0.0.1:3334，可通过参数覆盖）
     StartVideoSender(udp_ip, udp_port, video_path, video_codec, video_gop);
 
-    // 新增：定时主动推送“服务器->自定义客户端”类型的随机协议数据到topic
+    // 初始化比赛仿真器（默认以己方步兵3作为视角，快速模式6秒内进入比赛）
+    init_simulator(2, fast_mode);
+    std::cout << "[MockServerCpp] 仿真模式: "
+              << (fast_mode ? "快速(6s进入比赛)" : "真实计时(200s进入比赛)")
+              << std::endl;
+    log("[MockServerCpp] 仿真模式: " + std::string(fast_mode ? "快速" : "真实计时"));
+
+    // 新增：定时主动推送“服务器->自定义客户端”类型的仿真协议数据到topic
     while (true) {
       client_log_monitor.CheckAndTruncate();
+      tick_simulator(interval_ms / 1000.0f);
       for (const auto& type : server_to_client_types) {
-        auto msg_pair = build_random_message(type);
+        auto msg_pair = build_simulated_message(type);
         const std::string& msg_type = msg_pair.first;
         const std::vector<uint8_t>& payload = msg_pair.second;
+        if (payload.empty()) continue;
         auto pubmsg = mqtt::make_message(
             msg_type, std::string(payload.begin(), payload.end()));
         pubmsg->set_qos(1);

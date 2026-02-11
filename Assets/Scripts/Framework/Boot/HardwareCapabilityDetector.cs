@@ -56,24 +56,40 @@ namespace Framework.Boot
         /// </summary>
         public class DetectionResult
         {
+            // GPU名称
             public string GpuName { get; set; }
+            // GPU供应商名称
             public string GpuVendorName { get; set; }
+            // GPU供应商类型
             public GpuVendor Vendor { get; set; }
+            // GPU显存大小(MB)
             public int GpuMemoryMB { get; set; }
+            // CPU核心数量
             public int CpuCoreCount { get; set; }
+            // CPU内存大小(MB)
             public int SystemMemoryMB { get; set; }
+            // 硬件能力等级
             public CapabilityLevel Level { get; set; }
+            // 推荐的解码加速模式
             public RecommendedAccel Accel { get; set; }
+            // 是否有独立显卡
             public bool HasDedicatedGpu { get; set; }
+            // 是否支持VAAPI
             public bool VaapiAvailable { get; set; }
 
             // 推荐配置
             public int RecommendedWidth { get; set; }
             public int RecommendedHeight { get; set; }
             public int RecommendedTargetFps { get; set; }
+            // 推荐的解码队列大小（针对软解）
             public int RecommendedDecoderQueueSize { get; set; }
+            // 推荐的软解的每帧解码数量
             public int RecommendedMaxDrainPerUpdate { get; set; }
 
+            /// <summary>
+            /// 重写输出字符串格式化方法
+            /// </summary>
+            /// <returns>格式化字符串</returns>
             public override string ToString()
             {
                 return $"[HardwareDetection] GPU={GpuName}, Vendor={Vendor}, VRAM={GpuMemoryMB}MB, " +
@@ -83,6 +99,7 @@ namespace Framework.Boot
             }
         }
 
+        // 检测结果
         private static DetectionResult _cachedResult;
 
         #endregion
@@ -94,6 +111,7 @@ namespace Framework.Boot
         /// </summary>
         public static DetectionResult Detect(bool forceRefresh = false)
         {
+            // 如果已经有配置缓存，则直接返回缓存参数（除非强制刷新）
             if (_cachedResult != null && !forceRefresh)
                 return _cachedResult;
 
@@ -384,6 +402,7 @@ namespace Framework.Boot
 
         /// <summary>
         /// 尝试加载覆盖配置文件
+        /// 这个函数只有在测试期间才会被调用，正式发布版本中不会使用这个函数
         /// </summary>
         private static DetectionResult TryLoadOverrideConfig()
         {

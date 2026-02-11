@@ -12,6 +12,7 @@ include_directories(${CMAKE_CURRENT_SOURCE_DIR}/src)
 add_executable(mock_server
     src/main.cpp
     src/protocol.cpp
+    src/game_simulator.cpp
     src/video_sender.cpp
     src/RoboMasterClientMessage.pb.cc
 )
