@@ -158,7 +158,12 @@ void GameSimulator::initRobot(RobotState& r, RobotType type, uint32_t id,
   r.current_chassis_energy = CHASSIS_ENERGY_INITIAL;
   r.current_buffer_energy = BUFFER_ENERGY_MAX;
 
-  r.remaining_ammo = (type == RobotType::Sentry) ? SENTRY_INITIAL_AMMO : 300;
+  // 初始允许发弹量（规则表5-9）：
+  // 哨兵=300, 英雄/步兵/工程=0（需用金币兑换）
+  if (type == RobotType::Sentry)
+    r.remaining_ammo = SENTRY_INITIAL_AMMO;  // 300
+  else
+    r.remaining_ammo = 0;
 
   r.pos_x = sx;
   r.pos_y = sy;
@@ -347,17 +352,33 @@ void GameSimulator::tickAmmoExchange(float dt) {
     for (int i = 0; i < NUM_ROBOTS; ++i) {
       RobotState& r = team.robots[i];
       if (!r.is_alive) continue;
-      if (r.remaining_ammo > 800) continue;
 
-      uint32_t cost = AMMO_17MM_COST;
+      bool is_42mm = (r.type == RobotType::Hero);
+      // 工程无射击能力，跳过
+      if (r.type == RobotType::Engineer) continue;
+
+      uint32_t cost = is_42mm ? AMMO_42MM_COST : AMMO_17MM_COST;
+      uint32_t amount = is_42mm ? AMMO_42MM_AMOUNT : AMMO_17MM_AMOUNT;
+      uint32_t& team_exchanged =
+          is_42mm ? team.total_42mm_exchanged : team.total_17mm_exchanged;
+      uint32_t team_cap = is_42mm ? AMMO_42MM_TEAM_CAP : AMMO_17MM_TEAM_CAP;
+
+      // 弹药充足则跳过（17mm阈值200，42mm阈值20）
+      uint32_t threshold = is_42mm ? 20u : 200u;
+      if (r.remaining_ammo > static_cast<int32_t>(threshold)) continue;
+
+      // 全队兑换上限检查
+      if (team_exchanged + amount > team_cap) continue;
+
       if (team.remaining_economy < cost) break;
 
       team.remaining_economy -= cost;
-      team.total_17mm_exchanged += AMMO_17MM_AMOUNT;
-      r.remaining_ammo += AMMO_17MM_AMOUNT;
+      team_exchanged += amount;
+      r.remaining_ammo += amount;
 
-      std::string param = std::to_string(r.robot_id) +
-                          ":17mm:" + std::to_string(AMMO_17MM_AMOUNT) + ":" +
+      const char* ammo_type_str = is_42mm ? "42mm" : "17mm";
+      std::string param = std::to_string(r.robot_id) + ":" + ammo_type_str +
+                          ":" + std::to_string(amount) + ":" +
                           std::to_string(cost);
       pushEvent(EventId::EXT_AMMO_EXCHANGED, param);
       break;
@@ -371,8 +392,16 @@ void GameSimulator::tickAmmoExchange(float dt) {
 void GameSimulator::tickCombat(float dt) {
   if (stage_ != GameStage::InProgress) return;
 
-  auto simulate_pair = [&](TeamState& atk_team, TeamState& def_team) {
+  // 玩家射击冷却递减
+  if (player_fire_cooldown_ > 0) player_fire_cooldown_ -= dt;
+
+  auto simulate_pair = [&](TeamState& atk_team, TeamState& def_team,
+                           bool is_ally) {
     for (int i = 0; i < NUM_ROBOTS; ++i) {
+      // 跳过玩家控制的机器人（己方队伍中的 self_robot_idx_）
+      // 玩家通过 FireCommand 主动射击
+      if (is_ally && i == self_robot_idx_) continue;
+
       RobotState& attacker = atk_team.robots[i];
       if (!attacker.is_alive) continue;
       if (attacker.remaining_ammo <= 0) continue;
@@ -405,8 +434,8 @@ void GameSimulator::tickCombat(float dt) {
     }
   };
 
-  simulate_pair(ally_, enemy_);
-  simulate_pair(enemy_, ally_);
+  simulate_pair(ally_, enemy_, true);
+  simulate_pair(enemy_, ally_, false);
 }
 
 void GameSimulator::tickOutpostBaseDamage(float /*dt*/) {
@@ -452,6 +481,10 @@ void GameSimulator::tickRespawn(float dt) {
                     std::to_string(r.robot_id) + ":" + std::to_string(cost));
         }
         respawnRobot(r, instant);
+        // 添加复活无敌 buff
+        float inv_dur =
+            instant ? RESPAWN_INVINCIBLE_INSTANT : RESPAWN_INVINCIBLE_NORMAL;
+        addBuff(r, BuffType::INVINCIBLE, 1, inv_dur);
         pushEvent(EventId::EXT_ROBOT_RESPAWN, std::to_string(r.robot_id));
       }
     }
@@ -580,6 +613,8 @@ void GameSimulator::tickRemoteHeal(float dt) {
 void GameSimulator::tickPositions(float dt) {
   auto process_team = [&](TeamState& team, bool is_ally) {
     for (int i = 0; i < NUM_ROBOTS; ++i) {
+      // 跳过玩家控制的机器人（己方队伍中的 self_robot_idx_）
+      if (is_ally && i == self_robot_idx_) continue;
       RobotState& r = team.robots[i];
       if (!r.is_alive) continue;
 
@@ -741,6 +776,13 @@ void GameSimulator::tickRune(float dt) {
       rs.cooldown_mult = 1.0f;
       rs.buff_remaining = RUNE_SMALL_DURATION;
       rs.small_chances--;
+      // 为队伍所有存活机器人添加小能量机关 buff
+      for (int ri = 0; ri < NUM_ROBOTS; ++ri) {
+        if (team.robots[ri].is_alive) {
+          addBuff(team.robots[ri], BuffType::RUNE_SMALL, 1,
+                  RUNE_SMALL_DURATION);
+        }
+      }
       // 官方协议 6: 能量机关被激活（含激活类型）
       pushEvent(EventId::RUNE_ACTIVATED, "small");
     }
@@ -755,6 +797,18 @@ void GameSimulator::tickRune(float dt) {
       rs.cooldown_mult = b.cooldown_mult;
       rs.buff_remaining = LARGE_RUNE_DURATION[std::min(5u, team.tech_level)];
       rs.large_chances--;
+      // 为队伍所有存活机器人添加大能量机关 buff
+      float large_dur = rs.buff_remaining;
+      for (int ri = 0; ri < NUM_ROBOTS; ++ri) {
+        if (team.robots[ri].is_alive) {
+          if (rs.attack_bonus > 0)
+            addBuff(team.robots[ri], BuffType::RUNE_LARGE_ATK, 1, large_dur);
+          if (rs.defense_bonus > 0)
+            addBuff(team.robots[ri], BuffType::RUNE_LARGE_DEF, 1, large_dur);
+          if (rs.cooldown_mult > 1.0f)
+            addBuff(team.robots[ri], BuffType::RUNE_LARGE_COOL, 1, large_dur);
+        }
+      }
       // 官方协议 5: 能量机关臂数+平均环数
       pushEvent(EventId::RUNE_ARM_RESULT,
                 std::to_string(rs.activated_arms) + ":" +
@@ -770,6 +824,13 @@ void GameSimulator::tickRune(float dt) {
         rs.attack_bonus = 0.0f;
         rs.defense_bonus = 0.0f;
         rs.cooldown_mult = 1.0f;
+        // 移除所有机器人的能量机关 buff 条目
+        for (int ri = 0; ri < NUM_ROBOTS; ++ri) {
+          removeBuff(team.robots[ri], BuffType::RUNE_SMALL);
+          removeBuff(team.robots[ri], BuffType::RUNE_LARGE_ATK);
+          removeBuff(team.robots[ri], BuffType::RUNE_LARGE_DEF);
+          removeBuff(team.robots[ri], BuffType::RUNE_LARGE_COOL);
+        }
         pushEvent(EventId::EXT_RUNE_BUFF_EXPIRED, team_name);
       }
     }
@@ -810,6 +871,11 @@ void GameSimulator::tickSentryPosture(float dt) {
             SENTRY_POSTURE_COOLDOWN + randFloat(0.0f, 3.0f);
         r.posture_weakened =
             (match_elapsed_ >= SENTRY_POSTURE_WEAKEN_TIME && randChance(0.3f));
+
+        // 更新哨兵姿态 buff
+        removeBuff(r, BuffType::SENTRY_POSTURE);
+        addBuff(r, BuffType::SENTRY_POSTURE,
+                static_cast<int32_t>(r.posture) + 1, r.posture_switch_cooldown);
 
         pushEvent(EventId::EXT_SENTRY_POSTURE_CHANGE,
                   std::to_string(static_cast<uint32_t>(r.posture)));
@@ -902,9 +968,22 @@ void GameSimulator::tickFortress(float dt) {
     FortressState& f = team.fortress;
     if (!f.activated && match_elapsed_ > FORTRESS_ENEMY_TIME) {
       f.activated = true;
-      f.reserve_ammo_cap = 500;
-      f.reserve_ammo = 200;
-      f.heat_cooldown_bonus = 2.0f;
+      // 堡垒增益按规则动态计算（∆ = 基地血量上限 − 当前基地血量）
+      uint32_t delta = (BASE_MAX_HEALTH > team.base_health)
+                           ? (BASE_MAX_HEALTH - team.base_health)
+                           : 0;
+      // 储备允许发弹量上限 N = 100 + floor(2∆/15), 上限500
+      f.reserve_ammo_cap = std::min(500u, 100 + (2 * delta / 15));
+      f.reserve_ammo = std::min(f.reserve_ammo_cap, f.reserve_ammo_cap / 2);
+      // 射击热量冷却增益 w = floor(∆/40), 上限75
+      f.heat_cooldown_bonus = static_cast<float>(std::min(75u, delta / 40));
+      // 为队伍所有存活机器人添加堡垒增益 buff（持续到比赛结束）
+      float remaining = std::max(1.0f, MATCH_DURATION - match_elapsed_);
+      for (int ri = 0; ri < NUM_ROBOTS; ++ri) {
+        if (team.robots[ri].is_alive) {
+          addBuff(team.robots[ri], BuffType::FORTRESS, 1, remaining);
+        }
+      }
     }
   };
 
@@ -1143,6 +1222,12 @@ void GameSimulator::killRobot(RobotState& r, uint32_t killer_id) {
   r.respawn_progress = 0.0f;
   r.killer_id = killer_id;
 
+  // 读条复活时长公式（规则表5-8）:
+  //   所需读条 = 10 + (420 - 剩余时间) / 10 + 20 × 累计立即复活次数
+  float elapsed = match_elapsed_;
+  float base_time = 10.0f + elapsed / 10.0f + 20.0f * r.instant_respawn_count;
+  r.total_respawn_progress = std::max(10.0f, std::round(base_time));
+
   // 官方协议 1: 击杀事件  param: "killer_id:victim_id"
   std::string param =
       std::to_string(killer_id) + ":" + std::to_string(r.robot_id);
@@ -1159,22 +1244,40 @@ void GameSimulator::respawnRobot(RobotState& r, bool instant) {
   r.is_on_field = true;
   r.is_pending_respawn = false;
 
-  r.current_health =
-      static_cast<uint32_t>(r.max_health * RESPAWN_HEALTH_PERCENT);
-  r.is_weak = true;
-  r.power_boost_timer = RESPAWN_POWER_BOOST_DURATION;
-  r.invincible_timer =
-      instant ? RESPAWN_INVINCIBLE_INSTANT : RESPAWN_INVINCIBLE_NORMAL;
+  if (instant) {
+    // 立即复活（规则表5-8）: 100% 血量, 无虚弱, 4秒功率提升, 3秒无敌
+    r.current_health = r.max_health;
+    r.is_weak = false;
+    r.power_boost_timer = RESPAWN_POWER_BOOST_DURATION;
+    r.invincible_timer = RESPAWN_INVINCIBLE_INSTANT;
+    r.instant_respawn_count++;
+  } else {
+    // 读条复活（规则表5-8）: 10% 血量, 虚弱状态, 30秒无敌
+    r.current_health =
+        static_cast<uint32_t>(r.max_health * RESPAWN_HEALTH_PERCENT);
+    r.is_weak = true;
+    r.power_boost_timer = 0.0f;
+    r.invincible_timer = RESPAWN_INVINCIBLE_NORMAL;
+  }
 }
 
 uint32_t GameSimulator::calcRespawnGoldCost(const RobotState& r) const {
-  // getLevelForExp 非 const，这里手动计算等级
+  // 规则公式（表5-8）:
+  //   花费 = ceil((420 - 剩余时间) / 60) * 80 + 机器人等级 * 20
+  // 其中 (420 - 剩余时间) = match_elapsed_
   uint32_t level = 1;
   for (int i = 0; i < 10 && level < r.max_level; ++i) {
     if (r.experience >= EXP_TABLE[i]) level = i + 1;
   }
   level = clampValue(level, 1u, r.max_level);
-  return 50u * level;
+
+  // 时间因子：比赛经过的分钟数（向上取整）
+  float elapsed = match_elapsed_;
+  uint32_t time_minutes = static_cast<uint32_t>(std::ceil(elapsed / 60.0f));
+  if (time_minutes < 1) time_minutes = 1;
+  uint32_t time_cost = time_minutes * 80;
+  uint32_t level_cost = level * 20;
+  return time_cost + level_cost;
 }
 
 float GameSimulator::calcRemoteHealCost() const { return 100.0f; }
@@ -1438,6 +1541,14 @@ std::vector<uint8_t> GameSimulator::buildBuff() {
     msg.set_buff_level(b.buff_level);
     msg.set_buff_max_time(static_cast<uint32_t>(b.max_time));
     msg.set_buff_left_time(static_cast<uint32_t>(std::max(0.0f, b.left_time)));
+    // 诊断日志：每10次发送输出一条
+    if (buff_send_index_ % 10 == 1) {
+      std::cout << "[Buff] 发送BUFF: type=" << b.buff_type
+                << " lv=" << b.buff_level
+                << " max=" << static_cast<uint32_t>(b.max_time)
+                << " left=" << static_cast<uint32_t>(b.left_time) << " (共"
+                << r.buffs.size() << "个buff)" << std::endl;
+    }
   } else {
     msg.set_robot_id(r.robot_id);
     msg.set_buff_type(0);
@@ -1605,4 +1716,145 @@ std::vector<uint8_t> GameSimulator::buildMessageForTopic(
   }
 
   return {};
+}
+
+// ═══════════════════════════════════════════════════════════════
+// 客户端指令处理
+// ═══════════════════════════════════════════════════════════════
+
+void GameSimulator::handleFireCommand(int count, float dt) {
+  if (stage_ != GameStage::InProgress) return;
+
+  RobotState& r = ally_.robots[self_robot_idx_];
+  if (!r.is_alive) return;
+  if (r.remaining_ammo <= 0) return;
+
+  // 判断弹丸类型
+  bool is_42mm = (r.type == RobotType::Hero);
+  float heat_cost = is_42mm ? HEAT_PER_42MM : HEAT_PER_17MM;
+  uint32_t dmg = is_42mm ? DMG_42MM : DMG_17MM;
+  float fire_interval = is_42mm ? 0.5f : 0.2f;  // 17mm: 5Hz (0.2s)
+
+  // 根据dt计算本tick内允许的最大射击数
+  // 例如 dt=1.0, fire_interval=0.2 → max_shots=5
+  int max_shots = std::max(1, static_cast<int>(dt / fire_interval));
+  // 实际射击数 = min(客户端请求数, 物理上限)
+  int shots = std::min(count, max_shots);
+
+  // 先扣除上一tick残留的冷却时间（由tick(dt)中tickCombat已扣除过，但
+  // handleFireCommand在tick之前调用，所以需要手动扣除dt）
+  player_fire_cooldown_ = std::max(0.0f, player_fire_cooldown_ - dt);
+
+  int actually_fired = 0;
+  for (int i = 0; i < shots; ++i) {
+    if (r.remaining_ammo <= 0) break;
+    if (!r.is_alive) break;
+
+    // 执行射击
+    r.remaining_ammo--;
+    r.total_projectiles_fired++;
+    r.current_heat += heat_cost;
+    r.no_fire_timer = 0.0f;
+    actually_fired++;
+
+    // 热量超限惩罚：超出部分按比例扣 HP
+    if (r.current_heat > static_cast<float>(r.max_heat)) {
+      float excess = r.current_heat - static_cast<float>(r.max_heat);
+      uint32_t penalty = static_cast<uint32_t>(excess * 2.0f);
+      if (penalty > 0) {
+        r.current_health =
+            (r.current_health > penalty) ? r.current_health - penalty : 0;
+        pushEvent(EventId::EXT_OVERHEAT_PENALTY,
+                  std::to_string(r.robot_id) + ":" + std::to_string(penalty));
+        if (r.current_health == 0) {
+          killRobot(r, r.robot_id);
+          break;
+        }
+      }
+    }
+
+    // 选择随机敌方目标并造成伤害
+    std::vector<int> alive_enemies;
+    for (int ei = 0; ei < NUM_ROBOTS; ++ei) {
+      if (enemy_.robots[ei].is_alive) alive_enemies.push_back(ei);
+    }
+    if (!alive_enemies.empty()) {
+      int tidx = alive_enemies[randInt(0, alive_enemies.size() - 1)];
+      RobotState& target = enemy_.robots[tidx];
+      dealDamage(target, enemy_, dmg, r.robot_id, !is_42mm, false);
+      target.no_damage_timer = 0.0f;
+    }
+  }
+
+  if (actually_fired > 0) {
+    r.last_fire_speed = static_cast<float>(actually_fired) / dt;
+    player_fire_cooldown_ = fire_interval;
+  }
+}
+
+void GameSimulator::handleAmmoPurchase(uint32_t batches) {
+  if (stage_ != GameStage::InProgress) return;
+  if (batches == 0) batches = 1;
+
+  RobotState& r = ally_.robots[self_robot_idx_];
+  if (!r.is_alive) return;
+
+  bool is_42mm = (r.type == RobotType::Hero);
+  uint32_t cost_per = is_42mm ? AMMO_42MM_COST : AMMO_17MM_COST;
+  uint32_t amount_per = is_42mm ? AMMO_42MM_AMOUNT : AMMO_17MM_AMOUNT;
+  uint32_t& team_exchanged =
+      is_42mm ? ally_.total_42mm_exchanged : ally_.total_17mm_exchanged;
+  uint32_t team_cap = is_42mm ? AMMO_42MM_TEAM_CAP : AMMO_17MM_TEAM_CAP;
+
+  uint32_t actually_bought = 0;
+  for (uint32_t b = 0; b < batches; ++b) {
+    // 经济不足
+    if (ally_.remaining_economy < cost_per) break;
+    // 全队兑换上限
+    if (team_exchanged + amount_per > team_cap) break;
+
+    ally_.remaining_economy -= cost_per;
+    team_exchanged += amount_per;
+    r.remaining_ammo += amount_per;
+    actually_bought += amount_per;
+  }
+
+  if (actually_bought > 0) {
+    std::string param = std::to_string(r.robot_id) + ":" +
+                        (is_42mm ? "42mm" : "17mm") + ":" +
+                        std::to_string(actually_bought) + ":" +
+                        std::to_string(actually_bought / amount_per * cost_per);
+    pushEvent(EventId::EXT_AMMO_EXCHANGED, param);
+  }
+}
+
+void GameSimulator::handleBuybackCommand() {
+  if (stage_ != GameStage::InProgress) return;
+
+  RobotState& r = ally_.robots[self_robot_idx_];
+  // 必须在死亡等待复活状态
+  if (!r.is_pending_respawn) {
+    std::cout << "[Buyback] 机器人未处于死亡状态，无法买活" << std::endl;
+    return;
+  }
+
+  uint32_t cost = calcRespawnGoldCost(r);
+  if (ally_.remaining_economy < cost) {
+    std::cout << "[Buyback] 金币不足: 需要" << cost << ", 剩余"
+              << ally_.remaining_economy << std::endl;
+    return;
+  }
+
+  // 扣除金币并立即复活
+  ally_.remaining_economy -= cost;
+  respawnRobot(r,
+               true);  // instant=true: 满血, 无虚弱, 功率提升, instant_count++
+  // 添加复活无敌 buff（买活无敌时间较短）
+  addBuff(r, BuffType::INVINCIBLE, 1, RESPAWN_INVINCIBLE_INSTANT);
+  pushEvent(EventId::EXT_ROBOT_INSTANT_RESPAWN,
+            std::to_string(r.robot_id) + ":" + std::to_string(cost));
+  pushEvent(EventId::EXT_ROBOT_RESPAWN, std::to_string(r.robot_id));
+
+  std::cout << "[Buyback] 机器人" << r.robot_id << " 金币买活成功，花费" << cost
+            << "金" << std::endl;
 }

@@ -108,6 +108,7 @@
     <Compile Include="Assets/Scripts/Framework/Network/Handlers/RobotRespawnStatusHandler.cs" />
     <Compile Include="Assets/Utils/ConfigData.cs" />
     <Compile Include="Assets/Scripts/Framework/Network/Handlers/GlobalSpecialMechanismHandler.cs" />
+    <Compile Include="Assets/Scripts/Services/AmmoPurchaseInputService.cs" />
     <Compile Include="Assets/Scripts/Framework/Network/MessageDispatcher.cs" />
     <Compile Include="Assets/Scripts/UI/Views/DeployModeStatusSyncView.cs" />
     <Compile Include="Assets/TextMesh Pro/Examples &amp; Extras/Scripts/VertexJitter.cs" />
@@ -129,6 +130,7 @@
     <Compile Include="Assets/Scripts/UI/Views/GameStatusView.cs" />
     <Compile Include="Assets/Scripts/UI/Views/AirSupportStatusSyncView.cs" />
     <Compile Include="Assets/Scripts/Framework/Network/Handlers/RuneStatusSyncHandler.cs" />
+    <Compile Include="Assets/Scripts/Services/AutoResupplyService.cs" />
     <Compile Include="Assets/Scripts/UI/ViewModels/RobotDynamicStatusViewModel.cs" />
     <Compile Include="Assets/TextMesh Pro/Examples &amp; Extras/Scripts/ShaderPropAnimator.cs" />
     <Compile Include="Assets/Scripts/UI/Core/UIShapeHelper.cs" />
@@ -190,6 +192,8 @@
     <Compile Include="Assets/Scripts/UI/Views/RobotRespawnStatusView.cs" />
     <Compile Include="Assets/TextMesh Pro/Examples &amp; Extras/Scripts/DropdownSample.cs" />
     <Compile Include="Assets/TextMesh Pro/Examples &amp; Extras/Scripts/VertexColorCycler.cs" />
+    <Compile Include="Assets/Scripts/UI/HUD/DeathOverlayHUD.cs" />
+    <Compile Include="Assets/Scripts/UI/HUD/HexPopupHUD.cs" />
     <Compile Include="Assets/Scripts/UI/HUD/DamageVignetteHUD.cs" />
     <Compile Include="Assets/Scripts/UI/RobotSelection/RobotSelectionViewModel.cs" />
     <Compile Include="Assets/TextMesh Pro/Examples &amp; Extras/Scripts/ObjectSpin.cs" />
@@ -213,6 +217,7 @@
     <Compile Include="Assets/Scripts/Framework/Network/Handlers/EventHandler.cs" />
     <Compile Include="Assets/Scripts/Plugins/NativeVideoBridge.cs" />
     <Compile Include="Assets/TextMesh Pro/Examples &amp; Extras/Scripts/TextMeshProFloatingText.cs" />
+    <Compile Include="Assets/Scripts/Services/SimulationInputService.cs" />
     <Compile Include="Assets/Scripts/UI/HUD/HealthBarHUD.cs" />
     <Compile Include="Assets/Scripts/UI/Views/DartSelectTargetStatusSyncView.cs" />
     <Compile Include="Assets/Scripts/UI/UIManager.cs" />

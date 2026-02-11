@@ -27,6 +27,15 @@ namespace UI.HUD
         private AimZoomHUD aimZoom;
         private BuffStatusHUD buffStatus;
         private MatchInfoHUD matchInfo;
+        private DeathOverlayHUD deathOverlay;
+
+        // ─── 仿真服务 ───
+        private SimulationInputService simInput;
+        private AutoResupplyService autoResupply;
+        private AmmoPurchaseInputService ammoPurchase;
+
+        // ─── 弹药购买弹窗 ───
+        private HexPopupHUD hexPopup;
 
         // ─── 数据源 ───
         private RobotDynamicStatusViewModel dynamicVM;
@@ -82,6 +91,10 @@ namespace UI.HUD
             buffVM.Initialize();
 
             BuildHUD();
+
+            // 创建仿真服务
+            CreateSimulationServices(result.Robot);
+
             wmj.Log.I($"[BattleHUD] HUD 已初始化 | 兵种={result.Robot} | 射击UI={canShoot}",
                 wmj.Log.Tag.UI);
         }
@@ -140,6 +153,44 @@ namespace UI.HUD
             var matchGO = new GameObject("MatchInfo");
             matchGO.transform.SetParent(root, false);
             matchInfo = matchGO.AddComponent<MatchInfoHUD>();
+
+            // 死亡覆盖层（灰屏 + 复活读条 + 买活按钮）
+            var deathGO = new GameObject("DeathOverlay");
+            deathGO.transform.SetParent(transform, false);
+            deathOverlay = deathGO.AddComponent<DeathOverlayHUD>();
+            deathOverlay.Initialize();
+
+            // 弹药购买六边形弹窗
+            var hexGO = new GameObject("HexPopup");
+            hexGO.transform.SetParent(transform, false);
+            hexPopup = hexGO.AddComponent<HexPopupHUD>();
+            hexPopup.Initialize();
+        }
+
+        /// <summary>
+        /// 创建仿真服务（射击按键 + 自动补给）
+        /// </summary>
+        private void CreateSimulationServices(RobotType robotType)
+        {
+            // 编辑器仿真按键服务
+            var simGO = new GameObject("SimulationInput");
+            simGO.transform.SetParent(transform, false);
+            simInput = simGO.AddComponent<SimulationInputService>();
+            simInput.Initialize(robotType);
+
+            // 自动补给服务
+            var resupplyGO = new GameObject("AutoResupply");
+            resupplyGO.transform.SetParent(transform, false);
+            autoResupply = resupplyGO.AddComponent<AutoResupplyService>();
+            autoResupply.Initialize(robotType);
+
+            // 弹药快捷购买服务
+            var ammoPurchaseGO = new GameObject("AmmoPurchase");
+            ammoPurchaseGO.transform.SetParent(transform, false);
+            ammoPurchase = ammoPurchaseGO.AddComponent<AmmoPurchaseInputService>();
+            ammoPurchase.Initialize(robotType, hexPopup);
+
+            wmj.Log.I("[BattleHUD] 仿真服务已创建", wmj.Log.Tag.UI);
         }
 
         void Update()
@@ -168,7 +219,10 @@ namespace UI.HUD
             // 准星：弹药 + 热量
             if (crosshairRing)
             {
-                uint maxAmmo = 500; // 可从 staticVM 获取，暂用默认
+                // 弹药环视觉上限：42mm(英雄)全队上限100, 17mm视觉参考500
+                bool isHeroType = RobotSelectionBootstrap.CurrentSelection != null
+                    && RobotSelectionBootstrap.CurrentSelection.Robot == RobotType.Hero;
+                uint maxAmmo = isHeroType ? 100u : 500u;
                 crosshairRing.UpdateAmmo(dynamicVM.RemainingAmmo, maxAmmo);
                 crosshairRing.UpdateHeat(heatPct);
             }
@@ -176,25 +230,36 @@ namespace UI.HUD
             // BUFF 数据更新
             if (buffVM != null && buffStatus != null)
             {
+                // 快照当前 ViewModel 值（可能从后台线程更新）
                 uint bt = buffVM.BuffType;
                 uint blt = buffVM.BuffLeftTime;
                 int blv = buffVM.BuffLevel;
                 uint bmt = buffVM.BuffMaxTime;
 
-                // 任意字段变化时都触发更新（包括 buff_type=0 用于清除）
+                // 任意字段变化时都触发更新
                 if (bt != lastBuffType || blt != lastBuffLeftTime
                     || blv != lastBuffLevel || bmt != lastBuffMaxTime)
                 {
-                    // buff_type=0 表示无 buff，跳过（BuffStatusHUD 内部倒计时自行移除）
-                    if (bt != 0)
+                    if (bt != 0 && blt > 0 && bmt > 0)
                     {
                         buffStatus.UpdateBuff(bt, blv, bmt, blt);
+                        wmj.Log.D($"[BattleHUD] BUFF更新: type={bt} lv={blv} max={bmt} left={blt}",
+                            wmj.Log.Tag.UI);
+                    }
+                    else if (bt != 0 && (blt == 0 || bmt == 0))
+                    {
+                        // 可能是线程撕裂读取，跳过本帧但不更新 last 值，下帧重试
+                        wmj.Log.D($"[BattleHUD] BUFF数据不完整(可能线程竞争): type={bt} left={blt} max={bmt}",
+                            wmj.Log.Tag.UI);
+                        // 不更新 lastXxx，让下一帧重新检测
+                        goto skipBuffUpdate;
                     }
                     lastBuffType = bt;
                     lastBuffLeftTime = blt;
                     lastBuffLevel = blv;
                     lastBuffMaxTime = bmt;
                 }
+            skipBuffUpdate:;
             }
 
             // 开镜 — 检测射击行为，自动开镜
@@ -215,9 +280,15 @@ namespace UI.HUD
             dynamicVM?.Dispose(); staticVM?.Dispose(); buffVM?.Dispose();
             dynamicVM = null; staticVM = null; buffVM = null;
             if (hudCanvas != null) Destroy(hudCanvas.gameObject);
+            if (simInput != null) Destroy(simInput.gameObject);
+            if (autoResupply != null) Destroy(autoResupply.gameObject);
+            if (ammoPurchase != null) Destroy(ammoPurchase.gameObject);
+            if (deathOverlay != null) { deathOverlay.Shutdown(); Destroy(deathOverlay.gameObject); }
+            if (hexPopup != null) { hexPopup.Shutdown(); Destroy(hexPopup.gameObject); }
             hudCanvas = null; healthBar = null; damageVignette = null;
             crosshairRing = null; notifications = null; aimZoom = null;
-            buffStatus = null; matchInfo = null;
+            buffStatus = null; matchInfo = null; deathOverlay = null;
+            simInput = null; autoResupply = null; ammoPurchase = null; hexPopup = null;
         }
 
         /// <summary>
@@ -228,12 +299,21 @@ namespace UI.HUD
             if (!isInitialized) return;
             // 销毁旧画布
             if (hudCanvas != null) Destroy(hudCanvas.gameObject);
+            if (simInput != null) Destroy(simInput.gameObject);
+            if (autoResupply != null) Destroy(autoResupply.gameObject);
+            if (ammoPurchase != null) Destroy(ammoPurchase.gameObject);
+            if (deathOverlay != null) { deathOverlay.Shutdown(); Destroy(deathOverlay.gameObject); }
+            if (hexPopup != null) { hexPopup.Shutdown(); Destroy(hexPopup.gameObject); }
             hudCanvas = null; healthBar = null; damageVignette = null;
             crosshairRing = null; notifications = null; aimZoom = null;
-            buffStatus = null; matchInfo = null;
+            buffStatus = null; matchInfo = null; deathOverlay = null;
+            simInput = null; autoResupply = null; ammoPurchase = null; hexPopup = null;
             // 不调用 Load()：内存中的 _data 已是最新（Save 已写入磁盘），
             // 重新 Load 会替换 _data 引用导致设置面板滑块 lambda 指向孤儿对象
             BuildHUD();
+            // 重建仿真服务
+            if (RobotSelectionBootstrap.CurrentSelection != null)
+                CreateSimulationServices(RobotSelectionBootstrap.CurrentSelection.Robot);
             wmj.Log.I("[BattleHUD] HUD 已重建（设置预览）", wmj.Log.Tag.UI);
         }
 

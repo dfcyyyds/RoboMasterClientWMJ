@@ -580,6 +580,14 @@ class GameSimulator {
   bool hasEvents() const { return !pending_events_.empty(); }
   GameStage getStage() const { return stage_; }
 
+  // ─── 客户端指令处理 ───
+  /// 处理射击指令（由客户端 CommonCommand cmd_type=100 触发）
+  void handleFireCommand(int count = 1, float dt = 1.0f);
+  /// 处理弹药购买指令（由客户端 CommonCommand cmd_type=101 触发）
+  void handleAmmoPurchase(uint32_t batches);
+  /// 处理买活指令（由客户端 CommonCommand cmd_type=102 触发）
+  void handleBuybackCommand();
+
  private:
   void initRobot(RobotState& r, RobotType type, uint32_t id, float sx,
                  float sy);
@@ -646,6 +654,9 @@ class GameSimulator {
   float economy_10s_timer_ = 0;
   int gold_tick_index_ = 0;
   float ammo_exchange_timer_ = 0;
+
+  // 玩家射击冷却计时（防止超速射击）
+  float player_fire_cooldown_ = 0;
 
   std::vector<GameEvent> pending_events_;
   bool first_blood_happened_ = false;

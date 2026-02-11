@@ -88,15 +88,15 @@ namespace UI.HUD
 
         // 侧边栏菜单定义
         private static readonly string[] MenuIds = {
-            "matchinfo", "notify", "aim", "hit", "crosshair", "health", "buff", "font", "layout"
+            "matchinfo", "notify", "aim", "hit", "crosshair", "health", "buff", "font", "shortcut", "layout"
         };
         private static readonly string[] MenuLabels = {
-            "对局信息", "通知设置", "开镜设置", "受击提示", "准星设置", "血条设置", "BUFF设置", "字体大小", "UI 布局"
+            "对局信息", "通知设置", "开镜设置", "受击提示", "准星设置", "血条设置", "BUFF设置", "字体大小", "快捷键", "UI 布局"
         };
         private static readonly string[] MenuIcons = {
             IconManager.ICON_INFORM, IconManager.ICON_INFORM, IconManager.ICON_PILL,
             IconManager.ICON_FATAL_WARNING, IconManager.ICON_PILL, IconManager.ICON_WARNING,
-            IconManager.ICON_PILL, IconManager.ICON_SETTING, IconManager.ICON_PULL
+            IconManager.ICON_PILL, IconManager.ICON_SETTING, IconManager.ICON_SETTING, IconManager.ICON_PULL
         };
 
         void Awake()
@@ -474,6 +474,7 @@ namespace UI.HUD
                 case "health": BuildHealthPage(); break;
                 case "buff": BuildBuffPage(); break;
                 case "font": BuildFontPage(); break;
+                case "shortcut": BuildShortcutPage(); break;
                 case "layout": BuildLayoutPage(); break;
             }
         }
@@ -596,6 +597,16 @@ namespace UI.HUD
             AddSliderRow(c, "关镜延迟", "s",
                 s.aimZoomCloseDelay, d.aimZoomCloseDelay, 0.5f, 8f,
                 v => s.aimZoomCloseDelay = v);
+
+            AddSectionHeader(c, "自 动 补 给", IconManager.ICON_PILL);
+            AddToggleRow(c, "启用激战自动补给", s.autoResupplyEnabled,
+                v => { s.autoResupplyEnabled = v; });
+            AddSliderRow(c, "补给触发阈值", "发",
+                s.autoResupplyThreshold, (float)HUDSettings.Defaults().autoResupplyThreshold, 20f, 500f,
+                v => s.autoResupplyThreshold = (uint)Mathf.RoundToInt(v));
+            AddSliderRow(c, "每次购买批数", "批",
+                s.autoResupplyBatchCount, (float)HUDSettings.Defaults().autoResupplyBatchCount, 1f, 20f,
+                v => s.autoResupplyBatchCount = (uint)Mathf.RoundToInt(v));
         }
 
         private void BuildHitPage()
@@ -689,6 +700,360 @@ namespace UI.HUD
             AddSliderRow(c, "文字透明度", "%",
                 s.textOpacity * 100f, d.textOpacity * 100f, 30f, 100f,
                 v => s.textOpacity = v / 100f);
+        }
+
+        // ═══════════════════ 快捷键设置页面 ═══════════════════
+
+        // 正在监听按键绑定的行索引，-1 = 未监听
+        private int listeningBindIndex = -1;
+        private TextMeshProUGUI listeningLabel;
+        private List<TextMeshProUGUI> bindingLabels = new List<TextMeshProUGUI>();
+
+        private void BuildShortcutPage()
+        {
+            var c = CreateParamScrollContent("shortcut");
+            var s = UILayoutManager.Settings;
+            var d = HUDSettings.Defaults();
+            listeningBindIndex = -1;
+            listeningLabel = null;
+            bindingLabels.Clear();
+
+            AddSectionHeader(c, "弹 药 购 买 提 示", IconManager.ICON_SETTING);
+            AddSliderRow(c, "提示显示时长", "s",
+                s.ammoPurchasePopupDuration, d.ammoPurchasePopupDuration, 0.2f, 3f,
+                v => s.ammoPurchasePopupDuration = v);
+
+            AddSectionHeader(c, "弹 药 购 买 快 捷 键", IconManager.ICON_SETTING);
+
+            // 说明文字
+            AddInfoRow(c, "非英雄: 数字 × 10 发 17mm | 英雄: 数字 × 1 发 42mm");
+            AddInfoRow(c, "点击按键栏后按下新键位完成绑定，冲突时自动拒绝");
+
+            // 初始化绑定列表
+            if (s.ammoKeyBindings == null || s.ammoKeyBindings.Count == 0)
+                s.ammoKeyBindings = HUDSettings.DefaultAmmoKeyBindings();
+
+            for (int i = 0; i < s.ammoKeyBindings.Count; i++)
+            {
+                AddKeyBindingRow(c, s, i);
+            }
+
+            // 重置所有快捷键按钮
+            AddShortcutResetButton(c, s);
+        }
+
+        private void AddInfoRow(Transform content, string text)
+        {
+            var go = new GameObject($"Info_{rowIndex}");
+            go.transform.SetParent(content, false);
+            var le = go.AddComponent<LayoutElement>();
+            le.preferredHeight = 36;
+            le.flexibleWidth = 1;
+
+            var bg = go.AddComponent<Image>();
+            bg.color = new Color(0, 0, 0, 0);
+            bg.raycastTarget = false;
+
+            var rowRt = go.GetComponent<RectTransform>();
+            var lbl = UIFactory.CreateText(rowRt, "Info", text, 18,
+                TextAlignmentOptions.Left, UIColors.WithAlpha(UIColors.Silver, 0.55f));
+            lbl.rectTransform.anchorMin = new Vector2(0.03f, 0f);
+            lbl.rectTransform.anchorMax = new Vector2(0.97f, 1f);
+            lbl.rectTransform.offsetMin = Vector2.zero;
+            lbl.rectTransform.offsetMax = Vector2.zero;
+        }
+
+        private void AddKeyBindingRow(Transform content, HUDSettings s, int bindIndex)
+        {
+            var binding = s.ammoKeyBindings[bindIndex];
+            string keyName = ((KeyCode)binding.keyCode).ToString();
+            int digit = binding.purchaseDigit;
+            bool is42mm = BattleHUD.Instance != null && !BattleHUD.Instance.CanShoot ? false
+                : (RobotSelectionBootstrap.CurrentSelection != null
+                   && RobotSelectionBootstrap.CurrentSelection.Robot == RobotType.Hero);
+            int ammoAmount = is42mm ? digit : digit * 10;
+            string ammoLabel = is42mm ? "42mm" : "17mm";
+
+            var go = new GameObject($"Bind_{bindIndex}");
+            go.transform.SetParent(content, false);
+            var le = go.AddComponent<LayoutElement>();
+            le.preferredHeight = 50;
+            le.flexibleWidth = 1;
+
+            var rowBg = go.AddComponent<Image>();
+            Color rowColor = (rowIndex % 2 == 0) ? RowBgEven : RowBgOdd;
+            rowBg.color = rowColor;
+            UIFactory.ApplyRoundedCorners(rowBg, 32, 6);
+            rowBg.raycastTarget = true;
+            rowIndex++;
+
+            var rowRt = go.GetComponent<RectTransform>();
+
+            // 购买描述标签
+            var descLabel = UIFactory.CreateText(rowRt, "Desc",
+                $"购买 {ammoAmount} 发 {ammoLabel}", 20,
+                TextAlignmentOptions.Left, UIColors.Silver);
+            descLabel.rectTransform.anchorMin = new Vector2(0.02f, 0f);
+            descLabel.rectTransform.anchorMax = new Vector2(0.35f, 1f);
+            descLabel.rectTransform.offsetMin = Vector2.zero;
+            descLabel.rectTransform.offsetMax = Vector2.zero;
+
+            // 按键绑定按钮
+            var keyBtnGo = new GameObject("KeyBtn");
+            keyBtnGo.transform.SetParent(rowRt, false);
+            var keyBtnRt = keyBtnGo.AddComponent<RectTransform>();
+            keyBtnRt.anchorMin = new Vector2(0.40f, 0.15f);
+            keyBtnRt.anchorMax = new Vector2(0.70f, 0.85f);
+            keyBtnRt.offsetMin = Vector2.zero;
+            keyBtnRt.offsetMax = Vector2.zero;
+
+            var keyBtnBg = keyBtnGo.AddComponent<Image>();
+            keyBtnBg.color = new Color(0.10f, 0.12f, 0.22f, 0.75f);
+            UIFactory.ApplyRoundedCorners(keyBtnBg, 32, 8);
+            keyBtnBg.raycastTarget = true;
+
+            var keyLabel = UIFactory.CreateText(keyBtnGo.transform, "KeyName",
+                FormatKeyName(keyName), 22,
+                TextAlignmentOptions.Center, AccentBlue, FontStyles.Bold);
+            UIFactory.SetFullStretch(keyLabel.rectTransform);
+            keyLabel.raycastTarget = false;
+
+            bindingLabels.Add(keyLabel);
+
+            var keyBtn = keyBtnGo.AddComponent<Button>();
+            keyBtn.targetGraphic = keyBtnBg;
+            keyBtn.transition = Selectable.Transition.ColorTint;
+            var kbc = keyBtn.colors;
+            kbc.normalColor = new Color(0.10f, 0.12f, 0.22f, 0.75f);
+            kbc.highlightedColor = new Color(0.15f, 0.20f, 0.35f, 0.85f);
+            kbc.pressedColor = new Color(0.20f, 0.28f, 0.45f, 0.95f);
+            kbc.fadeDuration = 0.10f;
+            keyBtn.colors = kbc;
+
+            int localIndex = bindIndex;
+            Image localBg = keyBtnBg;
+            keyBtn.onClick.AddListener(() =>
+            {
+                StartKeyListening(localIndex, keyLabel, localBg);
+            });
+
+            // 数字标签
+            var digitLabel = UIFactory.CreateText(rowRt, "Digit",
+                $"数字={digit}", 18,
+                TextAlignmentOptions.Center, UIColors.WithAlpha(UIColors.Silver, 0.6f));
+            digitLabel.rectTransform.anchorMin = new Vector2(0.74f, 0f);
+            digitLabel.rectTransform.anchorMax = new Vector2(0.98f, 1f);
+            digitLabel.rectTransform.offsetMin = Vector2.zero;
+            digitLabel.rectTransform.offsetMax = Vector2.zero;
+        }
+
+        private void StartKeyListening(int bindIndex, TextMeshProUGUI label, Image btnBg)
+        {
+            // 取消之前的监听
+            if (listeningBindIndex >= 0 && listeningLabel != null)
+            {
+                var s = UILayoutManager.Settings;
+                if (listeningBindIndex < s.ammoKeyBindings.Count)
+                {
+                    string prevKeyName = ((KeyCode)s.ammoKeyBindings[listeningBindIndex].keyCode).ToString();
+                    listeningLabel.text = FormatKeyName(prevKeyName);
+                    listeningLabel.color = AccentBlue;
+                }
+            }
+
+            listeningBindIndex = bindIndex;
+            listeningLabel = label;
+            label.text = "按下键位...";
+            label.color = UIColors.HeatYellow;
+            btnBg.color = new Color(0.25f, 0.22f, 0.08f, 0.75f);
+
+            // 使用协程监听按键
+            StartCoroutine(ListenForKeyCoroutine(bindIndex, label, btnBg));
+        }
+
+        private System.Collections.IEnumerator ListenForKeyCoroutine(
+            int bindIndex, TextMeshProUGUI label, Image btnBg)
+        {
+            // 等一帧，避免当前帧按键被捕获
+            yield return null;
+
+            float timeout = 5f;
+            float timer = 0f;
+            bool captured = false;
+
+            while (timer < timeout && listeningBindIndex == bindIndex)
+            {
+                timer += Time.deltaTime;
+
+                // 扫描所有按键
+                foreach (KeyCode kc in System.Enum.GetValues(typeof(KeyCode)))
+                {
+                    if (kc == KeyCode.None) continue;
+                    if (kc == KeyCode.Escape)
+                    {
+                        // ESC 取消
+                        if (Input.GetKeyDown(kc))
+                        {
+                            captured = true;
+                            break;
+                        }
+                        continue;
+                    }
+                    // 忽略鼠标按键
+                    if (kc == KeyCode.Mouse0 || kc == KeyCode.Mouse1 || kc == KeyCode.Mouse2) continue;
+
+                    if (Input.GetKeyDown(kc))
+                    {
+                        // 检测冲突
+                        if (IsKeyConflict(kc, bindIndex))
+                        {
+                            label.text = $"冲突: {FormatKeyName(kc.ToString())}";
+                            label.color = UIColors.Red;
+                            yield return new WaitForSeconds(0.8f);
+                            // 恢复原值
+                            var s2 = UILayoutManager.Settings;
+                            if (bindIndex < s2.ammoKeyBindings.Count)
+                            {
+                                string origName = ((KeyCode)s2.ammoKeyBindings[bindIndex].keyCode).ToString();
+                                label.text = FormatKeyName(origName);
+                            }
+                            label.color = AccentBlue;
+                            btnBg.color = new Color(0.10f, 0.12f, 0.22f, 0.75f);
+                            listeningBindIndex = -1;
+                            listeningLabel = null;
+                            yield break;
+                        }
+
+                        // 应用新绑定
+                        var s = UILayoutManager.Settings;
+                        if (bindIndex < s.ammoKeyBindings.Count)
+                        {
+                            s.ammoKeyBindings[bindIndex].keyCode = (int)kc;
+                            label.text = FormatKeyName(kc.ToString());
+                            label.color = UIColors.HealthGreen;
+                            btnBg.color = new Color(0.08f, 0.20f, 0.10f, 0.75f);
+                            yield return new WaitForSeconds(0.4f);
+                            label.color = AccentBlue;
+                            btnBg.color = new Color(0.10f, 0.12f, 0.22f, 0.75f);
+                            ScheduleLivePreview();
+                        }
+                        captured = true;
+                        break;
+                    }
+                }
+
+                if (captured) break;
+                yield return null;
+            }
+
+            // 超时或取消 — 恢复原值
+            if (!captured || listeningBindIndex != bindIndex)
+            {
+                var s = UILayoutManager.Settings;
+                if (bindIndex < s.ammoKeyBindings.Count)
+                {
+                    string origName = ((KeyCode)s.ammoKeyBindings[bindIndex].keyCode).ToString();
+                    label.text = FormatKeyName(origName);
+                }
+                label.color = AccentBlue;
+            }
+
+            btnBg.color = new Color(0.10f, 0.12f, 0.22f, 0.75f);
+            listeningBindIndex = -1;
+            listeningLabel = null;
+        }
+
+        /// <summary>
+        /// 检测按键冲突：与其他弹药绑定、Enter（射击）、Space（买活）、Tab（BUFF面板）冲突
+        /// </summary>
+        private bool IsKeyConflict(KeyCode newKey, int excludeIndex)
+        {
+            // 系统保留按键
+            if (newKey == KeyCode.Return || newKey == KeyCode.KeypadEnter
+                || newKey == KeyCode.Space || newKey == KeyCode.Tab
+                || newKey == KeyCode.Escape)
+                return true;
+
+            // 与其他弹药购买绑定冲突
+            var bindings = UILayoutManager.Settings.ammoKeyBindings;
+            for (int i = 0; i < bindings.Count; i++)
+            {
+                if (i == excludeIndex) continue;
+                if (bindings[i].keyCode == (int)newKey)
+                    return true;
+            }
+
+            return false;
+        }
+
+        private void AddShortcutResetButton(Transform content, HUDSettings s)
+        {
+            var go = new GameObject("ResetShortcuts");
+            go.transform.SetParent(content, false);
+            var le = go.AddComponent<LayoutElement>();
+            le.preferredHeight = 50;
+            le.flexibleWidth = 1;
+
+            var rowBg = go.AddComponent<Image>();
+            rowBg.color = new Color(0, 0, 0, 0);
+            rowBg.raycastTarget = false;
+
+            var rowRt = go.GetComponent<RectTransform>();
+
+            var resetBtnGo = new GameObject("ResetBtn");
+            resetBtnGo.transform.SetParent(rowRt, false);
+            var resetRt = resetBtnGo.AddComponent<RectTransform>();
+            resetRt.anchorMin = new Vector2(0.30f, 0.10f);
+            resetRt.anchorMax = new Vector2(0.70f, 0.90f);
+            resetRt.offsetMin = Vector2.zero;
+            resetRt.offsetMax = Vector2.zero;
+
+            var resetBg = resetBtnGo.AddComponent<Image>();
+            resetBg.color = UIColors.WithAlpha(BtnResetColor, 0.50f);
+            UIFactory.ApplyRoundedCorners(resetBg, 32, 10);
+
+            var resetBtn = resetBtnGo.AddComponent<Button>();
+            resetBtn.targetGraphic = resetBg;
+            resetBtn.transition = Selectable.Transition.ColorTint;
+            var rbc = resetBtn.colors;
+            rbc.normalColor = UIColors.WithAlpha(BtnResetColor, 0.50f);
+            rbc.highlightedColor = UIColors.WithAlpha(BtnResetColor, 0.75f);
+            rbc.pressedColor = UIColors.WithAlpha(BtnResetColor, 1f);
+            rbc.fadeDuration = 0.10f;
+            resetBtn.colors = rbc;
+
+            var resetLabel = UIFactory.CreateText(resetBtnGo.transform, "Label",
+                "↺ 重置所有快捷键", 22,
+                TextAlignmentOptions.Center, UIColors.White, FontStyles.Bold);
+            UIFactory.SetFullStretch(resetLabel.rectTransform);
+
+            resetBtn.onClick.AddListener(() =>
+            {
+                s.ammoKeyBindings = HUDSettings.DefaultAmmoKeyBindings();
+                s.ammoPurchasePopupDuration = HUDSettings.Defaults().ammoPurchasePopupDuration;
+                // 重建页面
+                SelectSidebarItem(-1); // 强制重建
+                activeSidebarIndex = -1;
+                for (int i = 0; i < sidebarItems.Count; i++)
+                {
+                    if (sidebarItems[i].pageId == "shortcut")
+                    {
+                        SelectSidebarItem(i);
+                        break;
+                    }
+                }
+                ScheduleLivePreview();
+            });
+        }
+
+        /// <summary>格式化按键名称为更友好的显示</summary>
+        private string FormatKeyName(string rawName)
+        {
+            if (rawName.StartsWith("Alpha"))
+                return rawName.Substring(5); // "Alpha1" → "1"
+            if (rawName.StartsWith("Keypad"))
+                return "Num" + rawName.Substring(6); // "Keypad1" → "Num1"
+            return rawName;
         }
 
         // ═══════════════════ UI 布局编辑器页面 ═══════════════════

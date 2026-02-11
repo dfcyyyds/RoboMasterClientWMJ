@@ -50,9 +50,12 @@
         "notificationDuration": 2.0,
         "maxNotifications": 5,
         "aimZoomEnabled": true,
-        "aimZoomFactor": 1.6684298515319825,
-        "aimZoomSpeed": 10.142931938171387,
+        "aimZoomFactor": 1.8229516744613648,
+        "aimZoomSpeed": 11.917722702026368,
         "aimZoomCloseDelay": 0.7472683787345886,
+        "autoResupplyEnabled": true,
+        "autoResupplyThreshold": 20,
+        "autoResupplyBatchCount": 5,
         "hitFlashDuration": 0.30000001192092898,
         "lowHealthThreshold": 0.6000000238418579,
         "crosshairRingRadius": 80.0,
@@ -73,6 +76,49 @@
         "showMatchTimer": true,
         "showMatchRound": true,
         "showMatchScore": false,
-        "showMatchEconomy": false
+        "showMatchEconomy": false,
+        "ammoPurchasePopupDuration": 0.5,
+        "ammoKeyBindings": [
+            {
+                "keyCode": 49,
+                "purchaseDigit": 1
+            },
+            {
+                "keyCode": 50,
+                "purchaseDigit": 2
+            },
+            {
+                "keyCode": 51,
+                "purchaseDigit": 3
+            },
+            {
+                "keyCode": 52,
+                "purchaseDigit": 4
+            },
+            {
+                "keyCode": 53,
+                "purchaseDigit": 5
+            },
+            {
+                "keyCode": 54,
+                "purchaseDigit": 6
+            },
+            {
+                "keyCode": 55,
+                "purchaseDigit": 7
+            },
+            {
+                "keyCode": 56,
+                "purchaseDigit": 8
+            },
+            {
+                "keyCode": 57,
+                "purchaseDigit": 9
+            },
+            {
+                "keyCode": 48,
+                "purchaseDigit": 10
+            }
+        ]
     }
 }

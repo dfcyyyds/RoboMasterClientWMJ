@@ -246,6 +246,9 @@ message RobotPerformanceSelectionSync {
 }
 
 // ─── 2.2.24 CommonCommand ───（V1.2.0 新增）
+// 扩展仿真指令：
+//   cmd_type = 100: 射击指令（发射一发弹丸，param 保留）
+//   cmd_type = 101: 弹药购买指令（param = 购买批次数量）
 message CommonCommand {
   uint32 cmd_type = 1;
   uint32 param = 2;

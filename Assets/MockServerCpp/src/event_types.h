@@ -179,6 +179,12 @@ constexpr int32_t EXT_FIRST_BLOOD = 250;  // 首杀  param: "killer_id:victim_id
 constexpr int32_t EXT_MULTI_KILL = 251;   // 多杀  param: "robot_id:count"
 constexpr int32_t EXT_COMEBACK = 252;     // 逆转  param: "red"/"blue"
 
+// 射击仿真 (260-269)
+constexpr int32_t EXT_OVERHEAT_PENALTY =
+    260;  // 热量超限惩罚  param: "robot_id:penalty_hp"
+constexpr int32_t EXT_PLAYER_FIRE =
+    261;  // 玩家射击（调试日志用）param: "robot_id:ammo:heat"
+
 }  // namespace EventId
 
 // ─── 增益类型枚举 (对应 Buff.buff_type) ───
@@ -262,6 +268,10 @@ inline const char* eventIdToName(int32_t id) {
       return "等级提升";
     case EventId::EXT_FIRST_BLOOD:
       return "首杀";
+    case EventId::EXT_OVERHEAT_PENALTY:
+      return "热量超限惩罚";
+    case EventId::EXT_PLAYER_FIRE:
+      return "玩家射击";
     default:
       return "未知事件";
   }

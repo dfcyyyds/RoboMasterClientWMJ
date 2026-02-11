@@ -1,4 +1,5 @@
 using Google.Protobuf;
+using UnityEngine;
 
 namespace UI.ViewModels
 {
@@ -13,6 +14,9 @@ namespace UI.ViewModels
         private uint buffMaxTime;
         private uint buffLeftTime;
 
+        // 日志节流：每10秒最多输出一条buff=0日志
+        private float lastZeroLogTime;
+
         public uint RobotId { get => robotId; set { if (robotId != value) { robotId = value; OnPropertyChanged(); } } }
         public uint BuffType { get => buffType; set { if (buffType != value) { buffType = value; OnPropertyChanged(); } } }
         public int BuffLevel { get => buffLevel; set { if (buffLevel != value) { buffLevel = value; OnPropertyChanged(); } } }
@@ -21,6 +25,21 @@ namespace UI.ViewModels
 
         protected override void UpdateFrom(Buff msg)
         {
+            // 诊断日志：追踪服务器发送的 buff 原始数据
+            if (msg.BuffType != 0)
+            {
+                Debug.Log($"[BuffVM] 收到BUFF数据: robot={msg.RobotId} type={msg.BuffType} lv={msg.BuffLevel} max={msg.BuffMaxTime} left={msg.BuffLeftTime}");
+            }
+            else
+            {
+                float now = Time.realtimeSinceStartup;
+                if (now - lastZeroLogTime > 10f)
+                {
+                    Debug.Log($"[BuffVM] 服务器发送 buff_type=0（当前无BUFF）");
+                    lastZeroLogTime = now;
+                }
+            }
+
             RobotId = msg.RobotId;
             BuffType = msg.BuffType;
             BuffLevel = msg.BuffLevel;

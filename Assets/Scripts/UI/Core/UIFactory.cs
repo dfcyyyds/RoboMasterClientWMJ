@@ -53,9 +53,10 @@ namespace UI.Core
                         + "体射手底盘功率优先爆发冷却控制全自动半散"
                         + "对局阶段倒计时轮次经济比赛准备自检未开始暂停比分隐藏"
                         + "启用延迟关镜停止射击"
+                        + "购买弹丸花费金币快捷键绑定冲突按下键位数字"
                         + "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz"
                         + "+-*/=()[]{}|\\/<>,.;:!?@#$%^&~`'\""
-                        + "⚙×∞↺✕·⏸↑↓"
+                        + "⚙×∞↺✕·⏸↑↓⚡⏳"
                     );
                     wmj.Log.I("[UIFactory] 已从 TTF 动态创建并预热中文字体", wmj.Log.Tag.UI);
                 }

@@ -126,6 +126,9 @@ int main(int argc, char* argv[]) {
     void message_arrived(mqtt::const_message_ptr msg) override {
       std::vector<uint8_t> payload(msg->get_payload().begin(),
                                    msg->get_payload().end());
+      // 先处理仿真指令（线程安全入队）
+      handle_incoming_command(msg->get_topic(), payload);
+      // 再打印日志
       print_message_from_topic_payload(msg->get_topic(), payload);
       if (log_func) {
         log_func("[Recv] topic=" + msg->get_topic() +

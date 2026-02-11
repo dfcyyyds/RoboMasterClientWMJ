@@ -41,6 +41,11 @@ namespace UI.Core
         public float aimZoomSpeed = 8f;                // 聚焦速度（越大越快）
         public float aimZoomCloseDelay = 2.0f;         // 停止射击后自动关镜延迟(秒)
 
+        // 自动补给
+        public bool autoResupplyEnabled = true;        // 是否启用自动补给
+        public uint autoResupplyThreshold = 100;       // 弹药低于此值时触发补给
+        public uint autoResupplyBatchCount = 5;        // 每次购买批次数（17mm: 5批=50发）
+
         // 受击提示
         public float hitFlashDuration = 0.3f;          // 受击闪烁持续时间
         public float lowHealthThreshold = 0.6f;        // 血量低于此比例开始红色提示
@@ -74,8 +79,40 @@ namespace UI.Core
         public bool showMatchScore = true;        // 比分
         public bool showMatchEconomy = true;      // 经济
 
+        // 弹药购买快捷键
+        public float ammoPurchasePopupDuration = 0.5f;  // 购买提示显示时长（秒）
+        public List<AmmoKeyBinding> ammoKeyBindings = DefaultAmmoKeyBindings();
+
         /// <summary>返回所有设置的默认值（用于重置）</summary>
         public static HUDSettings Defaults() => new HUDSettings();
+
+        /// <summary>默认弹药购买快捷键绑定</summary>
+        public static List<AmmoKeyBinding> DefaultAmmoKeyBindings()
+        {
+            return new List<AmmoKeyBinding>
+            {
+                new AmmoKeyBinding { keyCode = (int)KeyCode.Alpha1, purchaseDigit = 1 },
+                new AmmoKeyBinding { keyCode = (int)KeyCode.Alpha2, purchaseDigit = 2 },
+                new AmmoKeyBinding { keyCode = (int)KeyCode.Alpha3, purchaseDigit = 3 },
+                new AmmoKeyBinding { keyCode = (int)KeyCode.Alpha4, purchaseDigit = 4 },
+                new AmmoKeyBinding { keyCode = (int)KeyCode.Alpha5, purchaseDigit = 5 },
+                new AmmoKeyBinding { keyCode = (int)KeyCode.Alpha6, purchaseDigit = 6 },
+                new AmmoKeyBinding { keyCode = (int)KeyCode.Alpha7, purchaseDigit = 7 },
+                new AmmoKeyBinding { keyCode = (int)KeyCode.Alpha8, purchaseDigit = 8 },
+                new AmmoKeyBinding { keyCode = (int)KeyCode.Alpha9, purchaseDigit = 9 },
+                new AmmoKeyBinding { keyCode = (int)KeyCode.Alpha0, purchaseDigit = 10 },
+            };
+        }
+    }
+
+    /// <summary>弹药购买快捷键绑定</summary>
+    [Serializable]
+    public class AmmoKeyBinding
+    {
+        /// <summary>按键 KeyCode 值</summary>
+        public int keyCode;
+        /// <summary>购买数字（非英雄: digit×10 发, 英雄: digit×1 发）</summary>
+        public int purchaseDigit;
     }
 
     public static class UILayoutManager

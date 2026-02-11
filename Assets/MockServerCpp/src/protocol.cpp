@@ -3,6 +3,8 @@
 #include <chrono>
 #include <ctime>
 #include <iostream>
+#include <mutex>
+#include <queue>
 #include <random>
 #include <string>
 #include <type_traits>
@@ -56,13 +58,53 @@ auto rand_uint = [](unsigned min, unsigned max) {
 
 // 仿真器实例
 static GameSimulator g_sim;
+
+// 线程安全指令队列（MQTT 回调线程→主线程）
+struct PendingCommand {
+  uint32_t cmd_type;
+  uint32_t param;
+};
+static std::mutex g_cmd_mutex;
+static std::queue<PendingCommand> g_pending_cmds;
+
 }  // namespace
 
 void init_simulator(int self_robot_index, bool fast_mode) {
   g_sim.init(self_robot_index, fast_mode);
 }
 
-void tick_simulator(float dt) { g_sim.tick(dt); }
+void tick_simulator(float dt) {
+  // 先处理所有待处理的客户端指令
+  // 射击指令按批次合并：统计本tick内的射击命令数量，一次性处理
+  int fire_count = 0;
+  {
+    std::lock_guard<std::mutex> lock(g_cmd_mutex);
+    while (!g_pending_cmds.empty()) {
+      auto cmd = g_pending_cmds.front();
+      g_pending_cmds.pop();
+      switch (cmd.cmd_type) {
+        case 100:  // 射击指令（累计数量，批次处理）
+          fire_count++;
+          break;
+        case 101:  // 弹药购买指令
+          g_sim.handleAmmoPurchase(cmd.param);
+          break;
+        case 102:  // 买活指令
+          g_sim.handleBuybackCommand();
+          break;
+        default:
+          std::cout << "[Protocol] 未知 CommonCommand cmd_type=" << cmd.cmd_type
+                    << std::endl;
+          break;
+      }
+    }
+  }
+  // 批量处理射击指令：传入dt和累计的射击数量
+  if (fire_count > 0) {
+    g_sim.handleFireCommand(fire_count, dt);
+  }
+  g_sim.tick(dt);
+}
 
 std::pair<std::string, std::vector<uint8_t>> build_simulated_message(
     const std::string& type) {
@@ -464,5 +506,37 @@ void print_message_from_topic_payload(const std::string& topic,
   if (!printed) {
     std::cout << "[Recv] Unknown or unrecognized message on topic: " << topic
               << ", payload size: " << payload.size() << std::endl;
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════
+// 客户端上行指令处理（线程安全）
+// ═══════════════════════════════════════════════════════════════
+
+void handle_incoming_command(const std::string& topic,
+                             const std::vector<uint8_t>& payload) {
+  if (topic == "CommonCommand") {
+    CommonCommand cmd;
+    if (cmd.ParseFromArray(payload.data(), payload.size())) {
+      uint32_t ct = cmd.cmd_type();
+      uint32_t p = cmd.param();
+      std::cout << "[Protocol] CommonCommand: cmd_type=" << ct
+                << ", param=" << p << std::endl;
+      // 仿真扩展指令：100=射击, 101=弹药购买
+      if (ct >= 100) {
+        std::lock_guard<std::mutex> lock(g_cmd_mutex);
+        g_pending_cmds.push({ct, p});
+      }
+    }
+  }
+  // KeyboardMouseControl 中的 left_button_down 也映射为射击指令
+  else if (topic == "KeyboardMouseControl") {
+    KeyboardMouseControl kmc;
+    if (kmc.ParseFromArray(payload.data(), payload.size())) {
+      if (kmc.left_button_down()) {
+        std::lock_guard<std::mutex> lock(g_cmd_mutex);
+        g_pending_cmds.push({100, 0});  // 等同于 FireCommand
+      }
+    }
   }
 }
