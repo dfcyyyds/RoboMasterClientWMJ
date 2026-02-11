@@ -5,6 +5,7 @@ namespace UI.RobotSelection
     /// <summary>
     /// 兵种选择启动器 - 在应用启动时自动显示选择界面
     /// 在 ConfigLoader 之前运行，将 RobotID 写入配置
+    /// 支持体系选择流程：兵种确认 → 体系选择 → HUD 初始化
     /// </summary>
     [DefaultExecutionOrder(-2000)] // 在 RuntimeTuner (-1000) 和 ConfigLoader 之前运行
     public class RobotSelectionBootstrap : MonoBehaviour
@@ -25,6 +26,11 @@ namespace UI.RobotSelection
         /// 当前选择结果（选择完成后可访问）
         /// </summary>
         public static RobotSelectionResult CurrentSelection { get; private set; }
+
+        /// <summary>
+        /// 当前性能体系选择结果（可能为 null 表示不支持体系选择）
+        /// </summary>
+        public static PerformanceSelectionPanel.PerformanceResult CurrentPerformance { get; private set; }
 
         /// <summary>
         /// 是否已完成选择
@@ -51,7 +57,7 @@ namespace UI.RobotSelection
                     Team = debugTeam,
                     Robot = debugRobot
                 };
-                CompleteSelection(result);
+                CompleteSelection(result, null);
                 return;
             }
 
@@ -69,12 +75,55 @@ namespace UI.RobotSelection
 
         private void OnPanelComplete(RobotSelectionResult result)
         {
-            CompleteSelection(result);
+            // 检查该兵种是否需要体系选择
+            if (RobotCapabilities.NeedsPerformanceSelection(result.Robot))
+            {
+                var profile = RobotCapabilities.GetProfile(result.Robot);
+                PerformanceSelectionPanel.Show(profile, perfResult =>
+                {
+                    CompleteSelection(result, perfResult);
+
+                    // 通过 MQTT 发送体系选择命令
+                    SendPerformanceCommand(perfResult);
+                });
+            }
+            else
+            {
+                CompleteSelection(result, null);
+            }
         }
 
-        private static void CompleteSelection(RobotSelectionResult result)
+        /// <summary>通过 MQTT 发送 RobotPerformanceSelectionCommand</summary>
+        private static void SendPerformanceCommand(PerformanceSelectionPanel.PerformanceResult perf)
+        {
+            if (perf == null) return;
+            try
+            {
+                var cmd = new RobotPerformanceSelectionCommand
+                {
+                    Shooter = perf.Shooter,
+                    Chassis = perf.Chassis,
+                    SentryControl = perf.SentryControl
+                };
+                byte[] payload = Google.Protobuf.MessageExtensions.ToByteArray(cmd);
+                if (NetworkManager.Instance != null)
+                {
+                    NetworkManager.Instance.SendMqttMessage("RobotPerformanceSelectionCommand", payload);
+                    wmj.Log.I($"[RobotSelection] 已发送体系选择: Shooter={perf.Shooter}, " +
+                        $"Chassis={perf.Chassis}, SentryCtrl={perf.SentryControl}", wmj.Log.Tag.Network);
+                }
+            }
+            catch (System.Exception ex)
+            {
+                wmj.Log.W($"[RobotSelection] 发送体系选择失败: {ex.Message}", wmj.Log.Tag.Network);
+            }
+        }
+
+        private static void CompleteSelection(RobotSelectionResult result,
+            PerformanceSelectionPanel.PerformanceResult perf)
         {
             CurrentSelection = result;
+            CurrentPerformance = perf;
             IsSelectionCompleted = true;
 
             // 将选择结果写入 ConfigLoader
@@ -83,7 +132,9 @@ namespace UI.RobotSelection
             // 确保 HUD 系统已创建
             EnsureHUD();
 
-            wmj.Log.I($"[RobotSelection] 选择完成: {result}", wmj.Log.Tag.UI);
+            wmj.Log.I($"[RobotSelection] 选择完成: {result}" +
+                (perf != null ? $" | 体系: S={perf.Shooter} C={perf.Chassis}" : " | 无体系选择"),
+                wmj.Log.Tag.UI);
 
             OnSelectionCompleted?.Invoke(result);
         }
@@ -135,7 +186,7 @@ namespace UI.RobotSelection
         /// </summary>
         public static void ApplySelection(RobotSelectionResult result)
         {
-            CompleteSelection(result);
+            CompleteSelection(result, null);
         }
     }
 }

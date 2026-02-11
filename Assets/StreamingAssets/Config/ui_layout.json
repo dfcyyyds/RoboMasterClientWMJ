@@ -35,13 +35,24 @@
             "height": 50.0,
             "scale": 1.0,
             "visible": true
+        },
+        {
+            "id": "MatchInfo",
+            "anchorX": 0.5,
+            "anchorY": 0.9700000286102295,
+            "width": 864.0,
+            "height": 54.0,
+            "scale": 1.0,
+            "visible": true
         }
     ],
     "hudSettings": {
         "notificationDuration": 2.0,
         "maxNotifications": 5,
-        "aimZoomFactor": 1.5,
-        "aimZoomSpeed": 8.0,
+        "aimZoomEnabled": true,
+        "aimZoomFactor": 1.6684298515319825,
+        "aimZoomSpeed": 10.142931938171387,
+        "aimZoomCloseDelay": 0.7472683787345886,
         "hitFlashDuration": 0.30000001192092898,
         "lowHealthThreshold": 0.6000000238418579,
         "crosshairRingRadius": 80.0,
@@ -57,6 +68,11 @@
         "healthBarFontSize": 34,
         "notificationFontSize": 32,
         "buffFontSize": 26,
-        "textOpacity": 1.0
+        "textOpacity": 1.0,
+        "showMatchStage": true,
+        "showMatchTimer": true,
+        "showMatchRound": true,
+        "showMatchScore": false,
+        "showMatchEconomy": false
     }
 }

@@ -246,8 +246,10 @@ void GameSimulator::recalcEffectiveStats(RobotState& r, TeamState& team) {
 
 void GameSimulator::tickStageTransition() {
   const float prep_dur = fast_mode_ ? FAST_PREP_DURATION : PREP_DURATION;
-  const float self_dur = fast_mode_ ? FAST_SELFCHECK_DURATION : SELFCHECK_DURATION;
-  const float cd_dur = fast_mode_ ? FAST_COUNTDOWN_DURATION : COUNTDOWN_DURATION;
+  const float self_dur =
+      fast_mode_ ? FAST_SELFCHECK_DURATION : SELFCHECK_DURATION;
+  const float cd_dur =
+      fast_mode_ ? FAST_COUNTDOWN_DURATION : COUNTDOWN_DURATION;
   const float match_dur = fast_mode_ ? FAST_MATCH_DURATION : MATCH_DURATION;
 
   // 任意一方基地被击毁则直接结束
@@ -295,8 +297,10 @@ void GameSimulator::tickStageTransition() {
         stage_ = GameStage::Ended;
         stage_timer_ = 0.0f;
         std::string result = "draw";
-        if (ally_.base_health > enemy_.base_health) result = "red_win";
-        else if (enemy_.base_health > ally_.base_health) result = "blue_win";
+        if (ally_.base_health > enemy_.base_health)
+          result = "red_win";
+        else if (enemy_.base_health > ally_.base_health)
+          result = "blue_win";
         pushEvent(EventId::EXT_MATCH_END, result);
       }
       break;
@@ -318,8 +322,10 @@ void GameSimulator::tickEconomy(float dt) {
     enemy_.remaining_economy += amount;
     enemy_.total_economy_obtained += amount;
 
-    pushEvent(EventId::EXT_GOLD_INCOME, "red:" + std::to_string(amount) + ":periodic");
-    pushEvent(EventId::EXT_GOLD_INCOME, "blue:" + std::to_string(amount) + ":periodic");
+    pushEvent(EventId::EXT_GOLD_INCOME,
+              "red:" + std::to_string(amount) + ":periodic");
+    pushEvent(EventId::EXT_GOLD_INCOME,
+              "blue:" + std::to_string(amount) + ":periodic");
 
     ++gold_tick_index_;
   }
@@ -350,9 +356,9 @@ void GameSimulator::tickAmmoExchange(float dt) {
       team.total_17mm_exchanged += AMMO_17MM_AMOUNT;
       r.remaining_ammo += AMMO_17MM_AMOUNT;
 
-      std::string param = std::to_string(r.robot_id) + ":17mm:" +
-                           std::to_string(AMMO_17MM_AMOUNT) + ":" +
-                           std::to_string(cost);
+      std::string param = std::to_string(r.robot_id) +
+                          ":17mm:" + std::to_string(AMMO_17MM_AMOUNT) + ":" +
+                          std::to_string(cost);
       pushEvent(EventId::EXT_AMMO_EXCHANGED, param);
       break;
     }
@@ -443,8 +449,7 @@ void GameSimulator::tickRespawn(float dt) {
           r.instant_respawn_count++;
           instant = true;
           pushEvent(EventId::EXT_ROBOT_INSTANT_RESPAWN,
-                    std::to_string(r.robot_id) + ":" +
-                        std::to_string(cost));
+                    std::to_string(r.robot_id) + ":" + std::to_string(cost));
         }
         respawnRobot(r, instant);
         pushEvent(EventId::EXT_ROBOT_RESPAWN, std::to_string(r.robot_id));
@@ -463,8 +468,8 @@ void GameSimulator::tickBuffs(float dt) {
       for (auto it = r.buffs.begin(); it != r.buffs.end();) {
         it->left_time -= dt;
         if (it->left_time <= 0.0f) {
-          std::string param = std::to_string(r.robot_id) + ":" +
-                               std::to_string(it->buff_type);
+          std::string param =
+              std::to_string(r.robot_id) + ":" + std::to_string(it->buff_type);
           pushEvent(EventId::EXT_BUFF_EXPIRED, param);
           it = r.buffs.erase(it);
         } else {
@@ -516,8 +521,8 @@ void GameSimulator::tickSupplyZone(float dt) {
       RobotState& r = team.robots[i];
       if (!r.is_alive) continue;
 
-      bool in_zone = std::fabs(r.pos_x - base_x) < 1.0f &&
-                     r.pos_y >= min_y && r.pos_y <= max_y;
+      bool in_zone = std::fabs(r.pos_x - base_x) < 1.0f && r.pos_y >= min_y &&
+                     r.pos_y <= max_y;
       r.in_supply_zone = in_zone;
 
       if (in_zone) {
@@ -527,8 +532,7 @@ void GameSimulator::tickSupplyZone(float dt) {
         uint32_t heal = static_cast<uint32_t>(r.max_health * rate * 0.1f);
         if (heal > 0 && r.current_health < r.max_health) {
           uint32_t old = r.current_health;
-          r.current_health =
-              std::min(r.max_health, r.current_health + heal);
+          r.current_health = std::min(r.max_health, r.current_health + heal);
           if (r.current_health > old) {
             addBuff(r, BuffType::SUPPLY_HEAL, 1, 3.0f);
           }
@@ -555,13 +559,13 @@ void GameSimulator::tickRemoteHeal(float dt) {
         float cost = calcRemoteHealCost();
         if (team.remaining_economy >= static_cast<uint32_t>(cost)) {
           team.remaining_economy -= static_cast<uint32_t>(cost);
-          uint32_t heal = static_cast<uint32_t>(r.max_health * REMOTE_HEAL_PERCENT);
+          uint32_t heal =
+              static_cast<uint32_t>(r.max_health * REMOTE_HEAL_PERCENT);
           uint32_t old = r.current_health;
-          r.current_health =
-              std::min(r.max_health, r.current_health + heal);
+          r.current_health = std::min(r.max_health, r.current_health + heal);
           if (r.current_health > old) {
             std::string param = std::to_string(r.robot_id) + ":" +
-                                 std::to_string(static_cast<uint32_t>(cost));
+                                std::to_string(static_cast<uint32_t>(cost));
             pushEvent(EventId::EXT_REMOTE_HEAL, param);
           }
         }
@@ -582,22 +586,30 @@ void GameSimulator::tickPositions(float dt) {
       r.move_timer -= dt;
       if (r.move_timer <= 0.0f) {
         // 选取新的目标点：靠近中线稍微偏向敌方
-        float base_x = is_ally ? ARENA_WIDTH * 0.5f + 1.0f
-                                : ARENA_WIDTH * 0.5f - 1.0f;
-        r.target_x = clampValue(randFloat(base_x - 4.0f, base_x + 4.0f),
-                                1.0f, ARENA_WIDTH - 1.0f);
-        r.target_y = clampValue(randFloat(1.0f, ARENA_HEIGHT - 1.0f),
-                                1.0f, ARENA_HEIGHT - 1.0f);
+        float base_x =
+            is_ally ? ARENA_WIDTH * 0.5f + 1.0f : ARENA_WIDTH * 0.5f - 1.0f;
+        r.target_x = clampValue(randFloat(base_x - 4.0f, base_x + 4.0f), 1.0f,
+                                ARENA_WIDTH - 1.0f);
+        r.target_y = clampValue(randFloat(1.0f, ARENA_HEIGHT - 1.0f), 1.0f,
+                                ARENA_HEIGHT - 1.0f);
         r.move_timer = randFloat(3.0f, 8.0f);
       }
 
       float speed = 0.0f;
       switch (r.type) {
-        case RobotType::Hero: speed = 2.4f; break;
-        case RobotType::Engineer: speed = 1.8f; break;
+        case RobotType::Hero:
+          speed = 2.4f;
+          break;
+        case RobotType::Engineer:
+          speed = 1.8f;
+          break;
         case RobotType::Infantry3:
-        case RobotType::Infantry4: speed = 2.1f; break;
-        case RobotType::Sentry: speed = 0.6f; break;
+        case RobotType::Infantry4:
+          speed = 2.1f;
+          break;
+        case RobotType::Sentry:
+          speed = 0.6f;
+          break;
       }
 
       float dx = r.target_x - r.pos_x;
@@ -635,8 +647,8 @@ void GameSimulator::tickExperience(float dt) {
       uint32_t new_level = getLevelForExp(r.experience, r.max_level);
       if (new_level > old_level) {
         updatePerformanceStats(r);
-        std::string param = std::to_string(r.robot_id) + ":" +
-                             std::to_string(new_level);
+        std::string param =
+            std::to_string(r.robot_id) + ":" + std::to_string(new_level);
         pushEvent(EventId::EXT_LEVEL_UP, param);
       }
     }
@@ -653,8 +665,9 @@ void GameSimulator::tickAirSupport(float dt) {
           match_elapsed_ > AIR_SUPPORT_INITIAL_TIME && randChance(dt / 60.0f)) {
         team.air_support_active = true;
         // 官方协议: 10=己方空中支援, 12=对方空中支援
-        pushEvent(is_ally ? EventId::AIR_SUPPORT_OWN
-                          : EventId::AIR_SUPPORT_ENEMY, "");
+        pushEvent(
+            is_ally ? EventId::AIR_SUPPORT_OWN : EventId::AIR_SUPPORT_ENEMY,
+            "");
       }
     } else {
       // 激活中
@@ -685,32 +698,37 @@ void GameSimulator::tickRune(float dt) {
     if (!rs.small_t0_given && t >= 0.0f) {
       rs.small_t0_given = true;
       rs.small_chances++;
-      pushEvent(EventId::RUNE_CHANCE_CHANGE, std::to_string(rs.small_chances + rs.large_chances));
+      pushEvent(EventId::RUNE_CHANCE_CHANGE,
+                std::to_string(rs.small_chances + rs.large_chances));
       pushEvent(EventId::RUNE_CAN_ACTIVATE, "");
     }
     if (!rs.small_t90_given && t >= 90.0f) {
       rs.small_t90_given = true;
       rs.small_chances++;
-      pushEvent(EventId::RUNE_CHANCE_CHANGE, std::to_string(rs.small_chances + rs.large_chances));
+      pushEvent(EventId::RUNE_CHANCE_CHANGE,
+                std::to_string(rs.small_chances + rs.large_chances));
       pushEvent(EventId::RUNE_CAN_ACTIVATE, "");
     }
 
     if (!rs.large_t180_given && t >= 180.0f) {
       rs.large_t180_given = true;
       rs.large_chances++;
-      pushEvent(EventId::RUNE_CHANCE_CHANGE, std::to_string(rs.small_chances + rs.large_chances));
+      pushEvent(EventId::RUNE_CHANCE_CHANGE,
+                std::to_string(rs.small_chances + rs.large_chances));
       pushEvent(EventId::RUNE_CAN_ACTIVATE, "");
     }
     if (!rs.large_t255_given && t >= 255.0f) {
       rs.large_t255_given = true;
       rs.large_chances++;
-      pushEvent(EventId::RUNE_CHANCE_CHANGE, std::to_string(rs.small_chances + rs.large_chances));
+      pushEvent(EventId::RUNE_CHANCE_CHANGE,
+                std::to_string(rs.small_chances + rs.large_chances));
       pushEvent(EventId::RUNE_CAN_ACTIVATE, "");
     }
     if (!rs.large_t330_given && t >= 330.0f) {
       rs.large_t330_given = true;
       rs.large_chances++;
-      pushEvent(EventId::RUNE_CHANCE_CHANGE, std::to_string(rs.small_chances + rs.large_chances));
+      pushEvent(EventId::RUNE_CHANCE_CHANGE,
+                std::to_string(rs.small_chances + rs.large_chances));
       pushEvent(EventId::RUNE_CAN_ACTIVATE, "");
     }
 
@@ -727,8 +745,7 @@ void GameSimulator::tickRune(float dt) {
       pushEvent(EventId::RUNE_ACTIVATED, "small");
     }
 
-    if (rs.large_chances > 0 && rs.phase == RunePhase::Inactive &&
-        t > 210.0f) {
+    if (rs.large_chances > 0 && rs.phase == RunePhase::Inactive && t > 210.0f) {
       rs.phase = RunePhase::Activated;
       rs.current_size = RuneSize::Large;
       int idx = clampValue(team.tech_level, 0u, 4u);
@@ -789,7 +806,8 @@ void GameSimulator::tickSentryPosture(float dt) {
         // 在攻击/防御/移动之间轮换
         int next = (static_cast<int>(r.posture) + 1) % 3;
         r.posture = static_cast<SentryPosture>(next);
-        r.posture_switch_cooldown = SENTRY_POSTURE_COOLDOWN + randFloat(0.0f, 3.0f);
+        r.posture_switch_cooldown =
+            SENTRY_POSTURE_COOLDOWN + randFloat(0.0f, 3.0f);
         r.posture_weakened =
             (match_elapsed_ >= SENTRY_POSTURE_WEAKEN_TIME && randChance(0.3f));
 
@@ -905,14 +923,15 @@ void GameSimulator::tickRadarMark(float dt) {
       m.x_value += dir * dt * 5.0f;
       if (std::fabs(m.x_value) > RADAR_P_MAX) {
         m.x_value = RADAR_P_MAX * dir;
-        target.radar_mark.last_was_positive = !target.radar_mark.last_was_positive;
+        target.radar_mark.last_was_positive =
+            !target.radar_mark.last_was_positive;
       }
 
       m.progress = clampValue(std::fabs(m.x_value), 0.0f, RADAR_P_MAX);
       if (m.progress >= RADAR_P_VULN_1 &&
           atk.radar_double_vuln_active == false) {
         std::string param = std::to_string(target.robot_id) + ":" +
-                             std::to_string(static_cast<int>(m.progress));
+                            std::to_string(static_cast<int>(m.progress));
         pushEvent(EventId::EXT_RADAR_MARK_THRESHOLD, param);
       }
 
@@ -942,7 +961,8 @@ void GameSimulator::tickRadarMark(float dt) {
 }
 
 void GameSimulator::tickDart(float dt) {
-  auto process_team = [&](TeamState& team, TeamState& enemy, const char* team_name) {
+  auto process_team = [&](TeamState& team, TeamState& enemy,
+                          const char* team_name) {
     DartState& d = team.dart;
 
     d.gate_timer += dt;
@@ -956,7 +976,8 @@ void GameSimulator::tickDart(float dt) {
         d.gate_state = DartGateState::Opening;
         d.gate_timer = 0.0f;
         // 官方协议 15: 飞镖闸门开启  param: "1"=己方,"2"=对方
-        pushEvent(EventId::DART_GATE, (std::string(team_name) == "red") ? "1" : "2");
+        pushEvent(EventId::DART_GATE,
+                  (std::string(team_name) == "red") ? "1" : "2");
       }
     } else if (d.gate_state == DartGateState::Opening) {
       if (d.gate_timer >= 1.0f) {
@@ -1011,8 +1032,10 @@ void GameSimulator::tickChassisEnergy(float dt) {
       bool prev_saving = r.energy_saving;
       bool prev_boost = r.energy_boost;
 
-      r.energy_saving = (r.current_chassis_energy <= CHASSIS_POWER_SAVING_LIMIT);
-      r.energy_boost = (r.current_chassis_energy >= CHASSIS_ENERGY_BOOST_THRESHOLD);
+      r.energy_saving =
+          (r.current_chassis_energy <= CHASSIS_POWER_SAVING_LIMIT);
+      r.energy_boost =
+          (r.current_chassis_energy >= CHASSIS_ENERGY_BOOST_THRESHOLD);
 
       if (!prev_saving && r.energy_saving) {
         pushEvent(EventId::EXT_ENERGY_SAVING_MODE, std::to_string(r.robot_id));
@@ -1121,8 +1144,8 @@ void GameSimulator::killRobot(RobotState& r, uint32_t killer_id) {
   r.killer_id = killer_id;
 
   // 官方协议 1: 击杀事件  param: "killer_id:victim_id"
-  std::string param = std::to_string(killer_id) + ":" +
-                       std::to_string(r.robot_id);
+  std::string param =
+      std::to_string(killer_id) + ":" + std::to_string(r.robot_id);
   pushEvent(EventId::KILL, param);
 
   if (!first_blood_happened_) {
@@ -1136,11 +1159,12 @@ void GameSimulator::respawnRobot(RobotState& r, bool instant) {
   r.is_on_field = true;
   r.is_pending_respawn = false;
 
-  r.current_health = static_cast<uint32_t>(r.max_health * RESPAWN_HEALTH_PERCENT);
+  r.current_health =
+      static_cast<uint32_t>(r.max_health * RESPAWN_HEALTH_PERCENT);
   r.is_weak = true;
   r.power_boost_timer = RESPAWN_POWER_BOOST_DURATION;
-  r.invincible_timer = instant ? RESPAWN_INVINCIBLE_INSTANT
-                               : RESPAWN_INVINCIBLE_NORMAL;
+  r.invincible_timer =
+      instant ? RESPAWN_INVINCIBLE_INSTANT : RESPAWN_INVINCIBLE_NORMAL;
 }
 
 uint32_t GameSimulator::calcRespawnGoldCost(const RobotState& r) const {
@@ -1153,9 +1177,7 @@ uint32_t GameSimulator::calcRespawnGoldCost(const RobotState& r) const {
   return 50u * level;
 }
 
-float GameSimulator::calcRemoteHealCost() const {
-  return 100.0f;
-}
+float GameSimulator::calcRemoteHealCost() const { return 100.0f; }
 
 void GameSimulator::addBuff(RobotState& r, uint32_t type, int32_t level,
                             float duration) {
@@ -1205,8 +1227,10 @@ std::vector<uint8_t> GameSimulator::serialize(const T& msg) {
 
 std::vector<uint8_t> GameSimulator::buildGameStatus() {
   const float prep_dur = fast_mode_ ? FAST_PREP_DURATION : PREP_DURATION;
-  const float self_dur = fast_mode_ ? FAST_SELFCHECK_DURATION : SELFCHECK_DURATION;
-  const float cd_dur = fast_mode_ ? FAST_COUNTDOWN_DURATION : COUNTDOWN_DURATION;
+  const float self_dur =
+      fast_mode_ ? FAST_SELFCHECK_DURATION : SELFCHECK_DURATION;
+  const float cd_dur =
+      fast_mode_ ? FAST_COUNTDOWN_DURATION : COUNTDOWN_DURATION;
   const float match_dur = fast_mode_ ? FAST_MATCH_DURATION : MATCH_DURATION;
 
   GameStatus msg;
@@ -1218,17 +1242,13 @@ std::vector<uint8_t> GameSimulator::buildGameStatus() {
 
   int32_t stage_cd = 0;
   if (stage_ == GameStage::Preparation)
-    stage_cd = static_cast<int32_t>(
-        std::max(0.0f, prep_dur - stage_timer_));
+    stage_cd = static_cast<int32_t>(std::max(0.0f, prep_dur - stage_timer_));
   else if (stage_ == GameStage::SelfCheck)
-    stage_cd = static_cast<int32_t>(
-        std::max(0.0f, self_dur - stage_timer_));
+    stage_cd = static_cast<int32_t>(std::max(0.0f, self_dur - stage_timer_));
   else if (stage_ == GameStage::Countdown)
-    stage_cd = static_cast<int32_t>(
-        std::max(0.0f, cd_dur - stage_timer_));
+    stage_cd = static_cast<int32_t>(std::max(0.0f, cd_dur - stage_timer_));
   else if (stage_ == GameStage::InProgress)
-    stage_cd = static_cast<int32_t>(
-        std::max(0.0f, match_dur - match_elapsed_));
+    stage_cd = static_cast<int32_t>(std::max(0.0f, match_dur - match_elapsed_));
 
   msg.set_stage_countdown_sec(stage_cd);
   msg.set_stage_elapsed_sec(static_cast<int32_t>(stage_timer_));
@@ -1285,7 +1305,8 @@ std::vector<uint8_t> GameSimulator::buildGlobalSpecialMechanism() {
   msg.add_mechanism_id(3);
   msg.add_mechanism_time_sec(static_cast<int32_t>(ally_.rune.buff_remaining));
   msg.add_mechanism_time_sec(static_cast<int32_t>(FORTRESS_ENEMY_TIME));
-  msg.add_mechanism_time_sec(static_cast<int32_t>(ally_.dart.fire_window_timer));
+  msg.add_mechanism_time_sec(
+      static_cast<int32_t>(ally_.dart.fire_window_timer));
   return serialize(msg);
 }
 
@@ -1323,7 +1344,8 @@ std::vector<uint8_t> GameSimulator::buildRobotRespawnStatus() {
   RobotRespawnStatus msg;
   const RobotState& r = ally_.robots[self_robot_idx_];
   msg.set_is_pending_respawn(r.is_pending_respawn);
-  msg.set_total_respawn_progress(static_cast<uint32_t>(r.total_respawn_progress));
+  msg.set_total_respawn_progress(
+      static_cast<uint32_t>(r.total_respawn_progress));
   msg.set_current_respawn_progress(static_cast<uint32_t>(r.respawn_progress));
   msg.set_can_free_respawn(!r.is_pending_respawn);
   uint32_t cost = calcRespawnGoldCost(r);
@@ -1365,12 +1387,12 @@ std::vector<uint8_t> GameSimulator::buildRobotDynamicStatus() {
   uint32_t next = (lvl < r.max_level) ? EXP_TABLE[lvl] : EXP_TABLE[lvl - 1];
   msg.set_experience_for_upgrade(next);
   msg.set_total_projectiles_fired(r.total_projectiles_fired);
-  msg.set_remaining_ammo(static_cast<uint32_t>(
-      r.remaining_ammo > 0 ? r.remaining_ammo : 0));
+  msg.set_remaining_ammo(
+      static_cast<uint32_t>(r.remaining_ammo > 0 ? r.remaining_ammo : 0));
   msg.set_is_out_of_combat(r.is_out_of_combat);
 
-  float remain = std::max(0.0f, OUT_OF_COMBAT_TIME -
-                                   std::min(r.no_fire_timer, r.no_damage_timer));
+  float remain = std::max(
+      0.0f, OUT_OF_COMBAT_TIME - std::min(r.no_fire_timer, r.no_damage_timer));
   msg.set_out_of_combat_countdown(static_cast<uint32_t>(remain));
   msg.set_can_remote_heal(!r.remote_heal_pending && r.is_out_of_combat);
   return serialize(msg);
@@ -1472,10 +1494,10 @@ std::vector<uint8_t> GameSimulator::buildTechCoreMotionStateSync() {
   msg.set_maximum_difficulty_level(ally_.team_max_level);
   msg.set_status(ally_.is_assembling ? 1u : 0u);
   msg.set_enemy_core_status(enemy_.is_assembling ? 1u : 0u);
-  msg.set_remain_time_all(static_cast<uint32_t>(
-      std::max(0.0f, MATCH_DURATION - match_elapsed_)));
-  msg.set_remain_time_step(static_cast<uint32_t>(
-      std::max(0.0f, 20.0f - ally_.assembly_timer)));
+  msg.set_remain_time_all(
+      static_cast<uint32_t>(std::max(0.0f, MATCH_DURATION - match_elapsed_)));
+  msg.set_remain_time_step(
+      static_cast<uint32_t>(std::max(0.0f, 20.0f - ally_.assembly_timer)));
   return serialize(msg);
 }
 
@@ -1538,8 +1560,8 @@ std::vector<uint8_t> GameSimulator::buildSentryCtrlResult() {
 std::vector<uint8_t> GameSimulator::buildAirSupportStatusSync() {
   AirSupportStatusSync msg;
   msg.set_airsupport_status(ally_.air_support_active ? 1u : 0u);
-  msg.set_left_time(static_cast<uint32_t>(
-      std::max(0.0f, ally_.air_support_time_remaining)));
+  msg.set_left_time(
+      static_cast<uint32_t>(std::max(0.0f, ally_.air_support_time_remaining)));
   msg.set_cost_coins(ally_.air_support_cost_total);
   msg.set_is_being_targeted(0u);
   msg.set_shooter_status(0u);
@@ -1551,8 +1573,7 @@ std::vector<uint8_t> GameSimulator::buildMessageForTopic(
   if (topic == "GameStatus") return buildGameStatus();
   if (topic == "GlobalUnitStatus") return buildGlobalUnitStatus();
   if (topic == "GlobalLogisticsStatus") return buildGlobalLogisticsStatus();
-  if (topic == "GlobalSpecialMechanism")
-    return buildGlobalSpecialMechanism();
+  if (topic == "GlobalSpecialMechanism") return buildGlobalSpecialMechanism();
   if (topic == "Event") return buildEvent();
   if (topic == "RobotInjuryStat") return buildRobotInjuryStat();
   if (topic == "RobotRespawnStatus") return buildRobotRespawnStatus();
@@ -1564,12 +1585,10 @@ std::vector<uint8_t> GameSimulator::buildMessageForTopic(
   if (topic == "PenaltyInfo") return buildPenaltyInfo();
   if (topic == "RobotPathPlanInfo") return buildRobotPathPlanInfo();
   if (topic == "RadarInfoToClient") return buildRadarInfoToClient();
-  if (topic == "TechCoreMotionStateSync")
-    return buildTechCoreMotionStateSync();
+  if (topic == "TechCoreMotionStateSync") return buildTechCoreMotionStateSync();
   if (topic == "RobotPerformanceSelectionSync")
     return buildRobotPerformanceSelectionSync();
-  if (topic == "DeployModeStatusSync")
-    return buildDeployModeStatusSync();
+  if (topic == "DeployModeStatusSync") return buildDeployModeStatusSync();
   if (topic == "RuneStatusSync") return buildRuneStatusSync();
   if (topic == "SentryStatusSync") return buildSentryStatusSync();
   if (topic == "DartSelectTargetStatusSync")

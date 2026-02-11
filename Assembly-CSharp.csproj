@@ -67,6 +67,7 @@
     <Compile Include="Assets/Scripts/UI/HUD/EventNotificationService.cs" />
     <Compile Include="Assets/Scripts/Framework/Network/Handlers/SentryCtrlResultHandler.cs" />
     <Compile Include="Assets/Utils/DebugLog.cs" />
+    <Compile Include="Assets/Scripts/UI/HUD/MatchInfoHUD.cs" />
     <Compile Include="Assets/Scripts/UI/Views/GlobalUnitStatusView.cs" />
     <Compile Include="Assets/TextMesh Pro/Examples &amp; Extras/Scripts/Benchmark02.cs" />
     <Compile Include="Assets/Scripts/UI/ViewModels/KeyboardMouseControlViewModel.cs" />
@@ -124,6 +125,7 @@
     <Compile Include="Assets/Scripts/Framework/Network/Handlers/DartSelectTargetStatusSyncHandler.cs" />
     <Compile Include="Assets/TextMesh Pro/Examples &amp; Extras/Scripts/SkewTextExample.cs" />
     <Compile Include="Assets/TextMesh Pro/Examples &amp; Extras/Scripts/WarpTextExample.cs" />
+    <Compile Include="Assets/Scripts/UI/RobotSelection/RobotCapabilities.cs" />
     <Compile Include="Assets/Scripts/UI/Views/GameStatusView.cs" />
     <Compile Include="Assets/Scripts/UI/Views/AirSupportStatusSyncView.cs" />
     <Compile Include="Assets/Scripts/Framework/Network/Handlers/RuneStatusSyncHandler.cs" />
@@ -191,6 +193,7 @@
     <Compile Include="Assets/Scripts/UI/HUD/DamageVignetteHUD.cs" />
     <Compile Include="Assets/Scripts/UI/RobotSelection/RobotSelectionViewModel.cs" />
     <Compile Include="Assets/TextMesh Pro/Examples &amp; Extras/Scripts/ObjectSpin.cs" />
+    <Compile Include="Assets/Scripts/UI/RobotSelection/PerformanceSelectionPanel.cs" />
     <Compile Include="Assets/TextMesh Pro/Examples &amp; Extras/Scripts/TMP_PhoneNumberValidator.cs" />
     <Compile Include="Assets/Scripts/UI/Views/CustomByteBlockView.cs" />
     <Compile Include="Assets/Scripts/Plugins/VideoModeController.cs" />

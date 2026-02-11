@@ -36,8 +36,10 @@ namespace UI.Core
         public int maxNotifications = 5;               // 同时显示最大通知数
 
         // 开镜
+        public bool aimZoomEnabled = true;             // 是否启用自动开镜
         public float aimZoomFactor = 1.5f;             // 射击聚焦倍率
-        public float aimZoomSpeed = 8f;                // 聚焦速度
+        public float aimZoomSpeed = 8f;                // 聚焦速度（越大越快）
+        public float aimZoomCloseDelay = 2.0f;         // 停止射击后自动关镜延迟(秒)
 
         // 受击提示
         public float hitFlashDuration = 0.3f;          // 受击闪烁持续时间
@@ -64,6 +66,13 @@ namespace UI.Core
         public int notificationFontSize = 32;
         public int buffFontSize = 26;
         public float textOpacity = 1.0f;
+
+        // 对局信息显示开关
+        public bool showMatchStage = true;       // 阶段
+        public bool showMatchTimer = true;        // 倒计时
+        public bool showMatchRound = true;        // 轮次
+        public bool showMatchScore = true;        // 比分
+        public bool showMatchEconomy = true;      // 经济
 
         /// <summary>返回所有设置的默认值（用于重置）</summary>
         public static HUDSettings Defaults() => new HUDSettings();

@@ -165,20 +165,45 @@ static const float DART_BLOCK_TIMES[] = {10.0f, 5.0f, 3.0f, 2.0f};
 // ─── 枚举 ───
 
 enum class GameStage : uint32_t {
-  NotStarted = 0, Preparation = 1, SelfCheck = 2,
-  Countdown = 3, InProgress = 4, Ended = 5
+  NotStarted = 0,
+  Preparation = 1,
+  SelfCheck = 2,
+  Countdown = 3,
+  InProgress = 4,
+  Ended = 5
 };
 
 enum class RobotType : uint32_t {
-  Hero = 1, Engineer = 2, Infantry3 = 3, Infantry4 = 4, Sentry = 7
+  Hero = 1,
+  Engineer = 2,
+  Infantry3 = 3,
+  Infantry4 = 4,
+  Sentry = 7
 };
 
 enum class SentryPosture : uint32_t { Attack = 0, Defense = 1, Move = 2 };
 enum class SentryControl : uint32_t { Auto = 0, SemiAuto = 1 };
-enum class UnitStatus : uint32_t { Normal = 0, Invincible = 1, ArmorOpen = 2, Destroyed = 3 };
-enum class RunePhase : uint32_t { Inactive = 0, Activating = 1, Activated = 2, Failed = 3 };
+enum class UnitStatus : uint32_t {
+  Normal = 0,
+  Invincible = 1,
+  ArmorOpen = 2,
+  Destroyed = 3
+};
+enum class RunePhase : uint32_t {
+  Inactive = 0,
+  Activating = 1,
+  Activated = 2,
+  Failed = 3
+};
 enum class RuneSize : uint32_t { Small = 0, Large = 1 };
-enum class DartTarget : uint32_t { None=0, Outpost=1, BaseFixed=2, BaseRandomFixed=3, BaseRandomMoving=4, BaseEndMoving=5 };
+enum class DartTarget : uint32_t {
+  None = 0,
+  Outpost = 1,
+  BaseFixed = 2,
+  BaseRandomFixed = 3,
+  BaseRandomMoving = 4,
+  BaseEndMoving = 5
+};
 enum class DartGateState : uint32_t { Closed = 0, Opening = 1, Open = 2 };
 
 // ─── 性能属性表 ───
@@ -188,41 +213,99 @@ struct PerformanceStats {
   float heat_cooldown_rate;
 };
 
-static const PerformanceStats HERO_STATS[2][10] = {
-    {{200,70,140,12},{225,75,150,14},{250,80,160,16},{275,85,170,18},{300,90,180,20},
-     {325,95,190,22},{350,100,200,24},{375,105,210,26},{400,110,220,28},{450,120,240,30}},
-    {{150,50,100,20},{165,55,102,23},{180,60,104,26},{195,65,106,29},{210,70,108,32},
-     {225,75,110,35},{240,80,115,38},{255,85,120,41},{270,90,125,44},{300,100,130,50}}
-};
+static const PerformanceStats HERO_STATS[2][10] = {{{200, 70, 140, 12},
+                                                    {225, 75, 150, 14},
+                                                    {250, 80, 160, 16},
+                                                    {275, 85, 170, 18},
+                                                    {300, 90, 180, 20},
+                                                    {325, 95, 190, 22},
+                                                    {350, 100, 200, 24},
+                                                    {375, 105, 210, 26},
+                                                    {400, 110, 220, 28},
+                                                    {450, 120, 240, 30}},
+                                                   {{150, 50, 100, 20},
+                                                    {165, 55, 102, 23},
+                                                    {180, 60, 104, 26},
+                                                    {195, 65, 106, 29},
+                                                    {210, 70, 108, 32},
+                                                    {225, 75, 110, 35},
+                                                    {240, 80, 115, 38},
+                                                    {255, 85, 120, 41},
+                                                    {270, 90, 125, 44},
+                                                    {300, 100, 130, 50}}};
 
-struct ChassisStats { uint32_t max_health, max_power; };
-static const ChassisStats INFANTRY_CHASSIS[2][10] = {
-    {{150,60},{175,65},{200,70},{225,75},{250,80},{275,85},{300,90},{325,95},{350,100},{400,100}},
-    {{200,45},{225,50},{250,55},{275,60},{300,65},{325,70},{350,75},{375,80},{400,90},{400,100}}
+struct ChassisStats {
+  uint32_t max_health, max_power;
 };
+static const ChassisStats INFANTRY_CHASSIS[2][10] = {{{150, 60},
+                                                      {175, 65},
+                                                      {200, 70},
+                                                      {225, 75},
+                                                      {250, 80},
+                                                      {275, 85},
+                                                      {300, 90},
+                                                      {325, 95},
+                                                      {350, 100},
+                                                      {400, 100}},
+                                                     {{200, 45},
+                                                      {225, 50},
+                                                      {250, 55},
+                                                      {275, 60},
+                                                      {300, 65},
+                                                      {325, 70},
+                                                      {350, 75},
+                                                      {375, 80},
+                                                      {400, 90},
+                                                      {400, 100}}};
 
-struct ShooterStats { uint32_t max_heat; float heat_cooldown_rate; };
-static const ShooterStats INFANTRY_SHOOTER[2][10] = {
-    {{170,5},{180,7},{190,9},{200,11},{210,12},{220,13},{230,14},{240,16},{250,18},{260,20}},
-    {{40,12},{48,14},{56,16},{64,18},{72,20},{80,22},{88,24},{96,26},{114,28},{120,30}}
+struct ShooterStats {
+  uint32_t max_heat;
+  float heat_cooldown_rate;
 };
+static const ShooterStats INFANTRY_SHOOTER[2][10] = {{{170, 5},
+                                                      {180, 7},
+                                                      {190, 9},
+                                                      {200, 11},
+                                                      {210, 12},
+                                                      {220, 13},
+                                                      {230, 14},
+                                                      {240, 16},
+                                                      {250, 18},
+                                                      {260, 20}},
+                                                     {{40, 12},
+                                                      {48, 14},
+                                                      {56, 16},
+                                                      {64, 18},
+                                                      {72, 20},
+                                                      {80, 22},
+                                                      {88, 24},
+                                                      {96, 26},
+                                                      {114, 28},
+                                                      {120, 30}}};
 
 static const ShooterStats AERIAL_SHOOTER[10] = {
-    {100,20},{110,30},{120,40},{130,50},{140,60},{150,70},{160,80},{170,90},{180,100},{200,120}
-};
+    {100, 20}, {110, 30}, {120, 40}, {130, 50},  {140, 60},
+    {150, 70}, {160, 80}, {170, 90}, {180, 100}, {200, 120}};
 
-static const uint32_t EXP_TABLE[10] = {0,550,1100,1650,2200,2750,3300,3850,4400,5000};
+static const uint32_t EXP_TABLE[10] = {0,    550,  1100, 1650, 2200,
+                                       2750, 3300, 3850, 4400, 5000};
 
 // 大能量机关增益表(表5-18)
-struct LargeRuneBuff { float attack_bonus, defense_bonus, cooldown_mult; };
-static const LargeRuneBuff LARGE_RUNE_BUFFS[5] = {
-    {1.5f,0.25f,1.0f},{1.5f,0.25f,2.0f},{2.0f,0.25f,2.0f},{2.0f,0.25f,3.0f},{3.0f,0.50f,5.0f}
+struct LargeRuneBuff {
+  float attack_bonus, defense_bonus, cooldown_mult;
 };
+static const LargeRuneBuff LARGE_RUNE_BUFFS[5] = {{1.5f, 0.25f, 1.0f},
+                                                  {1.5f, 0.25f, 2.0f},
+                                                  {2.0f, 0.25f, 2.0f},
+                                                  {2.0f, 0.25f, 3.0f},
+                                                  {3.0f, 0.50f, 5.0f}};
 // 大能量机关灯臂数→持续时间(表5-19)
-static const float LARGE_RUNE_DURATION[6] = {30.0f,35.0f,40.0f,45.0f,50.0f,60.0f};
+static const float LARGE_RUNE_DURATION[6] = {30.0f, 35.0f, 40.0f,
+                                             45.0f, 50.0f, 60.0f};
 
 // 定时金币发放 (比赛经过秒数)
-static const float GOLD_ELAPSED_TIMES[] = {1.0f, 61.0f, 121.0f, 181.0f, 241.0f, 301.0f, 361.0f};
+static const float GOLD_ELAPSED_TIMES[] = {1.0f,   61.0f,  121.0f, 181.0f,
+                                           241.0f, 301.0f, 361.0f};
 static const uint32_t GOLD_AMOUNTS[] = {0, 50, 50, 50, 50, 50, 150};
 constexpr int GOLD_TICK_COUNT = 7;
 
@@ -232,9 +315,10 @@ struct AssemblyReward {
   float defense_bonus;
   uint32_t base_health_bonus;
 };
-static const AssemblyReward ASSEMBLY_REWARDS[4] = {
-    {50,5,0,0.00f,0}, {25,10,7,0.00f,0}, {25,15,10,0.25f,0}, {50,0,0,0.50f,2000}
-};
+static const AssemblyReward ASSEMBLY_REWARDS[4] = {{50, 5, 0, 0.00f, 0},
+                                                   {25, 10, 7, 0.00f, 0},
+                                                   {25, 15, 10, 0.25f, 0},
+                                                   {50, 0, 0, 0.50f, 2000}};
 
 // ─── 状态结构 ───
 
@@ -281,11 +365,11 @@ struct RuneState {
   float defense_bonus = 0;
   float cooldown_mult = 1.0f;
   // 时间门控
-  bool small_t0_given = false;   // 比赛开始时
-  bool small_t90_given = false;  // 1分30秒时
-  bool large_t180_given = false; // 3分钟时
-  bool large_t255_given = false; // 4分15秒时
-  bool large_t330_given = false; // 5分30秒时
+  bool small_t0_given = false;    // 比赛开始时
+  bool small_t90_given = false;   // 1分30秒时
+  bool large_t180_given = false;  // 3分钟时
+  bool large_t255_given = false;  // 4分15秒时
+  bool large_t330_given = false;  // 5分30秒时
 };
 
 struct FortressState {
@@ -419,7 +503,7 @@ struct TeamState {
 
   uint32_t tech_level = 0;
   uint32_t encryption_level = 0;
-  int assembly_completions[4] = {0,0,0,0};
+  int assembly_completions[4] = {0, 0, 0, 0};
   uint32_t assembly_gold_per_10s = 0;
   float assembly_defense_bonus = 0;
   uint32_t team_max_level = 5;
@@ -497,7 +581,8 @@ class GameSimulator {
   GameStage getStage() const { return stage_; }
 
  private:
-  void initRobot(RobotState& r, RobotType type, uint32_t id, float sx, float sy);
+  void initRobot(RobotState& r, RobotType type, uint32_t id, float sx,
+                 float sy);
   void updatePerformanceStats(RobotState& r);
   void recalcEffectiveStats(RobotState& r, TeamState& team);
   uint32_t getLevelForExp(uint32_t exp, uint32_t max_level);
@@ -528,9 +613,8 @@ class GameSimulator {
   void tickChassisEnergy(float dt);
   void tickBuffEffects();
 
-  void dealDamage(RobotState& target, TeamState& target_team,
-                  uint32_t damage, uint32_t attacker_id,
-                  bool is_17mm, bool is_dart = false);
+  void dealDamage(RobotState& target, TeamState& target_team, uint32_t damage,
+                  uint32_t attacker_id, bool is_17mm, bool is_dart = false);
   void dealBaseDamage(TeamState& team, uint32_t damage);
   void dealOutpostDamage(TeamState& team, uint32_t damage);
   void killRobot(RobotState& r, uint32_t killer_id);

@@ -77,16 +77,17 @@ int main(int argc, char* argv[]) {
   // 打印参数说明
   if (argc > 1 &&
       (std::string(argv[1]) == "-h" || std::string(argv[1]) == "--help")) {
-    std::cout << "RoboMaster MockServerCpp 用法：\n"
-              << "  --host <ip>        MQTT服务器IP，默认127.0.0.1\n"
-              << "  --port <port>      MQTT服务器端口，默认3333\n"
-              << "  --topic <topic>    订阅的主题，默认robomaster/data\n"
-              << "  --interval <ms>    （保留参数，当前仅收消息）\n"
-              << "  --codec <hevc|h264>  视频编解码器，默认 hevc\n"
-              << "  --gop <frames>       关键帧间隔（IDR周期），默认 15\n"
-              << "  --fast             快速模式，6秒内进入比赛（默认）\n"
-              << "  --real-timing      真实比赛计时（准备180s+自检15s+倒计时5s）\n"
-              << "  -h, --help         显示本帮助\n";
+    std::cout
+        << "RoboMaster MockServerCpp 用法：\n"
+        << "  --host <ip>        MQTT服务器IP，默认127.0.0.1\n"
+        << "  --port <port>      MQTT服务器端口，默认3333\n"
+        << "  --topic <topic>    订阅的主题，默认robomaster/data\n"
+        << "  --interval <ms>    （保留参数，当前仅收消息）\n"
+        << "  --codec <hevc|h264>  视频编解码器，默认 hevc\n"
+        << "  --gop <frames>       关键帧间隔（IDR周期），默认 15\n"
+        << "  --fast             快速模式，6秒内进入比赛（默认）\n"
+        << "  --real-timing      真实比赛计时（准备180s+自检15s+倒计时5s）\n"
+        << "  -h, --help         显示本帮助\n";
     return 0;
   }
   bool fast_mode = true;  // 默认快速模式
@@ -141,7 +142,8 @@ int main(int argc, char* argv[]) {
     log("[MockServerCpp] Connected to " + address);
     // 订阅客户端上行的协议化topic，严格符合V1.2.0协议（KeyboardMouseControl等）
     client.subscribe("KeyboardMouseControl", 1)->wait();
-    std::cout << "[MockServerCpp] Subscribed to KeyboardMouseControl" << std::endl;
+    std::cout << "[MockServerCpp] Subscribed to KeyboardMouseControl"
+              << std::endl;
     log("[MockServerCpp] Subscribed to KeyboardMouseControl");
     client.subscribe("CustomControl", 1)->wait();
     std::cout << "[MockServerCpp] Subscribed to CustomControl" << std::endl;
@@ -195,7 +197,8 @@ int main(int argc, char* argv[]) {
     std::cout << "[MockServerCpp] 仿真模式: "
               << (fast_mode ? "快速(6s进入比赛)" : "真实计时(200s进入比赛)")
               << std::endl;
-    log("[MockServerCpp] 仿真模式: " + std::string(fast_mode ? "快速" : "真实计时"));
+    log("[MockServerCpp] 仿真模式: " +
+        std::string(fast_mode ? "快速" : "真实计时"));
 
     // 新增：定时主动推送“服务器->自定义客户端”类型的仿真协议数据到topic
     while (true) {

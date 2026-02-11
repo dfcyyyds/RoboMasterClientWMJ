@@ -1,5 +1,4 @@
 #include "protocol.h"
-#include "game_simulator.h"
 
 #include <chrono>
 #include <ctime>
@@ -8,6 +7,8 @@
 #include <string>
 #include <type_traits>
 #include <utility>
+
+#include "game_simulator.h"
 
 namespace {
 // 真随机数引擎（基于时间种子）
@@ -61,9 +62,7 @@ void init_simulator(int self_robot_index, bool fast_mode) {
   g_sim.init(self_robot_index, fast_mode);
 }
 
-void tick_simulator(float dt) {
-  g_sim.tick(dt);
-}
+void tick_simulator(float dt) { g_sim.tick(dt); }
 
 std::pair<std::string, std::vector<uint8_t>> build_simulated_message(
     const std::string& type) {

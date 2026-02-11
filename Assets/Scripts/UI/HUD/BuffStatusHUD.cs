@@ -290,6 +290,10 @@ namespace UI.HUD
             info.rectTransform.anchorMax = new Vector2(0.72f, 0.95f);
             info.rectTransform.offsetMin = Vector2.zero;
             info.rectTransform.offsetMax = Vector2.zero;
+            info.enableAutoSizing = true;
+            info.fontSizeMin = 12;
+            info.fontSizeMax = fSize - 2;
+            info.overflowMode = TextOverflowModes.Ellipsis;
 
             // 进度条
             var timerBg = UIFactory.CreateImage(barRt, "TBg",
@@ -319,6 +323,9 @@ namespace UI.HUD
             timeTxt.rectTransform.anchorMax = new Vector2(0.98f, 0.92f);
             timeTxt.rectTransform.offsetMin = Vector2.zero;
             timeTxt.rectTransform.offsetMax = Vector2.zero;
+            timeTxt.enableAutoSizing = true;
+            timeTxt.fontSizeMin = 14;
+            timeTxt.fontSizeMax = fSize;
 
             // 闪光
             var flash = UIFactory.CreateImage(barRt, "Flash", new Color(1, 1, 1, 0.55f));

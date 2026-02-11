@@ -121,32 +121,36 @@ namespace UI.HUD
             }
 
             int fontSize = Mathf.Max(UILayoutManager.Settings.notificationFontSize + 4, 34);
-            var txt = UIFactory.CreateText(rootRt, $"BuffPopup_{entries.Count}", message,
-                fontSize, TextAlignmentOptions.Center, Color.white, FontStyles.Bold);
-            txt.textWrappingMode = TextWrappingModes.Normal;
-            txt.alpha = 1f;
 
+            // 外层容器 — 使用边框色作为外框
             var bgGo = new GameObject("BuffPopupBg");
             bgGo.transform.SetParent(rootRt, false);
-            var bg = bgGo.AddComponent<UnityEngine.UI.Image>();
-            bg.color = bgColor;
-            UIFactory.ApplyRoundedCorners(bg, 48, 10);
-            bg.raycastTarget = false;
+            var borderImg = bgGo.AddComponent<UnityEngine.UI.Image>();
+            borderImg.color = borderColor;
+            UIFactory.ApplyRoundedCorners(borderImg, 48, 10);
+            borderImg.raycastTarget = false;
 
-            // 边框 — 使用传入的边框色
-            var border = UIFactory.CreateImage(bgGo.transform, "Border", borderColor);
-            UIFactory.ApplyRoundedCorners(border, 48, 10);
-            UIFactory.SetFullStretch(border.rectTransform);
-            border.rectTransform.offsetMin = new Vector2(-2, -2);
-            border.rectTransform.offsetMax = new Vector2(2, 2);
-            border.raycastTarget = false;
+            // 内填充 — 使用背景色，内缩 2px 露出外框作为边框
+            var fill = UIFactory.CreateImage(bgGo.transform, "Fill", bgColor);
+            UIFactory.ApplyRoundedCorners(fill, 48, 8);
+            UIFactory.SetFullStretch(fill.rectTransform);
+            fill.rectTransform.offsetMin = new Vector2(2, 2);
+            fill.rectTransform.offsetMax = new Vector2(-2, -2);
+            fill.raycastTarget = false;
 
-            var bgRt = bgGo.GetComponent<RectTransform>();
-
-            txt.transform.SetParent(bgGo.transform, false);
+            // 文字 — 直接在容器下创建
+            var txt = UIFactory.CreateText(bgGo.transform, $"BuffPopup_{entries.Count}", message,
+                fontSize, TextAlignmentOptions.Center, Color.white, FontStyles.Bold);
+            txt.textWrappingMode = TextWrappingModes.Normal;
+            txt.enableAutoSizing = true;
+            txt.fontSizeMin = 18;
+            txt.fontSizeMax = fontSize;
+            txt.alpha = 1f;
             UIFactory.SetFullStretch(txt.rectTransform);
             txt.rectTransform.offsetMin = new Vector2(18, 6);
             txt.rectTransform.offsetMax = new Vector2(-18, -6);
+
+            var bgRt = bgGo.GetComponent<RectTransform>();
 
             entries.Add(new NotifEntry
             {

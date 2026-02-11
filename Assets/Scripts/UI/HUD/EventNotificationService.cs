@@ -219,29 +219,29 @@ namespace UI.HUD
                 // ═══════════════════════════════════════════
 
                 case EventIds.KILL:
-                {
-                    // param: "killer_id:victim_id"
-                    var parts = param.Split(':');
-                    msg = parts.Length >= 2
-                        ? $"💀 机器人{parts[1]} 被 {parts[0]} 击毁"
-                        : $"💀 击杀事件: {param}";
-                    color = UIColors.Red;
-                    break;
-                }
-                case EventIds.STRUCTURE_DESTROYED:
-                {
-                    // param: 目标 id（如蓝方前哨站=111）
-                    string target = param switch
                     {
-                        "11"  => "红方前哨站",
-                        "111" => "蓝方前哨站",
-                        _     => $"建筑(ID={param})"
-                    };
-                    msg = $"💥 {target}被摧毁！";
-                    color = UIColors.Red;
-                    duration = 3f;
-                    break;
-                }
+                        // param: "killer_id:victim_id"
+                        var parts = param.Split(':');
+                        msg = parts.Length >= 2
+                            ? $"💀 机器人{parts[1]} 被 {parts[0]} 击毁"
+                            : $"💀 击杀事件: {param}";
+                        color = UIColors.Red;
+                        break;
+                    }
+                case EventIds.STRUCTURE_DESTROYED:
+                    {
+                        // param: 目标 id（如蓝方前哨站=111）
+                        string target = param switch
+                        {
+                            "11" => "红方前哨站",
+                            "111" => "蓝方前哨站",
+                            _ => $"建筑(ID={param})"
+                        };
+                        msg = $"💥 {target}被摧毁！";
+                        color = UIColors.Red;
+                        duration = 3f;
+                        break;
+                    }
                 case EventIds.RUNE_CHANCE_CHANGE:
                     msg = $"能量机关可激活次数 → {param}";
                     color = UIColors.BrightBlue;
@@ -252,29 +252,29 @@ namespace UI.HUD
                     color = UIColors.BrightBlue;
                     break;
                 case EventIds.RUNE_ARM_RESULT:
-                {
-                    // param: "arms:rings"
-                    var parts = param.Split(':');
-                    msg = parts.Length >= 2
-                        ? $"能量机关激活  臂数:{parts[0]} 均环:{parts[1]}"
-                        : $"能量机关激活结果: {param}";
-                    color = UIColors.HealthGreen;
-                    break;
-                }
-                case EventIds.RUNE_ACTIVATED:
-                {
-                    // param: "small"/"large" 或激活类型
-                    string typeName = param switch
                     {
-                        "small" => "小能量机关",
-                        "large" => "大能量机关",
-                        _       => $"能量机关({param})"
-                    };
-                    msg = $"✦ {typeName}激活成功";
-                    color = UIColors.HealthGreen;
-                    duration = 3f;
-                    break;
-                }
+                        // param: "arms:rings"
+                        var parts = param.Split(':');
+                        msg = parts.Length >= 2
+                            ? $"能量机关激活  臂数:{parts[0]} 均环:{parts[1]}"
+                            : $"能量机关激活结果: {param}";
+                        color = UIColors.HealthGreen;
+                        break;
+                    }
+                case EventIds.RUNE_ACTIVATED:
+                    {
+                        // param: "small"/"large" 或激活类型
+                        string typeName = param switch
+                        {
+                            "small" => "小能量机关",
+                            "large" => "大能量机关",
+                            _ => $"能量机关({param})"
+                        };
+                        msg = $"✦ {typeName}激活成功";
+                        color = UIColors.HealthGreen;
+                        duration = 3f;
+                        break;
+                    }
                 case EventIds.HERO_DEPLOY_MODE:
                     msg = "己方英雄进入部署模式";
                     color = UIColors.BrightBlue;
@@ -306,27 +306,27 @@ namespace UI.HUD
                     color = UIColors.HealthGreen;
                     break;
                 case EventIds.DART_HIT:
-                {
-                    string target = param switch
                     {
-                        "1" => "前哨站",
-                        "2" => "基地（固定目标）",
-                        "3" => "基地（随机固定目标）",
-                        "4" => "基地（随机移动目标）",
-                        "5" => "基地（末端移动目标）",
-                        _   => $"目标({param})"
-                    };
-                    msg = $"🎯 飞镖命中 {target}";
-                    color = UIColors.Orange;
-                    duration = 3f;
-                    break;
-                }
+                        string target = param switch
+                        {
+                            "1" => "前哨站",
+                            "2" => "基地（固定目标）",
+                            "3" => "基地（随机固定目标）",
+                            "4" => "基地（随机移动目标）",
+                            "5" => "基地（末端移动目标）",
+                            _ => $"目标({param})"
+                        };
+                        msg = $"🎯 飞镖命中 {target}";
+                        color = UIColors.Orange;
+                        duration = 3f;
+                        break;
+                    }
                 case EventIds.DART_GATE:
                     msg = param switch
                     {
                         "1" => "己方飞镖闸门开启",
                         "2" => "对方飞镖闸门开启",
-                        _   => "飞镖闸门开启"
+                        _ => "飞镖闸门开启"
                     };
                     color = UIColors.Orange;
                     break;
@@ -341,7 +341,7 @@ namespace UI.HUD
                     {
                         "1" => "己方前哨站装甲停转",
                         "2" => "对方前哨站装甲停转",
-                        _   => "前哨站停转"
+                        _ => "前哨站停转"
                     };
                     color = UIColors.Orange;
                     break;
@@ -350,7 +350,7 @@ namespace UI.HUD
                     {
                         "1" => "⚠ 己方基地护甲展开！",
                         "2" => "⚠ 对方基地护甲展开",
-                        _   => "基地护甲展开"
+                        _ => "基地护甲展开"
                     };
                     color = UIColors.Red;
                     duration = 3f;
@@ -369,30 +369,30 @@ namespace UI.HUD
                 case EventIds.EXT_MATCH_END:
                     msg = param switch
                     {
-                        "red_win"  => "🏆 比赛结束：红方胜利",
+                        "red_win" => "🏆 比赛结束：红方胜利",
                         "blue_win" => "🏆 比赛结束：蓝方胜利",
-                        "draw"     => "比赛结束：平局",
-                        _          => "比赛结束"
+                        "draw" => "比赛结束：平局",
+                        _ => "比赛结束"
                     };
                     color = UIColors.HeatYellow;
                     duration = 5f;
                     break;
                 case EventIds.EXT_STAGE_CHANGE:
-                {
-                    string stageName = param switch
                     {
-                        "Preparation" => "准备阶段",
-                        "SelfCheck"   => "自检阶段",
-                        "Countdown"   => "倒计时",
-                        "InProgress"  => "比赛进行中",
-                        "Ended"       => "已结束",
-                        _             => param
-                    };
-                    msg = $"阶段切换 → {stageName}";
-                    color = UIColors.BrightBlue;
-                    duration = 2f;
-                    break;
-                }
+                        string stageName = param switch
+                        {
+                            "Preparation" => "准备阶段",
+                            "SelfCheck" => "自检阶段",
+                            "Countdown" => "倒计时",
+                            "InProgress" => "比赛进行中",
+                            "Ended" => "已结束",
+                            _ => param
+                        };
+                        msg = $"阶段切换 → {stageName}";
+                        color = UIColors.BrightBlue;
+                        duration = 2f;
+                        break;
+                    }
                 case EventIds.EXT_MATCH_PAUSED:
                     msg = "⏸ 比赛暂停";
                     color = UIColors.HeatYellow;
@@ -409,14 +409,14 @@ namespace UI.HUD
                     cooldown = SPAM_COOLDOWN;
                     break;
                 case EventIds.EXT_ROBOT_INSTANT_RESPAWN:
-                {
-                    var parts = param.Split(':');
-                    msg = parts.Length >= 2
-                        ? $"⚡ 机器人{parts[0]} 金币复活（花费{parts[1]}金）"
-                        : "⚡ 机器人立即复活";
-                    color = UIColors.HeatYellow;
-                    break;
-                }
+                    {
+                        var parts = param.Split(':');
+                        msg = parts.Length >= 2
+                            ? $"⚡ 机器人{parts[0]} 金币复活（花费{parts[1]}金）"
+                            : "⚡ 机器人立即复活";
+                        color = UIColors.HeatYellow;
+                        break;
+                    }
                 case EventIds.EXT_ROBOT_OFFLINE:
                     msg = $"⚠ 机器人{param} 异常离线";
                     color = UIColors.Red;
@@ -446,59 +446,59 @@ namespace UI.HUD
 
                 // ─── 科技核心 (140-149) ───
                 case EventIds.EXT_TECH_CORE_ASSEMBLING:
-                {
-                    var parts = param.Split(':');
-                    string diff = parts.Length >= 2 ? $" 难度{parts[1]}" : "";
-                    msg = $"⚙ {TeamName(parts.Length > 0 ? parts[0] : param)}开始装配科技核心{diff}";
-                    color = UIColors.BrightBlue;
-                    break;
-                }
+                    {
+                        var parts = param.Split(':');
+                        string diff = parts.Length >= 2 ? $" 难度{parts[1]}" : "";
+                        msg = $"⚙ {TeamName(parts.Length > 0 ? parts[0] : param)}开始装配科技核心{diff}";
+                        color = UIColors.BrightBlue;
+                        break;
+                    }
                 case EventIds.EXT_TECH_CORE_ASSEMBLED:
-                {
-                    var parts = param.Split(':');
-                    string diff = parts.Length >= 2 ? $" 难度{parts[1]}" : "";
-                    msg = $"✦ {TeamName(parts.Length > 0 ? parts[0] : param)}科技核心装配成功{diff}";
-                    color = UIColors.HealthGreen;
-                    break;
-                }
+                    {
+                        var parts = param.Split(':');
+                        string diff = parts.Length >= 2 ? $" 难度{parts[1]}" : "";
+                        msg = $"✦ {TeamName(parts.Length > 0 ? parts[0] : param)}科技核心装配成功{diff}";
+                        color = UIColors.HealthGreen;
+                        break;
+                    }
                 case EventIds.EXT_TECH_CORE_FAILED:
-                {
-                    var parts = param.Split(':');
-                    msg = $"{TeamName(parts.Length > 0 ? parts[0] : param)}科技核心装配失败";
-                    color = UIColors.Red;
-                    break;
-                }
+                    {
+                        var parts = param.Split(':');
+                        msg = $"{TeamName(parts.Length > 0 ? parts[0] : param)}科技核心装配失败";
+                        color = UIColors.Red;
+                        break;
+                    }
                 case EventIds.EXT_TECH_CORE_LEVEL_UP:
-                {
-                    var parts = param.Split(':');
-                    msg = parts.Length >= 2
-                        ? $"{TeamName(parts[0])}队伍等级上限提升至 {parts[1]} 级"
-                        : "队伍等级上限提升";
-                    color = UIColors.BrightBlue;
-                    break;
-                }
+                    {
+                        var parts = param.Split(':');
+                        msg = parts.Length >= 2
+                            ? $"{TeamName(parts[0])}队伍等级上限提升至 {parts[1]} 级"
+                            : "队伍等级上限提升";
+                        color = UIColors.BrightBlue;
+                        break;
+                    }
 
                 // ─── 飞镖扩展 (150-159) ───
                 case EventIds.EXT_DART_LAUNCHED:
-                {
-                    var parts = param.Split(':');
-                    string target = parts.Length >= 2 ? DartTargetName(parts[1]) : "目标";
-                    msg = $"🚀 {TeamName(parts.Length > 0 ? parts[0] : param)}飞镖发射 → {target}";
-                    color = UIColors.Orange;
-                    break;
-                }
+                    {
+                        var parts = param.Split(':');
+                        string target = parts.Length >= 2 ? DartTargetName(parts[1]) : "目标";
+                        msg = $"🚀 {TeamName(parts.Length > 0 ? parts[0] : param)}飞镖发射 → {target}";
+                        color = UIColors.Orange;
+                        break;
+                    }
                 case EventIds.EXT_DART_GATE_CLOSE:
                     msg = $"{TeamName(param)}飞镖闸门关闭";
                     color = UIColors.Silver;
                     break;
                 case EventIds.EXT_DART_SCREEN_BLOCKED:
-                {
-                    var parts = param.Split(':');
-                    string dur = parts.Length >= 2 ? $"{parts[1]}s" : "";
-                    msg = $"⚠ 飞镖命中导致视野遮挡 {dur}";
-                    color = UIColors.Red;
-                    break;
-                }
+                    {
+                        var parts = param.Split(':');
+                        string dur = parts.Length >= 2 ? $"{parts[1]}s" : "";
+                        msg = $"⚠ 飞镖命中导致视野遮挡 {dur}";
+                        color = UIColors.Red;
+                        break;
+                    }
 
                 // ─── 空中支援扩展 (160-169) ───
                 case EventIds.EXT_AIR_SUPPORT_END:
@@ -506,14 +506,14 @@ namespace UI.HUD
                     color = UIColors.Silver;
                     break;
                 case EventIds.EXT_AERIAL_LOCKED:
-                {
-                    var parts = param.Split(':');
-                    msg = parts.Length >= 2
-                        ? $"⚠ 空中机器人{parts[0]} 被锁定 {parts[1]}s"
-                        : "空中机器人被雷达锁定";
-                    color = UIColors.Red;
-                    break;
-                }
+                    {
+                        var parts = param.Split(':');
+                        msg = parts.Length >= 2
+                            ? $"⚠ 空中机器人{parts[0]} 被锁定 {parts[1]}s"
+                            : "空中机器人被雷达锁定";
+                        color = UIColors.Red;
+                        break;
+                    }
                 case EventIds.EXT_AERIAL_LOCK_RELEASED:
                     msg = $"空中机器人{param} 锁定解除";
                     color = UIColors.HealthGreen;
@@ -521,122 +521,122 @@ namespace UI.HUD
 
                 // ─── 判罚 (170-179) ───
                 case EventIds.EXT_PENALTY_YELLOW:
-                {
-                    var parts = param.Split(':');
-                    msg = parts.Length >= 2
-                        ? $"⚠ 黄牌警告：机器人{parts[0]}，{parts[1]}"
-                        : "⚠ 黄牌警告";
-                    color = UIColors.HeatYellow;
-                    duration = 3f;
-                    break;
-                }
+                    {
+                        var parts = param.Split(':');
+                        msg = parts.Length >= 2
+                            ? $"⚠ 黄牌警告：机器人{parts[0]}，{parts[1]}"
+                            : "⚠ 黄牌警告";
+                        color = UIColors.HeatYellow;
+                        duration = 3f;
+                        break;
+                    }
                 case EventIds.EXT_PENALTY_RED:
-                {
-                    var parts = param.Split(':');
-                    msg = parts.Length >= 2
-                        ? $"🔴 红牌：机器人{parts[0]}，{parts[1]}"
-                        : "🔴 红牌警告";
-                    color = UIColors.Red;
-                    duration = 4f;
-                    break;
-                }
+                    {
+                        var parts = param.Split(':');
+                        msg = parts.Length >= 2
+                            ? $"🔴 红牌：机器人{parts[0]}，{parts[1]}"
+                            : "🔴 红牌警告";
+                        color = UIColors.Red;
+                        duration = 4f;
+                        break;
+                    }
                 case EventIds.EXT_PENALTY_WARNING:
-                {
-                    var parts = param.Split(':');
-                    msg = parts.Length >= 2
-                        ? $"口头警告：机器人{parts[0]}，{parts[1]}"
-                        : "口头警告";
-                    color = UIColors.Orange;
-                    break;
-                }
+                    {
+                        var parts = param.Split(':');
+                        msg = parts.Length >= 2
+                            ? $"口头警告：机器人{parts[0]}，{parts[1]}"
+                            : "口头警告";
+                        color = UIColors.Orange;
+                        break;
+                    }
 
                 // ─── 增益 (180-189) ───
                 case EventIds.EXT_BUFF_GAINED:
-                {
-                    var parts = param.Split(':');
-                    if (parts.Length >= 4)
                     {
-                        string buffName = GetBuffName(SafeParseUint(parts[1]));
-                        msg = $"机器人{parts[0]} 获得 {buffName} Lv{parts[2]}（{parts[3]}s）";
+                        var parts = param.Split(':');
+                        if (parts.Length >= 4)
+                        {
+                            string buffName = GetBuffName(SafeParseUint(parts[1]));
+                            msg = $"机器人{parts[0]} 获得 {buffName} Lv{parts[2]}（{parts[3]}s）";
+                        }
+                        else if (parts.Length >= 2)
+                        {
+                            string buffName = GetBuffName(SafeParseUint(parts[1]));
+                            msg = $"机器人{parts[0]} 获得 {buffName}";
+                        }
+                        else
+                            msg = "获得增益效果";
+                        color = UIColors.HealthGreen;
+                        cooldown = SPAM_COOLDOWN;
+                        break;
                     }
-                    else if (parts.Length >= 2)
-                    {
-                        string buffName = GetBuffName(SafeParseUint(parts[1]));
-                        msg = $"机器人{parts[0]} 获得 {buffName}";
-                    }
-                    else
-                        msg = "获得增益效果";
-                    color = UIColors.HealthGreen;
-                    cooldown = SPAM_COOLDOWN;
-                    break;
-                }
                 case EventIds.EXT_BUFF_EXPIRED:
-                {
-                    var parts = param.Split(':');
-                    if (parts.Length >= 2)
                     {
-                        string buffName = GetBuffName(SafeParseUint(parts[1]));
-                        msg = $"机器人{parts[0]} 的 {buffName} 已结束";
+                        var parts = param.Split(':');
+                        if (parts.Length >= 2)
+                        {
+                            string buffName = GetBuffName(SafeParseUint(parts[1]));
+                            msg = $"机器人{parts[0]} 的 {buffName} 已结束";
+                        }
+                        else
+                            msg = "增益效果结束";
+                        color = UIColors.Silver;
+                        cooldown = SPAM_COOLDOWN;
+                        break;
                     }
-                    else
-                        msg = "增益效果结束";
-                    color = UIColors.Silver;
-                    cooldown = SPAM_COOLDOWN;
-                    break;
-                }
                 case EventIds.EXT_DEFENSE_ZONE_CAPTURED:
-                {
-                    var parts = param.Split(':');
-                    msg = parts.Length >= 2
-                        ? $"机器人{parts[0]} 占领增益点{parts[1]}"
-                        : "增益点被占领";
-                    color = UIColors.HealthGreen;
-                    break;
-                }
+                    {
+                        var parts = param.Split(':');
+                        msg = parts.Length >= 2
+                            ? $"机器人{parts[0]} 占领增益点{parts[1]}"
+                            : "增益点被占领";
+                        color = UIColors.HealthGreen;
+                        break;
+                    }
                 case EventIds.EXT_DEFENSE_ZONE_LOST:
-                {
-                    var parts = param.Split(':');
-                    msg = parts.Length >= 2
-                        ? $"机器人{parts[0]} 丢失增益点{parts[1]}"
-                        : "增益点丢失";
-                    color = UIColors.Orange;
-                    break;
-                }
+                    {
+                        var parts = param.Split(':');
+                        msg = parts.Length >= 2
+                            ? $"机器人{parts[0]} 丢失增益点{parts[1]}"
+                            : "增益点丢失";
+                        color = UIColors.Orange;
+                        break;
+                    }
 
                 // ─── 经济 (190-199) ───
                 case EventIds.EXT_AMMO_EXCHANGED:
-                {
-                    var parts = param.Split(':');
-                    msg = parts.Length >= 4
-                        ? $"机器人{parts[0]} 兑换{parts[1]} ×{parts[2]}（花费{parts[3]}金）"
-                        : "弹药兑换";
-                    color = UIColors.Silver;
-                    cooldown = SPAM_COOLDOWN;
-                    break;
-                }
+                    {
+                        var parts = param.Split(':');
+                        msg = parts.Length >= 4
+                            ? $"机器人{parts[0]} 兑换{parts[1]} ×{parts[2]}（花费{parts[3]}金）"
+                            : "弹药兑换";
+                        color = UIColors.Silver;
+                        cooldown = SPAM_COOLDOWN;
+                        break;
+                    }
                 case EventIds.EXT_REMOTE_HEAL:
-                {
-                    var parts = param.Split(':');
-                    msg = parts.Length >= 2
-                        ? $"机器人{parts[0]} 远程回血（花费{parts[1]}金）"
-                        : "远程回血";
-                    color = UIColors.HealthGreen;
-                    cooldown = SPAM_COOLDOWN;
-                    break;
-                }
+                    {
+                        var parts = param.Split(':');
+                        msg = parts.Length >= 2
+                            ? $"机器人{parts[0]} 远程回血（花费{parts[1]}金）"
+                            : "远程回血";
+                        color = UIColors.HealthGreen;
+                        cooldown = SPAM_COOLDOWN;
+                        break;
+                    }
                 case EventIds.EXT_GOLD_INCOME:
-                {
-                    var parts = param.Split(':');
-                    if (parts.Length >= 3)
-                        msg = $"{TeamName(parts[0])}获得金币 +{parts[1]}（{GoldSourceName(parts[2])}）";
-                    else if (parts.Length >= 2)
-                        msg = $"{TeamName(parts[0])}获得金币 +{parts[1]}";
-                    else
-                        msg = "金币收入";
-                    color = UIColors.HeatYellow;
-                    cooldown = SPAM_COOLDOWN;
-                    break;
-                }
+                    {
+                        var parts = param.Split(':');
+                        if (parts.Length >= 3)
+                            msg = $"{TeamName(parts[0])}获得金币 +{parts[1]}（{GoldSourceName(parts[2])}）";
+                        else if (parts.Length >= 2)
+                            msg = $"{TeamName(parts[0])}获得金币 +{parts[1]}";
+                        else
+                            msg = "金币收入";
+                        color = UIColors.HeatYellow;
+                        cooldown = SPAM_COOLDOWN;
+                        break;
+                    }
                 case EventIds.EXT_SENTRY_SUPPLY_AMMO:
                     msg = $"哨兵补给弹药 +{param}";
                     color = UIColors.Silver;
@@ -649,31 +649,31 @@ namespace UI.HUD
                     color = UIColors.Silver;
                     break;
                 case EventIds.EXT_SENTRY_POSTURE_CHANGE:
-                {
-                    string posture = param switch
                     {
-                        "0" => "攻击",
-                        "1" => "防御",
-                        "2" => "移动",
-                        _   => param
-                    };
-                    msg = $"哨兵切换姿态 → {posture}";
-                    color = UIColors.BrightBlue;
-                    cooldown = SPAM_COOLDOWN;
-                    break;
-                }
+                        string posture = param switch
+                        {
+                            "0" => "攻击",
+                            "1" => "防御",
+                            "2" => "移动",
+                            _ => param
+                        };
+                        msg = $"哨兵切换姿态 → {posture}";
+                        color = UIColors.BrightBlue;
+                        cooldown = SPAM_COOLDOWN;
+                        break;
+                    }
 
                 // ─── 雷达 (210-219) ───
                 case EventIds.EXT_RADAR_MARK_THRESHOLD:
-                {
-                    var parts = param.Split(':');
-                    msg = parts.Length >= 2
-                        ? $"⚠ 雷达标记：目标{parts[0]} 进度{parts[1]}%"
-                        : "雷达标记达阈值";
-                    color = UIColors.Orange;
-                    cooldown = SPAM_COOLDOWN;
-                    break;
-                }
+                    {
+                        var parts = param.Split(':');
+                        msg = parts.Length >= 2
+                            ? $"⚠ 雷达标记：目标{parts[0]} 进度{parts[1]}%"
+                            : "雷达标记达阈值";
+                        color = UIColors.Orange;
+                        cooldown = SPAM_COOLDOWN;
+                        break;
+                    }
                 case EventIds.EXT_RADAR_DOUBLE_VULN:
                     msg = "⚡ 雷达双倍易伤触发！";
                     color = UIColors.Red;
@@ -682,23 +682,23 @@ namespace UI.HUD
 
                 // ─── 等级 (220-229) ───
                 case EventIds.EXT_LEVEL_UP:
-                {
-                    var parts = param.Split(':');
-                    msg = parts.Length >= 2
-                        ? $"⬆ 机器人{parts[0]} 升级至 Lv{parts[1]}"
-                        : "等级提升";
-                    color = UIColors.BrightBlue;
-                    break;
-                }
+                    {
+                        var parts = param.Split(':');
+                        msg = parts.Length >= 2
+                            ? $"⬆ 机器人{parts[0]} 升级至 Lv{parts[1]}"
+                            : "等级提升";
+                        color = UIColors.BrightBlue;
+                        break;
+                    }
                 case EventIds.EXT_MAX_LEVEL_REACHED:
-                {
-                    var parts = param.Split(':');
-                    msg = parts.Length >= 2
-                        ? $"✦ 机器人{parts[0]} 达到等级上限 Lv{parts[1]}"
-                        : "达到等级上限";
-                    color = UIColors.HeatYellow;
-                    break;
-                }
+                    {
+                        var parts = param.Split(':');
+                        msg = parts.Length >= 2
+                            ? $"✦ 机器人{parts[0]} 达到等级上限 Lv{parts[1]}"
+                            : "达到等级上限";
+                        color = UIColors.HeatYellow;
+                        break;
+                    }
 
                 // ─── 底盘能量 (230-239) ───
                 case EventIds.EXT_ENERGY_SAVING_MODE:
@@ -728,36 +728,36 @@ namespace UI.HUD
 
                 // ─── 特殊成就 (250-259) ───
                 case EventIds.EXT_FIRST_BLOOD:
-                {
-                    var parts = param.Split(':');
-                    msg = parts.Length >= 2
-                        ? $"🩸 首杀！{parts[0]} 击毁 {parts[1]}"
-                        : "🩸 首杀！";
-                    color = UIColors.Orange;
-                    duration = 4f;
-                    break;
-                }
-                case EventIds.EXT_MULTI_KILL:
-                {
-                    var parts = param.Split(':');
-                    if (parts.Length >= 2)
                     {
-                        string killWord = parts[1] switch
-                        {
-                            "2" => "双杀",
-                            "3" => "三杀",
-                            "4" => "四杀",
-                            "5" => "五杀",
-                            _   => $"{parts[1]}连杀"
-                        };
-                        msg = $"🔥 机器人{parts[0]} {killWord}！";
+                        var parts = param.Split(':');
+                        msg = parts.Length >= 2
+                            ? $"🩸 首杀！{parts[0]} 击毁 {parts[1]}"
+                            : "🩸 首杀！";
+                        color = UIColors.Orange;
+                        duration = 4f;
+                        break;
                     }
-                    else
-                        msg = "🔥 多杀！";
-                    color = UIColors.Orange;
-                    duration = 3f;
-                    break;
-                }
+                case EventIds.EXT_MULTI_KILL:
+                    {
+                        var parts = param.Split(':');
+                        if (parts.Length >= 2)
+                        {
+                            string killWord = parts[1] switch
+                            {
+                                "2" => "双杀",
+                                "3" => "三杀",
+                                "4" => "四杀",
+                                "5" => "五杀",
+                                _ => $"{parts[1]}连杀"
+                            };
+                            msg = $"🔥 机器人{parts[0]} {killWord}！";
+                        }
+                        else
+                            msg = "🔥 多杀！";
+                        color = UIColors.Orange;
+                        duration = 3f;
+                        break;
+                    }
                 case EventIds.EXT_COMEBACK:
                     msg = $"🔄 {TeamName(param)}逆转！基地血量反超！";
                     color = UIColors.HeatYellow;
@@ -791,9 +791,9 @@ namespace UI.HUD
             if (string.IsNullOrEmpty(param)) return "";
             return param switch
             {
-                "red"  => "红方",
+                "red" => "红方",
                 "blue" => "蓝方",
-                _      => ""
+                _ => ""
             };
         }
 
@@ -801,17 +801,17 @@ namespace UI.HUD
         {
             return target switch
             {
-                "outpost"       => "前哨站",
-                "base_fixed"    => "基地（固定目标）",
+                "outpost" => "前哨站",
+                "base_fixed" => "基地（固定目标）",
                 "base_random_f" => "基地（随机固定目标）",
                 "base_random_m" => "基地（随机移动目标）",
-                "base_end_m"    => "基地（末端移动目标）",
-                "1"             => "前哨站",
-                "2"             => "基地（固定目标）",
-                "3"             => "基地（随机固定目标）",
-                "4"             => "基地（随机移动目标）",
-                "5"             => "基地（末端移动目标）",
-                _               => target
+                "base_end_m" => "基地（末端移动目标）",
+                "1" => "前哨站",
+                "2" => "基地（固定目标）",
+                "3" => "基地（随机固定目标）",
+                "4" => "基地（随机移动目标）",
+                "5" => "基地（末端移动目标）",
+                _ => target
             };
         }
 
@@ -819,12 +819,12 @@ namespace UI.HUD
         {
             return source switch
             {
-                "periodic"  => "定时收入",
-                "kill"      => "击杀奖励",
-                "assembly"  => "科技核心",
-                "comeback"  => "逆转奖励",
+                "periodic" => "定时收入",
+                "kill" => "击杀奖励",
+                "assembly" => "科技核心",
+                "comeback" => "逆转奖励",
                 "objective" => "目标奖励",
-                _           => source
+                _ => source
             };
         }
 
@@ -832,27 +832,27 @@ namespace UI.HUD
         {
             return buffType switch
             {
-                BuffTypes.ATTACK             => "攻击增益",
-                BuffTypes.DEFENSE            => "防御增益",
-                BuffTypes.HEAT_COOLDOWN      => "冷却增益",
-                BuffTypes.BUFFER_ENERGY      => "缓冲能量增益",
-                BuffTypes.HEAL               => "回血增益",
-                BuffTypes.VULNERABILITY      => "易伤",
-                BuffTypes.INVINCIBLE         => "无敌",
-                BuffTypes.WEAK               => "虚弱",
-                BuffTypes.SUPPLY_HEAL        => "补给区回血",
-                BuffTypes.TERRAIN_CROSS      => "地形跨越",
-                BuffTypes.RUNE_SMALL         => "小能量机关",
-                BuffTypes.RUNE_LARGE_ATK     => "大能量机关·攻击",
-                BuffTypes.RUNE_LARGE_DEF     => "大能量机关·防御",
-                BuffTypes.RUNE_LARGE_COOL    => "大能量机关·冷却",
+                BuffTypes.ATTACK => "攻击增益",
+                BuffTypes.DEFENSE => "防御增益",
+                BuffTypes.HEAT_COOLDOWN => "冷却增益",
+                BuffTypes.BUFFER_ENERGY => "缓冲能量增益",
+                BuffTypes.HEAL => "回血增益",
+                BuffTypes.VULNERABILITY => "易伤",
+                BuffTypes.INVINCIBLE => "无敌",
+                BuffTypes.WEAK => "虚弱",
+                BuffTypes.SUPPLY_HEAL => "补给区回血",
+                BuffTypes.TERRAIN_CROSS => "地形跨越",
+                BuffTypes.RUNE_SMALL => "小能量机关",
+                BuffTypes.RUNE_LARGE_ATK => "大能量机关·攻击",
+                BuffTypes.RUNE_LARGE_DEF => "大能量机关·防御",
+                BuffTypes.RUNE_LARGE_COOL => "大能量机关·冷却",
                 BuffTypes.ENGINEER_EARLY_DEF => "工程前3分钟防御",
-                BuffTypes.ASSEMBLY_DEFENSE   => "科技核心防御增益",
-                BuffTypes.SENTRY_POSTURE     => "哨兵姿态增益",
-                BuffTypes.HERO_DEPLOY        => "英雄部署模式",
-                BuffTypes.RADAR_VULN         => "雷达易伤",
-                BuffTypes.FORTRESS           => "堡垒增益",
-                _                            => $"未知增益({buffType})"
+                BuffTypes.ASSEMBLY_DEFENSE => "科技核心防御增益",
+                BuffTypes.SENTRY_POSTURE => "哨兵姿态增益",
+                BuffTypes.HERO_DEPLOY => "英雄部署模式",
+                BuffTypes.RADAR_VULN => "雷达易伤",
+                BuffTypes.FORTRESS => "堡垒增益",
+                _ => $"未知增益({buffType})"
             };
         }
 
@@ -912,83 +912,83 @@ namespace UI.HUD
         // ─── 仿真扩展 event_id (101+) ───
 
         // 比赛流程 (101-109)
-        public const int EXT_MATCH_START   = 101;
-        public const int EXT_MATCH_END     = 102;
-        public const int EXT_STAGE_CHANGE  = 103;
-        public const int EXT_MATCH_PAUSED  = 104;
+        public const int EXT_MATCH_START = 101;
+        public const int EXT_MATCH_END = 102;
+        public const int EXT_STAGE_CHANGE = 103;
+        public const int EXT_MATCH_PAUSED = 104;
         public const int EXT_MATCH_RESUMED = 105;
 
         // 机器人生死 (110-119)
-        public const int EXT_ROBOT_RESPAWN         = 110;
+        public const int EXT_ROBOT_RESPAWN = 110;
         public const int EXT_ROBOT_INSTANT_RESPAWN = 111;
-        public const int EXT_ROBOT_OFFLINE         = 112;
-        public const int EXT_ROBOT_RECONNECT       = 113;
+        public const int EXT_ROBOT_OFFLINE = 112;
+        public const int EXT_ROBOT_RECONNECT = 113;
 
         // 前哨站/基地 (120-129)
         public const int EXT_OUTPOST_REBUILT = 120;
-        public const int EXT_BASE_DESTROYED  = 121;
+        public const int EXT_BASE_DESTROYED = 121;
 
         // 能量机关 (130-139)
         public const int EXT_RUNE_BUFF_EXPIRED = 130;
 
         // 科技核心 (140-149)
         public const int EXT_TECH_CORE_ASSEMBLING = 140;
-        public const int EXT_TECH_CORE_ASSEMBLED  = 141;
-        public const int EXT_TECH_CORE_FAILED     = 142;
-        public const int EXT_TECH_CORE_LEVEL_UP   = 143;
+        public const int EXT_TECH_CORE_ASSEMBLED = 141;
+        public const int EXT_TECH_CORE_FAILED = 142;
+        public const int EXT_TECH_CORE_LEVEL_UP = 143;
 
         // 飞镖扩展 (150-159)
-        public const int EXT_DART_LAUNCHED       = 150;
-        public const int EXT_DART_GATE_CLOSE     = 151;
+        public const int EXT_DART_LAUNCHED = 150;
+        public const int EXT_DART_GATE_CLOSE = 151;
         public const int EXT_DART_SCREEN_BLOCKED = 152;
 
         // 空中支援扩展 (160-169)
-        public const int EXT_AIR_SUPPORT_END      = 160;
-        public const int EXT_AERIAL_LOCKED        = 161;
+        public const int EXT_AIR_SUPPORT_END = 160;
+        public const int EXT_AERIAL_LOCKED = 161;
         public const int EXT_AERIAL_LOCK_RELEASED = 162;
 
         // 判罚 (170-179)
-        public const int EXT_PENALTY_YELLOW  = 170;
-        public const int EXT_PENALTY_RED     = 171;
+        public const int EXT_PENALTY_YELLOW = 170;
+        public const int EXT_PENALTY_RED = 171;
         public const int EXT_PENALTY_WARNING = 172;
 
         // 增益 (180-189)
-        public const int EXT_BUFF_GAINED           = 180;
-        public const int EXT_BUFF_EXPIRED          = 181;
+        public const int EXT_BUFF_GAINED = 180;
+        public const int EXT_BUFF_EXPIRED = 181;
         public const int EXT_DEFENSE_ZONE_CAPTURED = 182;
-        public const int EXT_DEFENSE_ZONE_LOST     = 183;
+        public const int EXT_DEFENSE_ZONE_LOST = 183;
 
         // 经济 (190-199)
-        public const int EXT_AMMO_EXCHANGED     = 190;
-        public const int EXT_REMOTE_HEAL        = 191;
-        public const int EXT_GOLD_INCOME        = 192;
+        public const int EXT_AMMO_EXCHANGED = 190;
+        public const int EXT_REMOTE_HEAL = 191;
+        public const int EXT_GOLD_INCOME = 192;
         public const int EXT_SENTRY_SUPPLY_AMMO = 193;
 
         // 英雄/哨兵 (200-209)
-        public const int EXT_HERO_DEPLOY_EXIT      = 200;
+        public const int EXT_HERO_DEPLOY_EXIT = 200;
         public const int EXT_SENTRY_POSTURE_CHANGE = 201;
 
         // 雷达 (210-219)
         public const int EXT_RADAR_MARK_THRESHOLD = 210;
-        public const int EXT_RADAR_DOUBLE_VULN    = 211;
+        public const int EXT_RADAR_DOUBLE_VULN = 211;
 
         // 等级 (220-229)
-        public const int EXT_LEVEL_UP          = 220;
+        public const int EXT_LEVEL_UP = 220;
         public const int EXT_MAX_LEVEL_REACHED = 221;
 
         // 底盘能量 (230-239)
         public const int EXT_ENERGY_SAVING_MODE = 230;
-        public const int EXT_ENERGY_BOOST_MODE  = 231;
-        public const int EXT_CHASSIS_POWER_CUT  = 232;
+        public const int EXT_ENERGY_BOOST_MODE = 231;
+        public const int EXT_CHASSIS_POWER_CUT = 232;
 
         // 工程特殊 (240-249)
         public const int EXT_ENGINEER_DEFENSE_START = 240;
-        public const int EXT_ENGINEER_DEFENSE_END   = 241;
+        public const int EXT_ENGINEER_DEFENSE_END = 241;
 
         // 特殊成就 (250-259)
         public const int EXT_FIRST_BLOOD = 250;
-        public const int EXT_MULTI_KILL  = 251;
-        public const int EXT_COMEBACK    = 252;
+        public const int EXT_MULTI_KILL = 251;
+        public const int EXT_COMEBACK = 252;
     }
 
     /// <summary>
@@ -996,25 +996,25 @@ namespace UI.HUD
     /// </summary>
     public static class BuffTypes
     {
-        public const uint ATTACK             = 1;
-        public const uint DEFENSE            = 2;
-        public const uint HEAT_COOLDOWN      = 3;
-        public const uint BUFFER_ENERGY      = 4;
-        public const uint HEAL               = 5;
-        public const uint VULNERABILITY      = 6;
-        public const uint INVINCIBLE         = 7;
-        public const uint WEAK               = 8;
-        public const uint SUPPLY_HEAL        = 9;
-        public const uint TERRAIN_CROSS      = 10;
-        public const uint RUNE_SMALL         = 11;
-        public const uint RUNE_LARGE_ATK     = 12;
-        public const uint RUNE_LARGE_DEF     = 13;
-        public const uint RUNE_LARGE_COOL    = 14;
+        public const uint ATTACK = 1;
+        public const uint DEFENSE = 2;
+        public const uint HEAT_COOLDOWN = 3;
+        public const uint BUFFER_ENERGY = 4;
+        public const uint HEAL = 5;
+        public const uint VULNERABILITY = 6;
+        public const uint INVINCIBLE = 7;
+        public const uint WEAK = 8;
+        public const uint SUPPLY_HEAL = 9;
+        public const uint TERRAIN_CROSS = 10;
+        public const uint RUNE_SMALL = 11;
+        public const uint RUNE_LARGE_ATK = 12;
+        public const uint RUNE_LARGE_DEF = 13;
+        public const uint RUNE_LARGE_COOL = 14;
         public const uint ENGINEER_EARLY_DEF = 15;
-        public const uint ASSEMBLY_DEFENSE   = 16;
-        public const uint SENTRY_POSTURE     = 17;
-        public const uint HERO_DEPLOY        = 18;
-        public const uint RADAR_VULN         = 19;
-        public const uint FORTRESS           = 20;
+        public const uint ASSEMBLY_DEFENSE = 16;
+        public const uint SENTRY_POSTURE = 17;
+        public const uint HERO_DEPLOY = 18;
+        public const uint RADAR_VULN = 19;
+        public const uint FORTRESS = 20;
     }
 }

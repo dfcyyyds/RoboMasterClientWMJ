@@ -88,15 +88,15 @@ namespace UI.HUD
 
         // 侧边栏菜单定义
         private static readonly string[] MenuIds = {
-            "notify", "aim", "hit", "crosshair", "health", "buff", "font", "layout"
+            "matchinfo", "notify", "aim", "hit", "crosshair", "health", "buff", "font", "layout"
         };
         private static readonly string[] MenuLabels = {
-            "通知设置", "开镜设置", "受击提示", "准星设置", "血条设置", "BUFF设置", "字体大小", "UI 布局"
+            "对局信息", "通知设置", "开镜设置", "受击提示", "准星设置", "血条设置", "BUFF设置", "字体大小", "UI 布局"
         };
         private static readonly string[] MenuIcons = {
-            IconManager.ICON_INFORM, IconManager.ICON_PILL, IconManager.ICON_FATAL_WARNING,
-            IconManager.ICON_PILL, IconManager.ICON_WARNING, IconManager.ICON_PILL,
-            IconManager.ICON_SETTING, IconManager.ICON_PULL
+            IconManager.ICON_INFORM, IconManager.ICON_INFORM, IconManager.ICON_PILL,
+            IconManager.ICON_FATAL_WARNING, IconManager.ICON_PILL, IconManager.ICON_WARNING,
+            IconManager.ICON_PILL, IconManager.ICON_SETTING, IconManager.ICON_PULL
         };
 
         void Awake()
@@ -466,6 +466,7 @@ namespace UI.HUD
             string pageId = sidebarItems[index].pageId;
             switch (pageId)
             {
+                case "matchinfo": BuildMatchInfoPage(); break;
                 case "notify": BuildNotifyPage(); break;
                 case "aim": BuildAimPage(); break;
                 case "hit": BuildHitPage(); break;
@@ -544,6 +545,24 @@ namespace UI.HUD
 
         // ═══════════════════ 参数页面 ═══════════════════
 
+        private void BuildMatchInfoPage()
+        {
+            var c = CreateParamScrollContent("matchinfo");
+            var s = UILayoutManager.Settings;
+
+            AddSectionHeader(c, "对 局 信 息 显 示", IconManager.ICON_INFORM);
+            AddToggleRow(c, "显示比赛阶段", s.showMatchStage,
+                v => { s.showMatchStage = v; ScheduleLivePreview(); });
+            AddToggleRow(c, "显示倒计时", s.showMatchTimer,
+                v => { s.showMatchTimer = v; ScheduleLivePreview(); });
+            AddToggleRow(c, "显示轮次", s.showMatchRound,
+                v => { s.showMatchRound = v; ScheduleLivePreview(); });
+            AddToggleRow(c, "显示比分", s.showMatchScore,
+                v => { s.showMatchScore = v; ScheduleLivePreview(); });
+            AddToggleRow(c, "显示经济", s.showMatchEconomy,
+                v => { s.showMatchEconomy = v; ScheduleLivePreview(); });
+        }
+
         private void BuildNotifyPage()
         {
             var c = CreateParamScrollContent("notify");
@@ -566,12 +585,17 @@ namespace UI.HUD
             var d = HUDSettings.Defaults();
 
             AddSectionHeader(c, "开 镜 设 置", IconManager.ICON_PILL);
+            AddToggleRow(c, "启用射击自动开镜", s.aimZoomEnabled,
+                v => { s.aimZoomEnabled = v; ScheduleLivePreview(); });
             AddSliderRow(c, "开镜倍率", "x",
                 s.aimZoomFactor, d.aimZoomFactor, 1f, 4f,
                 v => s.aimZoomFactor = v);
             AddSliderRow(c, "聚焦速度", "",
                 s.aimZoomSpeed, d.aimZoomSpeed, 2f, 20f,
                 v => s.aimZoomSpeed = v);
+            AddSliderRow(c, "关镜延迟", "s",
+                s.aimZoomCloseDelay, d.aimZoomCloseDelay, 0.5f, 8f,
+                v => s.aimZoomCloseDelay = v);
         }
 
         private void BuildHitPage()
@@ -705,6 +729,7 @@ namespace UI.HUD
             AddLayoutElement("CrosshairRing", "准星", UIColors.BrightBlue, 0.5f, 0.5f, 0.12f, 0.12f);
             AddLayoutElement("BuffStatus", "BUFF", new Color(0.22f, 0.55f, 0.95f, 1f), 0.08f, 0.5f, 0.10f, 0.15f);
             AddLayoutElement("Notifications", "通知", UIColors.Orange, 0.5f, 0.88f, 0.18f, 0.06f);
+            AddLayoutElement("MatchInfo", "对局信息", AccentBlue, 0.5f, 0.97f, 0.45f, 0.05f);
         }
 
         private void AddLayoutElement(string id, string label, Color color,
@@ -968,6 +993,99 @@ namespace UI.HUD
                 fmt = localFmt,
                 unit = localUnit
             });
+        }
+
+        // ═══════════════════ 开关行（Toggle） ═══════════════════
+
+        private void AddToggleRow(Transform content, string label, bool value,
+            System.Action<bool> onChange)
+        {
+            var go = new GameObject($"Toggle_{label}");
+            go.transform.SetParent(content, false);
+            var le = go.AddComponent<LayoutElement>();
+            le.preferredHeight = 50;
+            le.flexibleWidth = 1;
+
+            var rowBg = go.AddComponent<Image>();
+            Color rowColor = (rowIndex % 2 == 0) ? RowBgEven : RowBgOdd;
+            rowBg.color = rowColor;
+            UIFactory.ApplyRoundedCorners(rowBg, 32, 6);
+            rowBg.raycastTarget = true;
+            rowIndex++;
+
+            // 悬停高亮
+            var rowTrigger = go.AddComponent<EventTrigger>();
+            var enterEntry = new EventTrigger.Entry { eventID = EventTriggerType.PointerEnter };
+            enterEntry.callback.AddListener(_ =>
+            {
+                if (rowBg) rowBg.color = new Color(
+                    Mathf.Min(rowColor.r + 0.06f, 1f), Mathf.Min(rowColor.g + 0.06f, 1f),
+                    Mathf.Min(rowColor.b + 0.10f, 1f), Mathf.Min(rowColor.a + 0.20f, 1f));
+            });
+            rowTrigger.triggers.Add(enterEntry);
+            var exitEntry = new EventTrigger.Entry { eventID = EventTriggerType.PointerExit };
+            exitEntry.callback.AddListener(_ => { if (rowBg) rowBg.color = rowColor; });
+            rowTrigger.triggers.Add(exitEntry);
+
+            var rowRt = go.GetComponent<RectTransform>();
+
+            // 标签
+            var lbl = UIFactory.CreateText(rowRt, "Label", label, 22,
+                TextAlignmentOptions.Left, UIColors.Silver);
+            lbl.rectTransform.anchorMin = new Vector2(0.02f, 0f);
+            lbl.rectTransform.anchorMax = new Vector2(0.60f, 1f);
+            lbl.rectTransform.offsetMin = Vector2.zero;
+            lbl.rectTransform.offsetMax = Vector2.zero;
+
+            // 开关按钮
+            var toggleGo = new GameObject("ToggleBtn");
+            toggleGo.transform.SetParent(rowRt, false);
+            var toggleRt = toggleGo.AddComponent<RectTransform>();
+            toggleRt.anchorMin = new Vector2(0.72f, 0.18f);
+            toggleRt.anchorMax = new Vector2(0.88f, 0.82f);
+            toggleRt.offsetMin = Vector2.zero;
+            toggleRt.offsetMax = Vector2.zero;
+
+            var toggleBg = toggleGo.AddComponent<Image>();
+            UIFactory.ApplyRoundedCorners(toggleBg, 32, 10);
+            toggleBg.raycastTarget = true;
+
+            var statusLabel = UIFactory.CreateText(toggleGo.transform, "Status", "", 20,
+                TextAlignmentOptions.Center, UIColors.White, FontStyles.Bold);
+            UIFactory.SetFullStretch(statusLabel.rectTransform);
+
+            // 设置初始状态
+            bool currentVal = value;
+            UpdateToggleVisual(toggleBg, statusLabel, currentVal);
+
+            var toggleBtn = toggleGo.AddComponent<Button>();
+            toggleBtn.targetGraphic = toggleBg;
+            toggleBtn.transition = Selectable.Transition.ColorTint;
+            var tbc = toggleBtn.colors;
+            tbc.fadeDuration = 0.10f;
+            toggleBtn.colors = tbc;
+            toggleBtn.onClick.AddListener(() =>
+            {
+                currentVal = !currentVal;
+                UpdateToggleVisual(toggleBg, statusLabel, currentVal);
+                onChange?.Invoke(currentVal);
+            });
+        }
+
+        private void UpdateToggleVisual(Image bg, TextMeshProUGUI label, bool isOn)
+        {
+            if (isOn)
+            {
+                bg.color = UIColors.WithAlpha(AccentBlue, 0.65f);
+                label.text = "显示";
+                label.color = UIColors.White;
+            }
+            else
+            {
+                bg.color = new Color(0.15f, 0.15f, 0.20f, 0.50f);
+                label.text = "隐藏";
+                label.color = UIColors.WithAlpha(UIColors.Silver, 0.6f);
+            }
         }
 
         // ═══════════════════ 底部操作栏 ═══════════════════

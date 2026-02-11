@@ -11,6 +11,7 @@ namespace UI.HUD
     /// <summary>
     /// 战斗 HUD 主控 — 管理所有 HUD 子元素的生命周期
     /// 在兵种选择完成后自动初始化
+    /// 支持：根据兵种能力隐藏射击相关UI、顶部对局信息显示
     /// </summary>
     [DefaultExecutionOrder(100)]
     public class BattleHUD : MonoBehaviour
@@ -25,6 +26,7 @@ namespace UI.HUD
         private NotificationHUD notifications;
         private AimZoomHUD aimZoom;
         private BuffStatusHUD buffStatus;
+        private MatchInfoHUD matchInfo;
 
         // ─── 数据源 ───
         private RobotDynamicStatusViewModel dynamicVM;
@@ -36,10 +38,13 @@ namespace UI.HUD
         private uint lastHealth;
         private bool wasOutOfCombat;
         private bool isInitialized;
+        private bool canShoot = true; // 当前兵种是否具备射击能力
 
         // ─── BUFF 追踪 ───
         private uint lastBuffType;
         private uint lastBuffLeftTime;
+        private int lastBuffLevel;
+        private uint lastBuffMaxTime;
 
         void Awake()
         {
@@ -66,6 +71,9 @@ namespace UI.HUD
             if (isInitialized) return;
             isInitialized = true;
 
+            // 根据兵种能力决定是否具备射击能力
+            canShoot = RobotCapabilities.CanShoot(result.Robot);
+
             dynamicVM = new RobotDynamicStatusViewModel();
             dynamicVM.Initialize();
             staticVM = new RobotStaticStatusViewModel();
@@ -74,7 +82,8 @@ namespace UI.HUD
             buffVM.Initialize();
 
             BuildHUD();
-            wmj.Log.I("[BattleHUD] HUD 已初始化", wmj.Log.Tag.UI);
+            wmj.Log.I($"[BattleHUD] HUD 已初始化 | 兵种={result.Robot} | 射击UI={canShoot}",
+                wmj.Log.Tag.UI);
         }
 
         private void BuildHUD()
@@ -94,11 +103,25 @@ namespace UI.HUD
             vignetteGO.transform.SetParent(root, false);
             damageVignette = vignetteGO.AddComponent<DamageVignetteHUD>();
 
-            // 准星环
-            var crosshairGO = new GameObject("CrosshairRing");
-            crosshairGO.transform.SetParent(root, false);
-            crosshairRing = crosshairGO.AddComponent<CrosshairRingHUD>();
-            ApplyPointLayout(crosshairGO, "CrosshairRing", 0.5f, 0.5f);
+            // 准星环 — 仅在兵种具备射击能力时创建
+            if (canShoot)
+            {
+                var crosshairGO = new GameObject("CrosshairRing");
+                crosshairGO.transform.SetParent(root, false);
+                crosshairRing = crosshairGO.AddComponent<CrosshairRingHUD>();
+                ApplyPointLayout(crosshairGO, "CrosshairRing", 0.5f, 0.5f);
+
+                // 开镜（仅有射击能力时需要）
+                var zoomGO = new GameObject("AimZoom");
+                zoomGO.transform.SetParent(root, false);
+                aimZoom = zoomGO.AddComponent<AimZoomHUD>();
+            }
+            else
+            {
+                crosshairRing = null;
+                aimZoom = null;
+                wmj.Log.I("[BattleHUD] 非射击兵种，已隐藏准星/热量/弹药/开镜 UI", wmj.Log.Tag.UI);
+            }
 
             // 通知
             var notifGO = new GameObject("Notifications");
@@ -106,17 +129,17 @@ namespace UI.HUD
             notifications = notifGO.AddComponent<NotificationHUD>();
             ApplyStretchLayout(notifGO, "Notifications", 0.5f, 0.88f, 0.20f, 0.065f);
 
-            // 开镜（无视觉布局）
-            var zoomGO = new GameObject("AimZoom");
-            zoomGO.transform.SetParent(root, false);
-            aimZoom = zoomGO.AddComponent<AimZoomHUD>();
-
             // BUFF 状态栏
             var buffGO = new GameObject("BuffStatus");
             buffGO.transform.SetParent(root, false);
             buffStatus = buffGO.AddComponent<BuffStatusHUD>();
             ApplyBuffLayout(buffGO, "BuffStatus", 0.08f, 0.5f);
             buffStatus.SetNotificationHUD(notifications);
+
+            // 对局信息 HUD（顶部显示）
+            var matchGO = new GameObject("MatchInfo");
+            matchGO.transform.SetParent(root, false);
+            matchInfo = matchGO.AddComponent<MatchInfoHUD>();
         }
 
         void Update()
@@ -155,14 +178,29 @@ namespace UI.HUD
             {
                 uint bt = buffVM.BuffType;
                 uint blt = buffVM.BuffLeftTime;
-                // buff_type=0 表示当前无buff，跳过（不发给BuffStatusHUD）
-                if (bt != 0 && (bt != lastBuffType || blt != lastBuffLeftTime))
+                int blv = buffVM.BuffLevel;
+                uint bmt = buffVM.BuffMaxTime;
+
+                // 任意字段变化时都触发更新（包括 buff_type=0 用于清除）
+                if (bt != lastBuffType || blt != lastBuffLeftTime
+                    || blv != lastBuffLevel || bmt != lastBuffMaxTime)
                 {
-                    buffStatus.UpdateBuff(bt, buffVM.BuffLevel,
-                        buffVM.BuffMaxTime, blt);
+                    // buff_type=0 表示无 buff，跳过（BuffStatusHUD 内部倒计时自行移除）
+                    if (bt != 0)
+                    {
+                        buffStatus.UpdateBuff(bt, blv, bmt, blt);
+                    }
                     lastBuffType = bt;
                     lastBuffLeftTime = blt;
+                    lastBuffLevel = blv;
+                    lastBuffMaxTime = bmt;
                 }
+            }
+
+            // 开镜 — 检测射击行为，自动开镜
+            if (canShoot && aimZoom != null)
+            {
+                aimZoom.NotifyShooting(dynamicVM.TotalProjectilesFired);
             }
 
             lastHealth = curHealth;
@@ -179,7 +217,7 @@ namespace UI.HUD
             if (hudCanvas != null) Destroy(hudCanvas.gameObject);
             hudCanvas = null; healthBar = null; damageVignette = null;
             crosshairRing = null; notifications = null; aimZoom = null;
-            buffStatus = null;
+            buffStatus = null; matchInfo = null;
         }
 
         /// <summary>
@@ -192,7 +230,7 @@ namespace UI.HUD
             if (hudCanvas != null) Destroy(hudCanvas.gameObject);
             hudCanvas = null; healthBar = null; damageVignette = null;
             crosshairRing = null; notifications = null; aimZoom = null;
-            buffStatus = null;
+            buffStatus = null; matchInfo = null;
             // 不调用 Load()：内存中的 _data 已是最新（Save 已写入磁盘），
             // 重新 Load 会替换 _data 引用导致设置面板滑块 lambda 指向孤儿对象
             BuildHUD();
@@ -216,6 +254,9 @@ namespace UI.HUD
 
         // 提供给事件通知服务访问的 NotificationHUD 引用
         public NotificationHUD NotificationHUD => notifications;
+
+        /// <summary>当前兵种是否具备射击能力</summary>
+        public bool CanShoot => canShoot;
 
         // ─── 布局应用辅助方法 ───
 
