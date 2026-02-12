@@ -40,6 +40,14 @@ namespace UI.HUD
 
         private const int RING_TEX = 256;
 
+        // ─── 吊射模式 ───
+        private CanvasGroup deployCanvasGroup;
+        private Canvas deployOverrideCanvas;
+        private bool deployMode;
+        private float recoilAnim;   // 0→1→0, 当前进度
+        private float baseHeatRingRadius;
+        private float baseAmmoRingRadius;
+
         void Awake()
         {
             var s = UILayoutManager.Settings;
@@ -59,6 +67,12 @@ namespace UI.HUD
             BuildAmmoRing();
             BuildInfoPanel();
             BuildEnemyPanel();
+
+            // 用于吊射模式整体透明度控制
+            deployCanvasGroup = gameObject.AddComponent<CanvasGroup>();
+            deployCanvasGroup.alpha = 1f;
+            baseHeatRingRadius = heatRingRadius;
+            baseAmmoRingRadius = ammoRingRadius;
         }
 
         // ════════════════════ 准星十字 ════════════════════
@@ -321,6 +335,74 @@ namespace UI.HUD
             }
             if (bulletsToKillText)
                 bulletsToKillText.text = $"击杀需 {bulletsToKill} 发";
+        }
+
+        // ════════════════════ 吊射模式 ════════════════════
+
+        /// <summary>
+        /// 切换吊射模式：提升渲染层级至LobShotHUD之上 + 隐藏敌人面板
+        /// 保留准星环、热量环、弹药环、弹药/热量数值面板
+        /// </summary>
+        public void SetDeployMode(bool active)
+        {
+            deployMode = active;
+            // 仅隐藏敌人面板，保留准星环系统（热量+弹药）
+            if (enemyPanel != null)
+                enemyPanel.gameObject.SetActive(!active);
+            // 通过 Override Canvas 将准星环渲染到 LobShotHUD(sortOrder=10500)之上
+            if (active)
+            {
+                if (deployOverrideCanvas == null)
+                {
+                    deployOverrideCanvas = gameObject.AddComponent<Canvas>();
+                    deployOverrideCanvas.overrideSorting = true;
+                    deployOverrideCanvas.sortingOrder = 10600;
+                }
+                // 应用吊射模式准星透明度(从设置读取)
+                float opacity = UI.Core.UILayoutManager.Settings.deployModeRingOpacity;
+                if (deployCanvasGroup != null)
+                    deployCanvasGroup.alpha = opacity;
+            }
+            else
+            {
+                if (deployOverrideCanvas != null)
+                {
+                    Destroy(deployOverrideCanvas);
+                    deployOverrideCanvas = null;
+                }
+                // 恢复正常透明度
+                if (deployCanvasGroup != null)
+                    deployCanvasGroup.alpha = 1f;
+            }
+        }
+
+        /// <summary>
+        /// 触发吊射射击反馈 — 环半径短暂扩大后恢复
+        /// </summary>
+        public void TriggerRecoil()
+        {
+            recoilAnim = 1f;
+        }
+
+        void Update()
+        {
+            // 后坐力动画
+            if (recoilAnim > 0)
+            {
+                recoilAnim -= Time.deltaTime / 0.3f; // 0.3s 恢复
+                if (recoilAnim < 0) recoilAnim = 0f;
+
+                float expand = recoilAnim * 16f; // 最大扩大16px
+                float curHR = baseHeatRingRadius + expand;
+                float curAR = baseAmmoRingRadius + expand;
+                float heatSize = curHR * 2 + ringThickness * 2;
+                float ammoSize = curAR * 2 + ringThickness * 2;
+
+                if (heatRingBg) heatRingBg.rectTransform.sizeDelta = new Vector2(heatSize, heatSize);
+                if (heatRingFill) heatRingFill.rectTransform.sizeDelta = new Vector2(heatSize, heatSize);
+                if (ammoRingBg) ammoRingBg.rectTransform.sizeDelta = new Vector2(ammoSize, ammoSize);
+                if (ammoRingFill) ammoRingFill.rectTransform.sizeDelta = new Vector2(ammoSize, ammoSize);
+            }
         }
     }
 }

@@ -646,6 +646,9 @@ namespace UI.HUD
             AddSliderRow(c, "准星线长度", "px",
                 s.crosshairLineLength, d.crosshairLineLength, 20f, 80f,
                 v => s.crosshairLineLength = v);
+            AddSliderRow(c, "吊射模式准星透明度", "%",
+                s.deployModeRingOpacity, d.deployModeRingOpacity, 0.1f, 1.0f,
+                v => s.deployModeRingOpacity = v);
         }
 
         private void BuildHealthPage()

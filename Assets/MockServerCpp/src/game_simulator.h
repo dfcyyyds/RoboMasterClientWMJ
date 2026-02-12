@@ -3,6 +3,7 @@
 
 #include <array>
 #include <cstdint>
+#include <cstring>
 #include <random>
 #include <string>
 #include <utility>
@@ -94,6 +95,40 @@ constexpr uint32_t SENTRY_SUPPLY_AMMO = 100;
 constexpr uint32_t SENTRY_AUTO_CTRL_COST = 50;
 constexpr float SENTRY_POSTURE_WEAKEN_TIME = 180.0f;
 constexpr float SENTRY_POSTURE_COOLDOWN = 5.0f;
+
+// 英雄吊射
+constexpr uint32_t LOBSHOT_VISION_W = 192;
+constexpr uint32_t LOBSHOT_VISION_H = 144;
+constexpr uint32_t LOBSHOT_FRAME_BYTES =
+    LOBSHOT_VISION_W * LOBSHOT_VISION_H / 8;                 // 3456B
+constexpr uint32_t LOBSHOT_BLOCKS_X = LOBSHOT_VISION_W / 8;  // 24
+constexpr uint32_t LOBSHOT_BLOCKS_Y = LOBSHOT_VISION_H / 8;  // 18
+constexpr uint32_t LOBSHOT_TOTAL_BLOCKS =
+    LOBSHOT_BLOCKS_X * LOBSHOT_BLOCKS_Y;       // 432
+constexpr float LOBSHOT_FLIGHT_TIME = 1.2f;    // 弹丸飞行时间(秒)
+constexpr float LOBSHOT_42MM_INTERVAL = 2.0f;  // 42mm射击间隔(秒)
+constexpr uint32_t LOBSHOT_TARGET_CX = 96;     // 靶标中心X
+constexpr uint32_t LOBSHOT_TARGET_CY = 60;     // 靶标中心Y
+constexpr uint32_t LOBSHOT_TARGET_R = 3;       // 靶标半径(小圆)
+
+// 50Hz调度器常量 (严格按 §6 / §11 规范)
+constexpr int SCHEDULER_HZ = 50;               // 总slot频率 50Hz
+constexpr int I_FRAME_INTERVAL = 25;           // 每25个视频帧发一次I帧
+constexpr int TRAIL_INTERVAL = 8;              // 每8个视频帧发一次独立轨迹帧
+constexpr uint16_t MAX_LOBSHOT_PAYLOAD = 600;  // 载荷上限
+
+// 帧类型常量 (§4.3)
+constexpr uint8_t FT_I_PART1 = 0x01;
+constexpr uint8_t FT_I_PART2 = 0x02;
+constexpr uint8_t FT_I_SINGLE = 0x03;
+constexpr uint8_t FT_D_FRAME = 0x10;
+constexpr uint8_t FT_D_EMPTY = 0x11;
+constexpr uint8_t FT_TRAIL = 0x20;
+constexpr uint8_t FT_HEARTBEAT = 0xFE;
+
+// 包标记
+constexpr uint8_t SYNC_BYTE = 0xA5;
+constexpr uint8_t END_BYTE = 0x5A;
 
 // 工程
 constexpr uint32_t ENGINEER_HEALTH = 250;
@@ -467,6 +502,31 @@ struct RobotState {
 
   bool is_deployed = false;
 
+  // 英雄吊射模式
+  bool lobshot_active = false;
+  float lobshot_fire_cooldown = 0;
+  float lobshot_ball_time = -1;  // <0表示无弹丸飞行中
+  float lobshot_ball_x = 0;
+  float lobshot_ball_y = 0;
+  uint16_t lobshot_frame_id = 0;
+
+  // 50Hz调度器状态 (严格按§6规范)
+  int lobshot_slot_counter = 0;         // 总slot计数(0-based, 50Hz递增)
+  int lobshot_video_frame_counter = 0;  // 视频帧计数(仅偶数slot递增)
+  uint8_t lobshot_prev_frame[LOBSHOT_FRAME_BYTES] =
+      {};                              // 前一帧缓冲(用于XOR差分)
+  bool lobshot_prev_valid = false;     // prev_frame是否有效
+  bool lobshot_part2_pending = false;  // I帧Part2待发标志
+
+  // 弹丸轨迹累积 (I帧周期内持续累积, 仿真简化为持续保留最近N点)
+  static constexpr int LOBSHOT_MAX_TRAIL = 120;
+  struct TrailPt {
+    uint8_t x;
+    uint8_t y;
+    uint8_t r;  // 投影半径(近大远小, 仅服务端渲染用)
+  };
+  std::vector<TrailPt> lobshot_trail;  // 累积轨迹点
+
   float fire_interval = 0;
   float last_fire_speed = 0;
   uint32_t kill_count = 0;
@@ -587,6 +647,15 @@ class GameSimulator {
   void handleAmmoPurchase(uint32_t batches);
   /// 处理买活指令（由客户端 CommonCommand cmd_type=102 触发）
   void handleBuybackCommand();
+  /// 处理英雄吊射部署指令（cmd_type=103: 进入, cmd_type=104: 退出）
+  void handleDeployCommand(bool enter);
+  /// 处理吊射模式下射击（cmd_type=105）
+  void handleLobShotFire();
+  /// 是否处于吊射模式（用于决定是否发送 CustomByteBlock）
+  bool isLobShotActive() const;
+  /// 50Hz调度器tick — 每20ms调用一次, 返回要发送的CustomByteBlock数据
+  /// 偶数slot: 视频帧(I/D/Trail), 奇数slot: 冗余(Part2/心跳)
+  std::vector<uint8_t> tickLobShotSlot();
 
  private:
   void initRobot(RobotState& r, RobotType type, uint32_t id, float sx,

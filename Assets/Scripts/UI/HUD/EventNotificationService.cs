@@ -196,7 +196,7 @@ namespace UI.HUD
                 _ => UIColors.Orange
             };
 
-            string msg = $"⚠ {typeName}  持续{effectSec}s  累计{totalNum}次";
+            string msg = $"[!] {typeName}  持续{effectSec}s  累计{totalNum}次";
             cachedHUD.Push(msg, color, UILayoutManager.Settings.notificationDuration + 1f);
             OnPenaltyReceived?.Invoke(penaltyType, effectSec, totalNum);
         }
@@ -285,7 +285,7 @@ namespace UI.HUD
                     cooldown = SPAM_COOLDOWN;
                     break;
                 case EventIds.HERO_SNIPER_ENEMY:
-                    msg = $"⚠ 对方英雄狙击伤害: 累计{param}";
+                    msg = $"[!] 对方英雄狙击伤害: 累计{param}";
                     color = UIColors.Red;
                     cooldown = SPAM_COOLDOWN;
                     break;
@@ -298,7 +298,7 @@ namespace UI.HUD
                     color = UIColors.Red;
                     break;
                 case EventIds.AIR_SUPPORT_ENEMY:
-                    msg = "⚠ 对方呼叫空中支援";
+                    msg = "[!] 对方呼叫空中支援";
                     color = UIColors.Orange;
                     break;
                 case EventIds.AIR_SUPPORT_ENEMY_BROKEN:
@@ -331,7 +331,7 @@ namespace UI.HUD
                     color = UIColors.Orange;
                     break;
                 case EventIds.BASE_ATTACKED:
-                    msg = "⚠ 己方基地遭到攻击！";
+                    msg = "[!] 己方基地遭到攻击！";
                     color = UIColors.Red;
                     duration = 2f;
                     cooldown = 5f; // 官方：5s 内置冷却
@@ -348,8 +348,8 @@ namespace UI.HUD
                 case EventIds.BASE_ARMOR_OPEN:
                     msg = param switch
                     {
-                        "1" => "⚠ 己方基地护甲展开！",
-                        "2" => "⚠ 对方基地护甲展开",
+                        "1" => "[!] 己方基地护甲展开！",
+                        "2" => "[!] 对方基地护甲展开",
                         _ => "基地护甲展开"
                     };
                     color = UIColors.Red;
@@ -418,7 +418,7 @@ namespace UI.HUD
                         break;
                     }
                 case EventIds.EXT_ROBOT_OFFLINE:
-                    msg = $"⚠ 机器人{param} 异常离线";
+                    msg = $"[!] 机器人{param} 异常离线";
                     color = UIColors.Red;
                     break;
                 case EventIds.EXT_ROBOT_RECONNECT:
@@ -495,7 +495,7 @@ namespace UI.HUD
                     {
                         var parts = param.Split(':');
                         string dur = parts.Length >= 2 ? $"{parts[1]}s" : "";
-                        msg = $"⚠ 飞镖命中导致视野遮挡 {dur}";
+                        msg = $"[!] 飞镖命中导致视野遮挡 {dur}";
                         color = UIColors.Red;
                         break;
                     }
@@ -509,7 +509,7 @@ namespace UI.HUD
                     {
                         var parts = param.Split(':');
                         msg = parts.Length >= 2
-                            ? $"⚠ 空中机器人{parts[0]} 被锁定 {parts[1]}s"
+                            ? $"[!] 空中机器人{parts[0]} 被锁定 {parts[1]}s"
                             : "空中机器人被雷达锁定";
                         color = UIColors.Red;
                         break;
@@ -524,8 +524,8 @@ namespace UI.HUD
                     {
                         var parts = param.Split(':');
                         msg = parts.Length >= 2
-                            ? $"⚠ 黄牌警告：机器人{parts[0]}，{parts[1]}"
-                            : "⚠ 黄牌警告";
+                            ? $"[!] 黄牌警告：机器人{parts[0]}，{parts[1]}"
+                            : "[!] 黄牌警告";
                         color = UIColors.HeatYellow;
                         duration = 3f;
                         break;
@@ -668,7 +668,7 @@ namespace UI.HUD
                     {
                         var parts = param.Split(':');
                         msg = parts.Length >= 2
-                            ? $"⚠ 雷达标记：目标{parts[0]} 进度{parts[1]}%"
+                            ? $"[!] 雷达标记：目标{parts[0]} 进度{parts[1]}%"
                             : "雷达标记达阈值";
                         color = UIColors.Orange;
                         cooldown = SPAM_COOLDOWN;
@@ -702,7 +702,7 @@ namespace UI.HUD
 
                 // ─── 底盘能量 (230-239) ───
                 case EventIds.EXT_ENERGY_SAVING_MODE:
-                    msg = $"⚠ 机器人{param} 底盘进入节能模式";
+                    msg = $"[!] 机器人{param} 底盘进入节能模式";
                     color = UIColors.Orange;
                     cooldown = SPAM_COOLDOWN;
                     break;
@@ -712,7 +712,7 @@ namespace UI.HUD
                     cooldown = SPAM_COOLDOWN;
                     break;
                 case EventIds.EXT_CHASSIS_POWER_CUT:
-                    msg = $"⚠ 机器人{param} 底盘断电！";
+                    msg = $"[!] 机器人{param} 底盘断电！";
                     color = UIColors.Red;
                     break;
 

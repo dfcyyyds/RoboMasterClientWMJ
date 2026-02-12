@@ -1,6 +1,7 @@
 using UnityEngine;
 using UnityEngine.UI;
 using TMPro;
+using Google.Protobuf;
 using UI.Core;
 using UI.RobotSelection;
 using UI.ViewModels;
@@ -36,6 +37,11 @@ namespace UI.HUD
 
         // ─── 弹药购买弹窗 ───
         private HexPopupHUD hexPopup;
+
+        // ─── 吊射模式(仅英雄) ───
+        private LobShotService lobShotService;
+        private LobShotHUD lobShotHUD;
+        private bool wasDeployMode;
 
         // ─── 数据源 ───
         private RobotDynamicStatusViewModel dynamicVM;
@@ -165,6 +171,16 @@ namespace UI.HUD
             hexGO.transform.SetParent(transform, false);
             hexPopup = hexGO.AddComponent<HexPopupHUD>();
             hexPopup.Initialize();
+
+            // 吊射HUD（仅英雄，注册时划分）
+            if (RobotSelectionBootstrap.CurrentSelection != null
+                && RobotSelectionBootstrap.CurrentSelection.Robot == RobotType.Hero)
+            {
+                var lobGO = new GameObject("LobShotHUD");
+                lobGO.transform.SetParent(transform, false);
+                lobShotHUD = lobGO.AddComponent<LobShotHUD>();
+                lobShotHUD.Initialize();
+            }
         }
 
         /// <summary>
@@ -189,6 +205,17 @@ namespace UI.HUD
             ammoPurchaseGO.transform.SetParent(transform, false);
             ammoPurchase = ammoPurchaseGO.AddComponent<AmmoPurchaseInputService>();
             ammoPurchase.Initialize(robotType, hexPopup);
+
+            // 吊射服务（仅英雄，注册时划分）
+            if (robotType == RobotType.Hero)
+            {
+                var lobSvcGO = new GameObject("LobShotService");
+                lobSvcGO.transform.SetParent(transform, false);
+                lobShotService = lobSvcGO.AddComponent<LobShotService>();
+                lobShotService.Initialize(robotType, crosshairRing);
+                if (lobShotHUD != null)
+                    lobShotService.SetHUD(lobShotHUD);
+            }
 
             wmj.Log.I("[BattleHUD] 仿真服务已创建", wmj.Log.Tag.UI);
         }
@@ -270,6 +297,47 @@ namespace UI.HUD
 
             lastHealth = curHealth;
             wasOutOfCombat = outOfCombat;
+
+            // ─── 吊射模式切换(英雄专属) ───
+            if (lobShotService != null)
+            {
+                bool isDeployed = lobShotService.IsActive;
+                if (isDeployed != wasDeployMode)
+                {
+                    wasDeployMode = isDeployed;
+                    // 准星环：提升渲染层级 + 隐藏敌人面板（保留热量/弹药环）
+                    if (crosshairRing != null)
+                        crosshairRing.SetDeployMode(isDeployed);
+                    // 屏蔽吊射无关的HUD元素（保留血条供战场感知）
+                    if (buffStatus != null) buffStatus.gameObject.SetActive(!isDeployed);
+                    if (notifications != null) notifications.gameObject.SetActive(!isDeployed);
+                    if (matchInfo != null) matchInfo.gameObject.SetActive(!isDeployed);
+                    if (aimZoom != null) aimZoom.gameObject.SetActive(!isDeployed);
+                    if (damageVignette != null) damageVignette.gameObject.SetActive(!isDeployed);
+
+                    wmj.Log.I($"[BattleHUD] 吊射模式切换: {isDeployed}", wmj.Log.Tag.UI);
+                }
+
+                // 射击反馈 → 准星环后坐力
+                if (isDeployed && lobShotService.RecoilProgress > 0.95f)
+                {
+                    if (crosshairRing != null)
+                        crosshairRing.TriggerRecoil();
+                }
+            }
+
+#if UNITY_EDITOR
+            // ─── 编辑器自动回血(HP=0时自动恢复) ───
+            if (curHealth == 0 && maxHealth > 0)
+            {
+                // 通过CommonCommand发送回血指令(复用买活满血机制：cmd_type=102, param=1)
+                var healCmd = new CommonCommand { CmdType = 102, Param = 1 };
+                byte[] healPayload = healCmd.ToByteArray();
+                if (NetworkManager.Instance != null)
+                    NetworkManager.Instance.SendMqttMessage("CommonCommand", healPayload);
+                wmj.Log.I("[BattleHUD] 编辑器自动买活(HP=0)", wmj.Log.Tag.UI);
+            }
+#endif
         }
 
         // ─── 公开接口 ───
@@ -285,10 +353,13 @@ namespace UI.HUD
             if (ammoPurchase != null) Destroy(ammoPurchase.gameObject);
             if (deathOverlay != null) { deathOverlay.Shutdown(); Destroy(deathOverlay.gameObject); }
             if (hexPopup != null) { hexPopup.Shutdown(); Destroy(hexPopup.gameObject); }
+            if (lobShotService != null) Destroy(lobShotService.gameObject);
+            if (lobShotHUD != null) { lobShotHUD.Shutdown(); Destroy(lobShotHUD.gameObject); }
             hudCanvas = null; healthBar = null; damageVignette = null;
             crosshairRing = null; notifications = null; aimZoom = null;
             buffStatus = null; matchInfo = null; deathOverlay = null;
             simInput = null; autoResupply = null; ammoPurchase = null; hexPopup = null;
+            lobShotService = null; lobShotHUD = null; wasDeployMode = false;
         }
 
         /// <summary>
@@ -304,10 +375,13 @@ namespace UI.HUD
             if (ammoPurchase != null) Destroy(ammoPurchase.gameObject);
             if (deathOverlay != null) { deathOverlay.Shutdown(); Destroy(deathOverlay.gameObject); }
             if (hexPopup != null) { hexPopup.Shutdown(); Destroy(hexPopup.gameObject); }
+            if (lobShotService != null) Destroy(lobShotService.gameObject);
+            if (lobShotHUD != null) { lobShotHUD.Shutdown(); Destroy(lobShotHUD.gameObject); }
             hudCanvas = null; healthBar = null; damageVignette = null;
             crosshairRing = null; notifications = null; aimZoom = null;
             buffStatus = null; matchInfo = null; deathOverlay = null;
             simInput = null; autoResupply = null; ammoPurchase = null; hexPopup = null;
+            lobShotService = null; lobShotHUD = null; wasDeployMode = false;
             // 不调用 Load()：内存中的 _data 已是最新（Save 已写入磁盘），
             // 重新 Load 会替换 _data 引用导致设置面板滑块 lambda 指向孤儿对象
             BuildHUD();

@@ -56,6 +56,7 @@ namespace UI.Core
         public float crosshairDotSize = 8f;
         public float crosshairLineLength = 40f;
         public float crosshairHeatRingGap = 8f;        // 热量环与弹药环间距
+        public float deployModeRingOpacity = 0.7f;     // 吊射模式准星环透明度
 
         // 血条（放大默认值）
         public float healthBarWidth = 800f;

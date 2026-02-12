@@ -92,6 +92,15 @@ void tick_simulator(float dt) {
         case 102:  // 买活指令
           g_sim.handleBuybackCommand();
           break;
+        case 103:  // 吊射模式进入
+          g_sim.handleDeployCommand(true);
+          break;
+        case 104:  // 吊射模式退出
+          g_sim.handleDeployCommand(false);
+          break;
+        case 105:  // 吊射模式射击
+          g_sim.handleLobShotFire();
+          break;
         default:
           std::cout << "[Protocol] 未知 CommonCommand cmd_type=" << cmd.cmd_type
                     << std::endl;
@@ -522,7 +531,8 @@ void handle_incoming_command(const std::string& topic,
       uint32_t p = cmd.param();
       std::cout << "[Protocol] CommonCommand: cmd_type=" << ct
                 << ", param=" << p << std::endl;
-      // 仿真扩展指令：100=射击, 101=弹药购买
+      // 仿真扩展指令：100=射击, 101=弹药购买, 102=买活, 103=吊射进入,
+      // 104=吊射退出, 105=吊射射击
       if (ct >= 100) {
         std::lock_guard<std::mutex> lock(g_cmd_mutex);
         g_pending_cmds.push({ct, p});
@@ -530,10 +540,11 @@ void handle_incoming_command(const std::string& topic,
     }
   }
   // KeyboardMouseControl 中的 left_button_down 也映射为射击指令
+  // 吊射模式下不映射为普通射击，避免双重热量叠加导致超限惩罚
   else if (topic == "KeyboardMouseControl") {
     KeyboardMouseControl kmc;
     if (kmc.ParseFromArray(payload.data(), payload.size())) {
-      if (kmc.left_button_down()) {
+      if (kmc.left_button_down() && !g_sim.isLobShotActive()) {
         std::lock_guard<std::mutex> lock(g_cmd_mutex);
         g_pending_cmds.push({100, 0});  // 等同于 FireCommand
       }

@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstring>
 
 namespace {
 // 简单工具
@@ -133,6 +134,24 @@ void GameSimulator::tick(float dt) {
   tickDart(dt);
   tickChassisEnergy(dt);
   tickBuffEffects();
+
+  // 英雄吊射模式tick
+  {
+    RobotState& r = ally_.robots[self_robot_idx_];
+    if (r.lobshot_active && r.is_alive) {
+      if (r.lobshot_fire_cooldown > 0) r.lobshot_fire_cooldown -= dt;
+      // 弹丸飞行推进
+      if (r.lobshot_ball_time >= 0) {
+        r.lobshot_ball_time += dt;
+        if (r.lobshot_ball_time >= LOBSHOT_FLIGHT_TIME) {
+          // 弹丸命中靶标 — 测试模式暂不扣血, 方便反复调试
+          // dealBaseDamage(enemy_, DMG_42MM);
+          r.lobshot_ball_time = -1;
+          std::cout << "[LobShot] 弹丸命中！(测试模式, 不扣血)" << std::endl;
+        }
+      }
+    }
+  }
 }
 
 void GameSimulator::initRobot(RobotState& r, RobotType type, uint32_t id,
@@ -1623,7 +1642,9 @@ std::vector<uint8_t> GameSimulator::buildRobotPerformanceSelectionSync() {
 
 std::vector<uint8_t> GameSimulator::buildDeployModeStatusSync() {
   DeployModeStatusSync msg;
-  msg.set_status(0u);
+  const RobotState& r = ally_.robots[self_robot_idx_];
+  // status: 0=正常, 1=吊射模式激活
+  msg.set_status(r.lobshot_active ? 1u : 0u);
   return serialize(msg);
 }
 
@@ -1707,12 +1728,12 @@ std::vector<uint8_t> GameSimulator::buildMessageForTopic(
   if (topic == "SentryCtrlResult") return buildSentryCtrlResult();
   if (topic == "AirSupportStatusSync") return buildAirSupportStatusSync();
   if (topic == "CustomByteBlock") {
-    CustomByteBlock msg;
-    std::string data;
-    data.resize(16);
-    for (auto& ch : data) ch = static_cast<char>(randInt(0, 255));
-    msg.set_data(data);
-    return serialize(msg);
+    // 吊射模式下由50Hz调度器tick生成帧
+    if (isLobShotActive()) {
+      return tickLobShotSlot();
+    }
+    // 非吊射模式下不发送 CustomByteBlock
+    return {};
   }
 
   return {};
@@ -1857,4 +1878,542 @@ void GameSimulator::handleBuybackCommand() {
 
   std::cout << "[Buyback] 机器人" << r.robot_id << " 金币买活成功，花费" << cost
             << "金" << std::endl;
+}
+
+// ═══════════════════════════════════════════════════════════════
+// 英雄吊射模式
+// ═══════════════════════════════════════════════════════════════
+
+void GameSimulator::handleDeployCommand(bool enter) {
+  if (stage_ != GameStage::InProgress) return;
+  RobotState& r = ally_.robots[self_robot_idx_];
+  if (r.type != RobotType::Hero) return;
+  if (!r.is_alive) return;
+
+  if (enter && !r.lobshot_active) {
+    r.lobshot_active = true;
+    r.is_deployed = true;
+    r.lobshot_ball_time = -1;
+    r.lobshot_fire_cooldown = 0;
+    r.lobshot_frame_id = 0;
+    r.lobshot_slot_counter = 0;
+    r.lobshot_video_frame_counter = 0;
+    r.lobshot_prev_valid = false;
+    r.lobshot_part2_pending = false;
+    std::memset(r.lobshot_prev_frame, 0, LOBSHOT_FRAME_BYTES);
+    r.lobshot_trail.clear();  // 清空轨迹
+    std::cout << "[LobShot] 英雄进入吊射模式" << std::endl;
+    pushEvent(EventId::HERO_DEPLOY_MODE, "1");
+  } else if (!enter && r.lobshot_active) {
+    r.lobshot_active = false;
+    r.is_deployed = false;
+    r.lobshot_ball_time = -1;
+    std::cout << "[LobShot] 英雄退出吊射模式" << std::endl;
+    pushEvent(EventId::HERO_DEPLOY_MODE, "0");
+  }
+}
+
+void GameSimulator::handleLobShotFire() {
+  if (stage_ != GameStage::InProgress) return;
+  RobotState& r = ally_.robots[self_robot_idx_];
+  if (!r.lobshot_active || !r.is_alive) return;
+  if (r.lobshot_fire_cooldown > 0) return;
+  if (r.remaining_ammo <= 0) return;
+
+  // 消耗一发42mm
+  r.remaining_ammo -= 1;
+  r.current_heat += HEAT_PER_42MM;
+  r.lobshot_fire_cooldown = LOBSHOT_42MM_INTERVAL;
+  r.lobshot_ball_time = 0;
+  // 新发射时清空上次轨迹
+  r.lobshot_trail.clear();
+  // 弹丸起点由renderLobShotBinaryFrame的3D投影在t=0时自动计算
+  r.lobshot_ball_x = 0;
+  r.lobshot_ball_y = 0;
+  std::cout << "[LobShot] 发射42mm弹丸" << std::endl;
+}
+
+bool GameSimulator::isLobShotActive() const {
+  const RobotState& r = ally_.robots[self_robot_idx_];
+  return r.lobshot_active;
+}
+
+// ═══════════════════════════════════════════════════════════════
+// 50Hz 吊射调度器 — 严格按 §6 / §11 规范实现
+// ═══════════════════════════════════════════════════════════════
+
+// ─── 帧内辅助结构 ───
+
+struct DiffBlock {
+  uint8_t bx, by;
+  uint8_t xor_data[8];
+};
+
+// ─── 帧缓冲渲染: 生成192×144二值位图 ───
+//
+// 透视弹道模型:
+//   相机安装在发射机构右下方, 向上仰视。弹丸从画面左下区域出发,
+//   经抛物线弧线飞向远处靶标(画面中上偏左)。
+//   弹丸离镜头越远, 在画面中越小(近大远小透视效果)。
+//
+//   3D世界坐标系: X=右, Y=上, Z=远离相机(深度)
+//   发射口: (0, 0, 1)   — 紧挨相机, 在画面偏左下
+//   靶标:   (Tx, Ty, Tz) — 远处高处, 在画面中上偏左(因为X正方向使靶标偏右,
+//                          但相机在发射口右边, 所以靶标在画面中偏左)
+//   相机:   右下方偏移 → 等效于场景向左上偏移
+//
+//   投影: screen_x = cx + fx * (X - cam_off_x) / Z
+//          screen_y = cy - fy * (Y - cam_off_y) / Z
+//          apparent_radius = base_radius * ref_Z / Z
+
+// 3D透视投影参数
+static constexpr float CAM_FX = 80.0f;  // 水平焦距(像素)
+static constexpr float CAM_FY = 80.0f;  // 垂直焦距(像素)
+static constexpr float CAM_CX =
+    110.0f;  // 主点X — 偏右(相机在发射口右边, 场景偏左)
+static constexpr float CAM_CY =
+    100.0f;  // 主点Y — 偏下(相机在发射口下方, 场景偏上)
+static constexpr float CAM_OFF_X = 0.3f;   // 相机相对发射口的X偏移(右偏)
+static constexpr float CAM_OFF_Y = -0.2f;  // 相机相对发射口的Y偏移(下偏)
+
+// 弹道3D参数
+static constexpr float LAUNCH_X = 0.0f;       // 发射口世界X
+static constexpr float LAUNCH_Y = 0.0f;       // 发射口世界Y
+static constexpr float LAUNCH_Z = 1.5f;       // 发射口深度(近)
+static constexpr float TARGET_3D_X = -1.0f;   // 靶标世界X(偏左, 因相机偏右看)
+static constexpr float TARGET_3D_Y = 3.5f;    // 靶标世界Y(高处)
+static constexpr float TARGET_3D_Z = 12.0f;   // 靶标深度(远)
+static constexpr float ARC_PEAK_Y = 5.0f;     // 抛物线最高点Y
+static constexpr float BALL_BASE_R = 0.25f;   // 弹丸3D半径
+static constexpr float TRAIL_BASE_R = 0.12f;  // 轨迹点3D半径
+
+// 3D→2D投影辅助
+struct Proj2D {
+  float sx, sy;  // 屏幕坐标
+  float sr;      // 屏幕上的投影半径
+  bool valid;    // 是否在画面内
+};
+
+static Proj2D projectPoint(float wx, float wy, float wz, float radius_3d) {
+  Proj2D p;
+  if (wz < 0.5f) {
+    p.valid = false;
+    return p;
+  }  // 在相机后面
+  float dx = wx - CAM_OFF_X;
+  float dy = wy - CAM_OFF_Y;
+  p.sx = CAM_CX + CAM_FX * dx / wz;
+  p.sy = CAM_CY - CAM_FY * dy / wz;
+  p.sr = CAM_FY * radius_3d / wz;
+  if (p.sr < 0.5f) p.sr = 0.5f;
+  p.valid = (p.sx >= -10 && p.sx < (int)LOBSHOT_VISION_W + 10 && p.sy >= -10 &&
+             p.sy < (int)LOBSHOT_VISION_H + 10);
+  return p;
+}
+
+// 计算弹道上t时刻的3D位置 (t ∈ [0,1])
+static void ballPosition3D(float t, float& wx, float& wy, float& wz) {
+  // 线性插值 X, Z
+  wx = LAUNCH_X + (TARGET_3D_X - LAUNCH_X) * t;
+  wz = LAUNCH_Z + (TARGET_3D_Z - LAUNCH_Z) * t;
+  // 抛物线 Y: 经过 launch_y(t=0), peak(t≈0.4), target_y(t=1)
+  // y(t) = a*t^2 + b*t + c
+  // c = LAUNCH_Y, y(1) = TARGET_3D_Y, peak at t_peak
+  // 使用抛物线: y = LAUNCH_Y + (TARGET_3D_Y - LAUNCH_Y)*t + 4*h*t*(1-t)
+  //   其中 h = ARC_PEAK_Y - lerp(LAUNCH_Y, TARGET_3D_Y, 0.5)
+  float h = ARC_PEAK_Y - (LAUNCH_Y + TARGET_3D_Y) * 0.5f;
+  wy = LAUNCH_Y + (TARGET_3D_Y - LAUNCH_Y) * t + 4.0f * h * t * (1.0f - t);
+}
+
+static void renderLobShotBinaryFrame(uint8_t* frame_buf, RobotState& r,
+                                     uint8_t& out_ball_cx, uint8_t& out_ball_cy,
+                                     uint8_t& out_ball_r,
+                                     bool& out_ball_detected,
+                                     std::mt19937& rng) {
+  std::memset(frame_buf, 0, LOBSHOT_FRAME_BYTES);
+
+  auto setPixel = [&](int x, int y) {
+    if (x < 0 || x >= (int)LOBSHOT_VISION_W || y < 0 ||
+        y >= (int)LOBSHOT_VISION_H)
+      return;
+    int idx = y * (LOBSHOT_VISION_W / 8) + x / 8;
+    frame_buf[idx] |= (0x80 >> (x % 8));
+  };
+
+  auto drawCircle = [&](float cx, float cy, float radius) {
+    int ir = (int)(radius + 0.5f);
+    if (ir < 1) ir = 1;
+    int icx = (int)(cx + 0.5f), icy = (int)(cy + 0.5f);
+    for (int dy = -ir; dy <= ir; ++dy)
+      for (int dx = -ir; dx <= ir; ++dx)
+        if (dx * dx + dy * dy <= ir * ir) setPixel(icx + dx, icy + dy);
+  };
+
+  // 1. 绘制靶标 — 投影到画面(使用靶标的3D位置)
+  {
+    Proj2D tp = projectPoint(TARGET_3D_X, TARGET_3D_Y, TARGET_3D_Z, 0.15f);
+    if (tp.valid) {
+      drawCircle(tp.sx, tp.sy, tp.sr);
+    }
+  }
+
+  // 2. 绘制累积轨迹 — 每个历史点已记录为屏幕坐标+半径
+  for (const auto& pt : r.lobshot_trail) {
+    // lobshot_trail 存储的是屏幕坐标, 半径用简化的固定小值
+    int tpR = std::max((int)pt.r, 1);
+    int px = pt.x, py = pt.y;
+    for (int dy = -tpR; dy <= tpR; ++dy)
+      for (int dx = -tpR; dx <= tpR; ++dx)
+        if (dx * dx + dy * dy <= tpR * tpR) setPixel(px + dx, py + dy);
+  }
+
+  // 3. 绘制当前弹丸(如果正在飞行)并累积轨迹点
+  out_ball_detected = false;
+  out_ball_cx = 0;
+  out_ball_cy = 0;
+  out_ball_r = 0;
+  if (r.lobshot_ball_time >= 0) {
+    float t = r.lobshot_ball_time / LOBSHOT_FLIGHT_TIME;
+    t = std::min(t, 1.0f);
+
+    // 3D抛物线弹道
+    float wx, wy, wz;
+    ballPosition3D(t, wx, wy, wz);
+
+    // 透视投影
+    Proj2D bp = projectPoint(wx, wy, wz, BALL_BASE_R);
+    Proj2D tp_trail = projectPoint(wx, wy, wz, TRAIL_BASE_R);
+
+    if (bp.valid) {
+      r.lobshot_ball_x = bp.sx;
+      r.lobshot_ball_y = bp.sy;
+      out_ball_cx = (uint8_t)std::min(std::max((int)bp.sx, 0), 191);
+      out_ball_cy = (uint8_t)std::min(std::max((int)bp.sy, 0), 143);
+      out_ball_r = (uint8_t)std::min(std::max((int)(bp.sr + 0.5f), 1), 15);
+      out_ball_detected = true;
+
+      // 记录轨迹(带投影半径)
+      if ((int)r.lobshot_trail.size() < RobotState::LOBSHOT_MAX_TRAIL) {
+        uint8_t trail_r =
+            (uint8_t)std::min(std::max((int)(tp_trail.sr + 0.5f), 1), 5);
+        r.lobshot_trail.push_back({out_ball_cx, out_ball_cy, trail_r});
+      }
+
+      // 绘制弹丸(近大远小)
+      drawCircle(bp.sx, bp.sy, bp.sr);
+    }
+  }
+
+  // 注: 不添加随机噪声, 随机像素翻转与XOR差分D帧编码不兼容
+  (void)rng;
+}
+
+// ─── 块提取 (§11.3) ───
+
+static void extract_block(const uint8_t* frame, int bx, int by,
+                          uint8_t block_out[8]) {
+  for (int row = 0; row < 8; row++) {
+    int y = by * 8 + row;
+    int byte_offset = y * (LOBSHOT_VISION_W / 8) + bx;
+    block_out[row] = frame[byte_offset];
+  }
+}
+
+// ─── XOR差分提取 (§11.4) ───
+
+static int xor_diff_extract(const uint8_t* prev, const uint8_t* curr,
+                            DiffBlock* out_blocks, int max_blocks) {
+  uint8_t diff_frame[LOBSHOT_FRAME_BYTES];
+  for (int i = 0; i < (int)LOBSHOT_FRAME_BYTES; i++)
+    diff_frame[i] = prev[i] ^ curr[i];
+
+  int count = 0;
+  for (int by = 0; by < (int)LOBSHOT_BLOCKS_Y && count < max_blocks; by++) {
+    for (int bx = 0; bx < (int)LOBSHOT_BLOCKS_X && count < max_blocks; bx++) {
+      uint8_t block[8];
+      extract_block(diff_frame, bx, by, block);
+      bool all_zero = true;
+      for (int i = 0; i < 8; i++) {
+        if (block[i] != 0) {
+          all_zero = false;
+          break;
+        }
+      }
+      if (!all_zero) {
+        out_blocks[count].bx = (uint8_t)bx;
+        out_blocks[count].by = (uint8_t)by;
+        std::memcpy(out_blocks[count].xor_data, block, 8);
+        count++;
+      }
+    }
+  }
+  return count;
+}
+
+// ─── RLE编码 (§11.2) ───
+
+static int rle_encode_frame(const uint8_t* buf, int bit_count, uint8_t* out,
+                            int out_cap) {
+  if (bit_count == 0) return 0;
+  int pos = 0;
+  bool cur_color = (buf[0] >> 7) & 1;
+  if (pos >= out_cap) return -1;
+  out[pos++] = cur_color ? 0x01 : 0x00;
+
+  int run = 0;
+  for (int i = 0; i < bit_count; i++) {
+    int byte_idx = i / 8;
+    int bit_idx = 7 - (i % 8);
+    bool pixel = (buf[byte_idx] >> bit_idx) & 1;
+    if (pixel == cur_color) {
+      run++;
+      if (run == 255) {
+        if (pos >= out_cap) return -1;
+        out[pos++] = 255;
+        if (pos >= out_cap) return -1;
+        out[pos++] = 0;
+        run = 0;
+      }
+    } else {
+      if (pos >= out_cap) return -1;
+      out[pos++] = (uint8_t)run;
+      cur_color = pixel;
+      run = 1;
+    }
+  }
+  if (run > 0) {
+    if (pos >= out_cap) return -1;
+    out[pos++] = (uint8_t)run;
+  }
+  return pos;
+}
+
+// ─── D帧载荷组装 (§11.8: 差异块 + 弹丸坐标 + 轨迹点) ───
+
+static int build_d_payload(const DiffBlock* blocks, int block_count,
+                           bool ball_detected, uint8_t ball_cx, uint8_t ball_cy,
+                           uint8_t ball_r,
+                           const std::vector<RobotState::TrailPt>& trail,
+                           uint8_t* payload) {
+  int pos = 0;
+  // 差异块段
+  payload[pos++] = (uint8_t)block_count;
+  for (int i = 0; i < block_count; i++) {
+    payload[pos++] = blocks[i].bx;
+    payload[pos++] = blocks[i].by;
+    std::memcpy(payload + pos, blocks[i].xor_data, 8);
+    pos += 8;
+  }
+  // 内嵌弹丸坐标
+  payload[pos++] = ball_detected ? 1 : 0;
+  payload[pos++] = ball_cx;
+  payload[pos++] = ball_cy;
+  payload[pos++] = ball_r;
+  int remaining = (int)MAX_LOBSHOT_PAYLOAD - pos - 1;
+  int max_trail = remaining / 2;
+  int trail_count = std::min((int)trail.size(), max_trail);
+  int start = (int)trail.size() - trail_count;
+  if (start < 0) start = 0;
+  payload[pos++] = (uint8_t)trail_count;
+  for (int i = 0; i < trail_count; i++) {
+    payload[pos++] = trail[start + i].x;
+    payload[pos++] = trail[start + i].y;
+  }
+  return pos;
+}
+
+// ─── 独立轨迹帧载荷 (§11.8 / §4.5.6) ───
+
+static int build_trail_payload(const std::vector<RobotState::TrailPt>& trail,
+                               int oldest_age, uint8_t* payload) {
+  int count = std::min((int)trail.size(), 120);
+  int start = (int)trail.size() - count;
+  if (start < 0) start = 0;
+  payload[0] = (uint8_t)count;
+  payload[1] = (uint8_t)std::min(oldest_age, 255);
+  int pos = 2;
+  for (int i = 0; i < count; i++) {
+    payload[pos++] = trail[start + i].x;
+    payload[pos++] = trail[start + i].y;
+  }
+  return pos;
+}
+
+// ─── 数据包组装 (§11.7) ───
+
+static std::vector<uint8_t> build_packet(uint8_t frame_type, uint16_t frame_id,
+                                         uint8_t frag_idx,
+                                         const uint8_t* payload,
+                                         uint16_t payload_len) {
+  std::vector<uint8_t> pkt;
+  pkt.reserve(9 + payload_len);
+
+  // 包头 (7 Byte)
+  pkt.push_back(SYNC_BYTE);                  // 0: SYNC
+  pkt.push_back(frame_type);                 // 1: FRAME_TYPE
+  pkt.push_back(frame_id & 0xFF);            // 2: FRAME_ID 低字节
+  pkt.push_back((frame_id >> 8) & 0xFF);     // 3: FRAME_ID 高字节
+  pkt.push_back(frag_idx);                   // 4: FRAG_IDX
+  pkt.push_back(payload_len & 0xFF);         // 5: PAYLOAD_LEN 低字节
+  pkt.push_back((payload_len >> 8) & 0xFF);  // 6: PAYLOAD_LEN 高字节
+
+  // 载荷
+  if (payload_len > 0) pkt.insert(pkt.end(), payload, payload + payload_len);
+
+  // XOR 校验 (包头 + 载荷)
+  uint8_t xor_val = 0;
+  for (size_t i = 0; i < pkt.size(); i++) xor_val ^= pkt[i];
+  pkt.push_back(xor_val);
+
+  // 包尾
+  pkt.push_back(END_BYTE);
+
+  return pkt;
+}
+
+// ─── I帧编码 (全帧RLE, I_FRAME_SINGLE 0x03) ───
+
+static int encode_i_single(const uint8_t* frame, uint8_t* payload) {
+  // 统计背景色
+  int white_count = 0;
+  for (int i = 0; i < (int)LOBSHOT_FRAME_BYTES; i++)
+    white_count += __builtin_popcount(frame[i]);
+  uint8_t bg = (white_count > (int)(LOBSHOT_VISION_W * LOBSHOT_VISION_H / 2))
+                   ? 0xFF
+                   : 0x00;
+
+  payload[0] = LOBSHOT_VISION_W / 4;  // width_div4 = 48
+  payload[1] = LOBSHOT_VISION_H / 4;  // height_div4 = 36
+  payload[2] = bg;
+
+  // RLE编码
+  uint8_t rle_buf[2048];
+  int rle_len = rle_encode_frame(frame, LOBSHOT_VISION_W * LOBSHOT_VISION_H,
+                                 rle_buf, sizeof(rle_buf));
+  if (rle_len < 0) rle_len = 0;
+
+  // rle_len(2B LE) + rle_data
+  payload[3] = (uint8_t)(rle_len & 0xFF);
+  payload[4] = (uint8_t)((rle_len >> 8) & 0xFF);
+  if (rle_len > 0) std::memcpy(payload + 5, rle_buf, rle_len);
+  return 5 + rle_len;
+}
+
+// ═══════════════════════════════════════════════════════════════
+// tickLobShotSlot — 50Hz调度器主入口
+// ═══════════════════════════════════════════════════════════════
+
+std::vector<uint8_t> GameSimulator::tickLobShotSlot() {
+  RobotState& r = ally_.robots[self_robot_idx_];
+  if (!r.lobshot_active) return {};
+
+  bool is_video_slot = (r.lobshot_slot_counter % 2 == 0);
+
+  uint8_t payload[MAX_LOBSHOT_PAYLOAD];
+  int payload_len = 0;
+  uint8_t ftype = FT_HEARTBEAT;
+
+  if (is_video_slot) {
+    // ═══ 偶数slot: 视频帧 (25Hz) ═══
+    // 渲染当前二值帧
+    uint8_t curr_frame[LOBSHOT_FRAME_BYTES];
+    uint8_t ball_cx = 0, ball_cy = 0, ball_r = 0;
+    bool ball_detected = false;
+    renderLobShotBinaryFrame(curr_frame, r, ball_cx, ball_cy, ball_r,
+                             ball_detected, rng_);
+
+    bool send_iframe = (r.lobshot_video_frame_counter % I_FRAME_INTERVAL == 0);
+    bool send_trail =
+        (!send_iframe) && (r.lobshot_video_frame_counter % TRAIL_INTERVAL == 0);
+
+    if (send_iframe) {
+      // ─── I帧 (§6.3: 每25个视频帧) ───
+      // 仿真场景简单, 始终使用 I_FRAME_SINGLE
+      payload_len = encode_i_single(curr_frame, payload);
+
+      // I帧后附加弹丸+轨迹元数据(兼容客户端现有解析)
+      payload[payload_len++] = ball_detected ? 1 : 0;
+      payload[payload_len++] = ball_cx;
+      payload[payload_len++] = ball_cy;
+      payload[payload_len++] = ball_r;
+      int trail_count = std::min((int)r.lobshot_trail.size(), 120);
+      int trail_start = (int)r.lobshot_trail.size() - trail_count;
+      if (trail_start < 0) trail_start = 0;
+      payload[payload_len++] = (uint8_t)trail_count;
+      for (int i = 0; i < trail_count; i++) {
+        payload[payload_len++] = r.lobshot_trail[trail_start + i].x;
+        payload[payload_len++] = r.lobshot_trail[trail_start + i].y;
+      }
+
+      ftype = FT_I_SINGLE;
+
+      // I帧后更新prev_frame
+      std::memcpy(r.lobshot_prev_frame, curr_frame, LOBSHOT_FRAME_BYTES);
+      r.lobshot_prev_valid = true;
+
+    } else if (send_trail) {
+      // ─── 独立轨迹帧 (§6.3: 每8个视频帧) ───
+      ftype = FT_TRAIL;
+      payload_len = build_trail_payload(r.lobshot_trail,
+                                        r.lobshot_video_frame_counter, payload);
+      // 注: 轨迹帧不发送视频数据, 不能更新prev_frame!
+      // prev_frame必须保持在上一个D/I帧的状态, 否则下一个D帧的XOR基准
+      // 与客户端frameBuf不一致, 导致画面漂移
+
+    } else {
+      // ─── D帧 (§6.3: 其余视频帧) ───
+      if (!r.lobshot_prev_valid) {
+        // 没有有效前帧 → 发空D帧
+        ftype = FT_D_EMPTY;
+        payload_len = 0;
+      } else {
+        DiffBlock blocks[LOBSHOT_TOTAL_BLOCKS];
+        int n_blocks = xor_diff_extract(r.lobshot_prev_frame, curr_frame,
+                                        blocks, LOBSHOT_TOTAL_BLOCKS);
+
+        if (n_blocks == 0 && !ball_detected) {
+          ftype = FT_D_EMPTY;
+          payload_len = 0;
+        } else {
+          // 限制最大块数避免超出载荷
+          int max_blocks_fit = ((int)MAX_LOBSHOT_PAYLOAD - 10) / 10;
+          if (n_blocks > max_blocks_fit) n_blocks = max_blocks_fit;
+          ftype = FT_D_FRAME;
+          payload_len =
+              build_d_payload(blocks, n_blocks, ball_detected, ball_cx, ball_cy,
+                              ball_r, r.lobshot_trail, payload);
+        }
+
+        // 更新prev_frame
+        std::memcpy(r.lobshot_prev_frame, curr_frame, LOBSHOT_FRAME_BYTES);
+      }
+    }
+
+    r.lobshot_video_frame_counter++;
+
+  } else {
+    // ═══ 奇数slot: 冗余/心跳 (25Hz) ═══
+    // 仿真简化: I帧始终单包, 无Part2待发, 直接发心跳
+    ftype = FT_HEARTBEAT;
+    payload_len = 0;
+  }
+
+  // 打包并发送
+  auto pkt = build_packet(ftype, r.lobshot_frame_id, 0, payload,
+                          (uint16_t)payload_len);
+  r.lobshot_frame_id++;
+  r.lobshot_slot_counter++;
+
+  // 诊断日志(每50 slot = 1秒打印一次)
+  if (r.lobshot_slot_counter % 50 == 0) {
+    std::cout << "[LobShot] slot=" << r.lobshot_slot_counter
+              << " vframe=" << r.lobshot_video_frame_counter
+              << " fid=" << r.lobshot_frame_id
+              << " trail=" << r.lobshot_trail.size() << std::endl;
+  }
+
+  // 封装为 CustomByteBlock protobuf
+  CustomByteBlock msg;
+  msg.set_data(std::string(pkt.begin(), pkt.end()));
+  return serialize(msg);
 }

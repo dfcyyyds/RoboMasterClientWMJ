@@ -85,12 +85,15 @@ int main(int argc, char* argv[]) {
         << "  --interval <ms>    （保留参数，当前仅收消息）\n"
         << "  --codec <hevc|h264>  视频编解码器，默认 hevc\n"
         << "  --gop <frames>       关键帧间隔（IDR周期），默认 15\n"
+        << "  --robot <index>    "
+           "己方机器人索引(0=Hero,1=工程,2=步兵3,3=步兵4,4=哨兵)，默认0\n"
         << "  --fast             快速模式，6秒内进入比赛（默认）\n"
         << "  --real-timing      真实比赛计时（准备180s+自检15s+倒计时5s）\n"
         << "  -h, --help         显示本帮助\n";
     return 0;
   }
   bool fast_mode = true;  // 默认快速模式
+  int robot_index = 0;    // 默认英雄(索引0)，支持 --robot 覆盖
   for (int i = 1; i < argc; ++i) {
     if (std::string(argv[i]) == "--host" && i + 1 < argc)
       host = argv[++i];
@@ -110,6 +113,8 @@ int main(int argc, char* argv[]) {
       video_codec = argv[++i];
     else if (std::string(argv[i]) == "--gop" && i + 1 < argc)
       video_gop = std::stoi(argv[++i]);
+    else if (std::string(argv[i]) == "--robot" && i + 1 < argc)
+      robot_index = std::stoi(argv[++i]);
     else if (std::string(argv[i]) == "--fast")
       fast_mode = true;
     else if (std::string(argv[i]) == "--real-timing")
@@ -195,34 +200,53 @@ int main(int argc, char* argv[]) {
     // 启动视频流发送（默认本机127.0.0.1:3334，可通过参数覆盖）
     StartVideoSender(udp_ip, udp_port, video_path, video_codec, video_gop);
 
-    // 初始化比赛仿真器（默认以己方步兵3作为视角，快速模式6秒内进入比赛）
-    init_simulator(2, fast_mode);
+    // 初始化比赛仿真器（默认以己方英雄作为视角，快速模式6秒内进入比赛）
+    init_simulator(robot_index, fast_mode);
     std::cout << "[MockServerCpp] 仿真模式: "
               << (fast_mode ? "快速(6s进入比赛)" : "真实计时(200s进入比赛)")
-              << std::endl;
+              << ", 己方机器人索引: " << robot_index << std::endl;
     log("[MockServerCpp] 仿真模式: " +
-        std::string(fast_mode ? "快速" : "真实计时"));
+        std::string(fast_mode ? "快速" : "真实计时") +
+        ", robot_index=" + std::to_string(robot_index));
 
-    // 新增：定时主动推送“服务器->自定义客户端”类型的仿真协议数据到topic
+    // 主循环: 20ms (50Hz) — CustomByteBlock严格按规范50Hz推送, 其他topic保持1Hz
     while (true) {
       client_log_monitor.CheckAndTruncate();
-      tick_simulator(interval_ms / 1000.0f);
-      for (const auto& type : server_to_client_types) {
-        auto msg_pair = build_simulated_message(type);
+      // 20ms tick (50Hz) — 严格按比赛规则 CustomByteBlock 频率上限 50Hz
+      constexpr int TICK_MS = 20;
+      tick_simulator(TICK_MS / 1000.0f);
+
+      // CustomByteBlock: 每tick都发(50Hz), 仅在吊射模式激活时有数据
+      {
+        auto msg_pair = build_simulated_message("CustomByteBlock");
         const std::string& msg_type = msg_pair.first;
         const std::vector<uint8_t>& payload = msg_pair.second;
-        if (payload.empty()) continue;
-        auto pubmsg = mqtt::make_message(
-            msg_type, std::string(payload.begin(), payload.end()));
-        pubmsg->set_qos(1);
-        client.publish(pubmsg);
-        std::string logstr =
-            "[MockServerCpp] 主动推送: " + msg_type +
-            ", payload size: " + std::to_string(payload.size());
-        std::cout << logstr << std::endl;
-        log(logstr);
+        if (!payload.empty()) {
+          auto pubmsg = mqtt::make_message(
+              msg_type, std::string(payload.begin(), payload.end()));
+          pubmsg->set_qos(1);
+          client.publish(pubmsg);
+        }
       }
-      std::this_thread::sleep_for(std::chrono::milliseconds(interval_ms));
+
+      // 其他topic: 每50个tick发一轮(1Hz)
+      static int slow_counter = 0;
+      if (++slow_counter >= 50) {
+        slow_counter = 0;
+        for (const auto& type : server_to_client_types) {
+          if (type == "CustomByteBlock") continue;
+          auto msg_pair = build_simulated_message(type);
+          const std::string& msg_type = msg_pair.first;
+          const std::vector<uint8_t>& payload = msg_pair.second;
+          if (payload.empty()) continue;
+          auto pubmsg = mqtt::make_message(
+              msg_type, std::string(payload.begin(), payload.end()));
+          pubmsg->set_qos(1);
+          client.publish(pubmsg);
+        }
+      }
+
+      std::this_thread::sleep_for(std::chrono::milliseconds(TICK_MS));
     }
   } catch (const mqtt::exception& exc) {
     std::cerr << exc.what() << std::endl;
