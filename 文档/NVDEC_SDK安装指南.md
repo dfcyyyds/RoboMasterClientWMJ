@@ -16,15 +16,14 @@
    - 位置：`Assets/Plugins/NativeVideoPlugin/include/`
 
 2. **头文件清单**
-   ```
-   include/
-   ├── dynlink_cuda.h
-   ├── dynlink_cuviddec.h
-   ├── dynlink_loader.h
-   ├── dynlink_nvcuvid.h
-   ├── nvcuvid.h (兼容层)
-   └── nvEncodeAPI.h
-   ```
+   | 路径                         | 说明                       |
+   | ---------------------------- | -------------------------- |
+   | `include/dynlink_cuda.h`     | CUDA 动态加载声明          |
+   | `include/dynlink_cuviddec.h` | CUVID 解码相关动态加载声明 |
+   | `include/dynlink_loader.h`   | 动态加载器辅助             |
+   | `include/dynlink_nvcuvid.h`  | NVDEC/NVCUVID 动态加载声明 |
+   | `include/nvcuvid.h`          | 兼容层头文件               |
+   | `include/nvEncodeAPI.h`      | NVENC 编码 API 头文件      |
 
 3. **动态加载实现**
    - 使用 dlopen/dlsym 运行时加载 libnvcuvid.so

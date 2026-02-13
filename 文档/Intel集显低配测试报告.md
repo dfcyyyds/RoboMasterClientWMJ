@@ -1,5 +1,7 @@
 # Intel 集显低配环境综合测试报告
 
+*注：该文件由AI辅助生成*
+
 ## 测试概要
 
 | 项目         | 信息                                                 |
@@ -409,5 +411,3 @@ timestamp,cpu_usage_pct,cpu_temp_c,mem_used_mb,mem_total_mb,mem_pct,ffmpeg_count
 ---
 
 **报告生成时间**: 2026-02-09 17:05  
-**报告版本**: v2.0 (综合性能测试版)
-**测试工程师**: Copilot Agent

@@ -25,13 +25,22 @@ public class MqttClientService
     private bool isSending = false;
 
     // 连接到指定服务器
-    public void Connect(string brokerIp, int brokerPort)
+    public void Connect(string brokerIp, int brokerPort, string clientId = null)
     {
         // 保存连接参数
         this.brokerIp = brokerIp;
         this.brokerPort = brokerPort;
-        // 生成唯一客户端ID
-        clientId = Guid.NewGuid().ToString();
+        // 使用传入的选手端 ID 作为 clientId；未提供时回退到随机 GUID（仅用于 MockServer 调试）
+        if (!string.IsNullOrEmpty(clientId))
+        {
+            this.clientId = clientId;
+            wmj.Log.I($"[MqttClientService] 使用选手端 clientId: {clientId}", wmj.Log.Tag.Network);
+        }
+        else
+        {
+            this.clientId = Guid.NewGuid().ToString();
+            wmj.Log.W($"[MqttClientService] 未提供选手端 ID，使用随机 GUID（仅限调试）: {this.clientId}", wmj.Log.Tag.Network);
+        }
         TryConnect();
         NetworkManager.Instance.StartCoroutine(ReconnectRoutine());
         wmj.Log.I($"[MqttClientService] 当前重连间隔: {reconnectInterval}s (由参数系统ConfigLoader.config.mqttReconnectInterval控制)", wmj.Log.Tag.Network);

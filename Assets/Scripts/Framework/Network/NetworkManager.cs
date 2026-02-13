@@ -4,6 +4,7 @@ using System.Collections.Generic;
 using uPLibrary.Networking.M2Mqtt;
 using uPLibrary.Networking.M2Mqtt.Messages;
 using UI.HUD;
+using UI.RobotSelection;
 
 /// 网络管理器，负责管理MQTT和UDP服务及消息分发
 public class NetworkManager : MonoBehaviour
@@ -202,8 +203,21 @@ public class NetworkManager : MonoBehaviour
         {
             wmj.Log.I("[NetworkManager] 启动网络服务...", wmj.Log.Tag.Network);
 
+            // 根据用户选择的兵种和阵营，计算选手端 ID 作为 MQTT clientId
+            // 官方协议要求：clientID 需填入所连接机器人对应的选手端 ID 编号
+            string playerTerminalId = null;
+            if (RobotSelectionBootstrap.IsSelectionCompleted && RobotSelectionBootstrap.CurrentSelection != null)
+            {
+                playerTerminalId = RobotSelectionBootstrap.CurrentSelection.PlayerTerminalId;
+                wmj.Log.I($"[NetworkManager] 选手端 ID: {playerTerminalId} ({RobotSelectionBootstrap.CurrentSelection})", wmj.Log.Tag.Network);
+            }
+            else
+            {
+                wmj.Log.W("[NetworkManager] 兵种选择未完成，将使用随机 GUID 连接（仅限调试）", wmj.Log.Tag.Network);
+            }
+
             // 连接MQTT服务器，启动UDP接收
-            mqttService.Connect(ConfigLoader.config.ip, ConfigLoader.config.dataPort);
+            mqttService.Connect(ConfigLoader.config.ip, ConfigLoader.config.dataPort, playerTerminalId);
             udpService.StartReceive(ConfigLoader.config.ip, ConfigLoader.config.videoPort);
         }
         catch (Exception ex)
@@ -272,7 +286,14 @@ public class NetworkManager : MonoBehaviour
         ConfigLoader.LoadConfig();
         mqttService.Disconnect();
         udpService.StopReceive();
-        mqttService.Connect(ConfigLoader.config.ip, ConfigLoader.config.dataPort);
+
+        // 重连时同样使用选手端 ID
+        string playerTerminalId = null;
+        if (RobotSelectionBootstrap.IsSelectionCompleted && RobotSelectionBootstrap.CurrentSelection != null)
+        {
+            playerTerminalId = RobotSelectionBootstrap.CurrentSelection.PlayerTerminalId;
+        }
+        mqttService.Connect(ConfigLoader.config.ip, ConfigLoader.config.dataPort, playerTerminalId);
         udpService.StartReceive(ConfigLoader.config.ip, ConfigLoader.config.videoPort);
     }
 

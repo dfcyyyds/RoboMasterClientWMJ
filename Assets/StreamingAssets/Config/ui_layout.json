@@ -49,7 +49,7 @@
     "hudSettings": {
         "notificationDuration": 2.0,
         "maxNotifications": 5,
-        "aimZoomEnabled": false,
+        "aimZoomEnabled": true,
         "aimZoomFactor": 1.8229516744613648,
         "aimZoomSpeed": 11.917722702026368,
         "aimZoomCloseDelay": 0.7472683787345886,

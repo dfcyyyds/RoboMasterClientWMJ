@@ -5,15 +5,17 @@
 
 ---
 
+*注：该文件由AI辅助生成*
+
 ## 0. 目录
 
 1. [系统概览](#1-系统概览)
-2. [硬件自适应系统](#2-硬件自适应系统) ⭐ 新增
-3. [解码后端架构](#3-解码后端架构) ⭐ 新增
+2. [硬件自适应系统](#2-硬件自适应系统)  新增
+3. [解码后端架构](#3-解码后端架构)  新增
 4. [图传尺寸控制链路](#4-图传尺寸控制链路)
 5. [三缓冲 PBO 工作流程](#5-三缓冲-pbo-工作流程-opengl-路径)
 6. [数据结构定义](#6-数据结构定义-nvdecstubh)
-7. [配置分级系统](#7-配置分级系统) ⭐ 新增
+7. [配置分级系统](#7-配置分级系统)  新增
 8. [性能指标](#8-性能指标)
 9. [关键文件清单](#9-关键文件清单)
 10. [启动流程](#10-启动流程)
@@ -24,245 +26,81 @@
 
 ## 1. 系统概览
 
-```
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                          Unity (OpenGL/Vulkan 渲染后端)                      │
-│  ┌───────────────────────────────────────────────────────────────────────┐  │
-│  │  VideoStreamService.cs                                                │  │
-│  │    - 自动检测渲染模式: NativeVideoBridge.IsVulkanEnabled()               │  │
-│  │    - Vulkan: GetVulkanImage() → Texture2D.CreateExternalTexture       │  │
-│  │    - OpenGL: GetLatestTextureId() → Texture2D.CreateExternalTexture   │  │
-│  │    - 动态尺寸检测: TryGetStats() 自动适配视频分辨率                        │  │
-│  │    - 支持分辨率热切换 (无需重启)                                          │  │
-│  └───────────────────────────────────────────────────────────────────────┘  │
-└─────────────────────────────────────────────────────────────────────────────┘
-                                     ▲
-                                     │ 纹理句柄 (VkImage / GLuint)
-                                     │
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                   NativeVideoPlugin (libNativeVideoPlugin.so)               │
-│                                                                             │
-│  ┌─────────────────────────────────────────────────────────────────────┐    │
-│  │  NativeVideoPlugin.cpp                                              │    │
-│  │    - UnityPluginLoad/Unload: 获取 Unity 图形接口                     │    │
-│  │    - InitVulkanInterop: 获取 VkDevice/VkQueue (Vulkan 模式)         │    │
-│  │    - nvp_get_stats(): 返回解码统计 (decoded/displayed/dropped)      │    │
-│  └─────────────────────────────────────────────────────────────────────┘    │
-│                                     │                                       │
-│  ┌─────────────────────────────────────────────────────────────────────┐    │
-│  │  NvdecStub.cpp (NVDEC 硬件解码器)                                    │    │
-│  │                                                                     │    │
-│  │  HandleVideoSequence: 解析 SPS/PPS，自动检测视频尺寸                  │    │
-│  │                       └─ 从 H.265 流中提取 coded_width/height        │    │
-│  │                                                                     │    │
-│  │  HandlePictureDecode:  NVDEC 硬件解码 H.265 NAL                      │    │
-│  │                                                                     │    │
-│  │  HandlePictureDisplay: NV12 → RGB 转换 + 写入缓冲区                  │    │
-│  │    ├─ Vulkan 路径: LaunchNV12ToSurface → cudaSurfaceObject (零拷贝) │    │
-│  │    └─ OpenGL 路径: LaunchNV12ToRGB → 三缓冲 PBO (异步优化)           │    │
-│  │                                                                     │    │
-│  │  三缓冲 PBO 优化 (NUM_PBO_BUFFERS=3):                                │    │
-│  │    ├─ pbo_write_idx:  CUDA 当前写入的 PBO                           │    │
-│  │    ├─ pbo_upload_idx: 等待 GL 上传的 PBO                            │    │
-│  │    └─ pbo_display_idx: 当前显示的 PBO                               │    │
-│  │                                                                     │    │
-│  │  异步同步优化:                                                       │    │
-│  │    ├─ cudaEvent: 非阻塞检查 CUDA 写入完成                            │    │
-│  │    └─ glFenceSync: 非阻塞检查 GL 纹理上传完成                        │    │
-│  │                                                                     │    │
-│  │  帧丢弃策略: 缓冲区满时丢弃旧帧，保持低延迟                           │    │
-│  └─────────────────────────────────────────────────────────────────────┘    │
-│                                     │                                       │
-│  ┌─────────────────────────────────────────────────────────────────────┐    │
-│  │  VulkanInterop.cpp (CUDA-Vulkan 互操作) [可选]                       │    │
-│  │    - vulkan_create_external_texture: 创建带外部内存的 VkImage        │    │
-│  │    - vulkan_import_to_cuda: FD → CUDA External Memory               │    │
-│  │    - cuSurfObjectCreate: CUDA Surface 用于 NV12→RGBA 直接写入       │    │
-│  └─────────────────────────────────────────────────────────────────────┘    │
-│                                     │                                       │
-│  ┌─────────────────────────────────────────────────────────────────────┐    │
-│  │  NV12ToRGB.cu (CUDA Kernel)                                         │    │
-│  │    - LaunchNV12ToRGB: NV12 → RGB24 写入 PBO (OpenGL 路径)           │    │
-│  │    - LaunchNV12ToSurface: NV12 → RGBA 写入 Vulkan surface (零拷贝)  │    │
-│  └─────────────────────────────────────────────────────────────────────┘    │
-└─────────────────────────────────────────────────────────────────────────────┘
-                                     ▲
-                                     │ H.265/HEVC AnnexB 数据 (UDP 分片)
-                                     │
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                            UDP 图传数据流                                   │
-│  ┌───────────────────────────────────────────────────────────────────────┐  │
-│  │  协议格式 (每个 UDP 包):                                              │  │
-│  │    [FrameId: 2B][FragId: 2B][TotalBytes: 4B][Payload: ≤1400B]        │  │
-│  │                                                                       │  │
-│  │  UdpAnnexBTransport.cs:                                               │  │
-│  │    - 分片重组: 按 FrameId 组帧，FragId 排序                           │  │
-│  │    - 超时处理: 0.22s 超时丢弃不完整帧                                  │  │
-│  │    - 缓冲管理: 最多 24 帧缓冲                                         │  │
-│  └───────────────────────────────────────────────────────────────────────┘  │
-└─────────────────────────────────────────────────────────────────────────────┘
-                                     ▲
-                                     │ UDP 端口 40922
-                                     │
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                         MockServer (video_sender.cpp)                       │
-│  ┌───────────────────────────────────────────────────────────────────────┐  │
-│  │  视频源支持:                                                          │  │
-│  │    1. 4K 测试视频: Test_4k_120fps.mp4 (优先)                          │  │
-│  │    2. 标准测试视频: TestVedio.mp4                                     │  │
-│  │    3. AVI 录像: single_*.avi                                          │  │
-│  │    4. V4L2 摄像头: /dev/video*                                        │  │
-│  │    5. FFmpeg 测试源: lavfi:testsrc                                    │  │
-│  │                                                                       │  │
-│  │  FFmpeg 编码管线:                                                     │  │
-│  │    输入 → scale=2560:1440 → fps=30 → libx265 (HEVC)                  │  │
-│  │         → preset=ultrafast → tune=zerolatency                        │  │
-│  │         → bitrate=20Mbps → GOP=15 → AnnexB 输出                      │  │
-│  │                                                                       │  │
-│  │  关键编码参数:                                                        │  │
-│  │    - repeat-headers=1: 每个 IDR 重复 VPS/SPS/PPS                     │  │
-│  │    - aud=1: 每帧前添加 AUD (NAL type 35)                             │  │
-│  │    - bframes=0: 禁用 B 帧，降低延迟                                   │  │
-│  │    - scenecut=0: 禁用场景切换检测，稳定 GOP                           │  │
-│  └───────────────────────────────────────────────────────────────────────┘  │
-└─────────────────────────────────────────────────────────────────────────────┘
+```mermaid
+flowchart TB
+       Awake["VideoStreamService.Awake()"] --> Detect3["HardwareCapabilityDetector.Detect()"]
+       Detect3 --> Cfg["读取 decodeBackend 配置"]
+       Cfg -->|"NativeNvdec 且非 NVIDIA"| Fallback["降级为 FfmpegPipeDecoder"]
+       Cfg -->|"FfmpegPipe"| UsePipe["使用 FfmpegPipeDecoder"]
+       Cfg -->|"NativeNvdec 且 NVIDIA"| UseNvdec["使用 NativeNvdec"]
+       UseNvdec --> ApplyFps["设置 maxApplyFps\n(纹理上传频率上限)"]
+       UsePipe --> ApplyFps
+       Fallback --> ApplyFps
 ```
 
----
+| 后端                     | 适用范围                                                                      | 优点                                                          | 代价/限制                   |
+| ------------------------ | ----------------------------------------------------------------------------- | ------------------------------------------------------------- | --------------------------- |
+| NativeNvdec (原生插件)   | 仅 NVIDIA                                                                     | 延迟最低；NVDEC 硬解；CUDA→OpenGL/Vulkan；三缓冲 PBO 异步优化 | 平台/硬件限制更强           |
+| FfmpegPipeDecoder (管道) | 跨平台                                                                        | 支持 CUDA/VAAPI/DXVA/VideoToolbox；硬件不可用时自动回退软解   | 额外进程/管线开销；延迟略高 |
+| 等级                     | 典型判定条件                                                                  |
+| ---                      | ---                                                                           |
+| High                     | NVIDIA/AMD 独显且 VRAM ≥ 4GB                                                  |
+| Mid                      | NVIDIA/AMD 独显但 VRAM < 4GB；或 Intel Iris/Xe + CPU ≥ 8 核；或 Apple Silicon |
+| Low                      | Intel 集显 + CPU ≤ 4 核；或系统内存 < 8GB                                     |
 
-## 2. 硬件自适应系统
+### 推荐加速模式 (RecommendedAccel)
 
-```
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                       HardwareCapabilityDetector.cs                         │
-│                         硬件能力探测与自适应选择                              │
-├─────────────────────────────────────────────────────────────────────────────┤
-│                                                                             │
-│  ┌─────────────────────────────────────────────────────────────────────┐    │
-│  │  探测阶段 (启动时执行一次，结果缓存)                                  │    │
-│  │                                                                     │    │
-│  │  1. GPU 信息采集                                                    │    │
-│  │     ├── SystemInfo.graphicsDeviceName → GPU 名称                   │    │
-│  │     ├── SystemInfo.graphicsDeviceVendor → 厂商识别                 │    │
-│  │     └── SystemInfo.graphicsMemorySize → 显存大小                   │    │
-│  │                                                                     │    │
-│  │  2. CPU/内存信息                                                    │    │
-│  │     ├── SystemInfo.processorCount → CPU 核心数                     │    │
-│  │     └── SystemInfo.systemMemorySize → 系统内存                     │    │
-│  │                                                                     │    │
-│  │  3. 平台特定检测                                                    │    │
-│  │     └── Linux: 检查 /dev/dri/renderD128 (VAAPI 可用性)             │    │
-│  └─────────────────────────────────────────────────────────────────────┘    │
-│                                     │                                       │
-│                                     ▼                                       │
-│  ┌─────────────────────────────────────────────────────────────────────┐    │
-│  │  GPU 厂商识别 (GpuVendor)                                           │    │
-│  │                                                                     │    │
-│  │  ┌──────────┬───────────────────────────────────────────────────┐  │    │
-│  │  │ Nvidia   │ "nvidia", "geforce", "quadro", "rtx", "gtx"       │  │    │
-│  │  ├──────────┼───────────────────────────────────────────────────┤  │    │
-│  │  │ Intel    │ "intel", "iris", "uhd graphics", "hd graphics"    │  │    │
-│  │  ├──────────┼───────────────────────────────────────────────────┤  │    │
-│  │  │ Amd      │ "amd", "radeon", "vega"                           │  │    │
-│  │  ├──────────┼───────────────────────────────────────────────────┤  │    │
-│  │  │ Apple    │ "apple", "m1", "m2", "m3"                         │  │    │
-│  │  └──────────┴───────────────────────────────────────────────────┘  │    │
-│  └─────────────────────────────────────────────────────────────────────┘    │
-│                                     │                                       │
-│                                     ▼                                       │
-│  ┌─────────────────────────────────────────────────────────────────────┐    │
-│  │  能力等级判定 (CapabilityLevel)                                      │    │
-│  │                                                                     │    │
-│  │  High (高配):                                                       │    │
-│  │    ├── NVIDIA 独显 + VRAM ≥ 4GB                                    │    │
-│  │    └── AMD 独显 + VRAM ≥ 4GB                                       │    │
-│  │                                                                     │    │
-│  │  Mid (中配):                                                        │    │
-│  │    ├── NVIDIA 低端独显 (< 4GB VRAM)                                │    │
-│  │    ├── AMD 独显 (< 4GB VRAM)                                       │    │
-│  │    ├── Intel Iris/Xe 集显 + CPU ≥ 8核                              │    │
-│  │    └── Apple Silicon (M1/M2/M3)                                    │    │
-│  │                                                                     │    │
-│  │  Low (低配):                                                        │    │
-│  │    ├── Intel 集显 + CPU ≤ 4核 (典型: i3 + UHD)                     │    │
-│  │    └── 系统内存 < 8GB                                              │    │
-│  └─────────────────────────────────────────────────────────────────────┘    │
-│                                     │                                       │
-│                                     ▼                                       │
-│  ┌─────────────────────────────────────────────────────────────────────┐    │
-│  │  推荐加速模式 (RecommendedAccel)                                     │    │
-│  │                                                                     │    │
-│  │  ┌──────────────┬──────────────────┬────────────────────────────┐  │    │
-│  │  │ 平台         │ GPU              │ 推荐加速                    │  │    │
-│  │  ├──────────────┼──────────────────┼────────────────────────────┤  │    │
-│  │  │ Linux        │ NVIDIA 独显      │ NvdecCuda                  │  │    │
-│  │  │ Linux        │ Intel/AMD        │ Vaapi                      │  │    │
-│  │  │ Windows      │ NVIDIA 独显      │ NvdecCuda                  │  │    │
-│  │  │ Windows      │ Intel/AMD        │ Dxva (D3D11VA)             │  │    │
-│  │  │ macOS        │ Any              │ VideoToolbox               │  │    │
-│  │  │ 其他/不支持  │ -                │ Software (软解)            │  │    │
-│  │  └──────────────┴──────────────────┴────────────────────────────┘  │    │
-│  └─────────────────────────────────────────────────────────────────────┘    │
-│                                     │                                       │
-│                                     ▼                                       │
-│  ┌─────────────────────────────────────────────────────────────────────┐    │
-│  │  推荐配置输出                                                        │    │
-│  │                                                                     │    │
-│  │  ┌──────────┬────────────┬────────────┬──────────┬───────────────┐ │    │
-│  │  │ 等级     │ 分辨率     │ 目标帧率   │ 队列大小 │ 每帧消费数    │ │    │
-│  │  ├──────────┼────────────┼────────────┼──────────┼───────────────┤ │    │
-│  │  │ Low      │ 1280×720   │ 30 fps     │ 4        │ 1             │ │    │
-│  │  │ Mid      │ 1920×1080  │ 60 fps     │ 6        │ 2             │ │    │
-│  │  │ High     │ 1920×1080  │ 120 fps    │ 8        │ 3             │ │    │
-│  │  └──────────┴────────────┴────────────┴──────────┴───────────────┘ │    │
-│  └─────────────────────────────────────────────────────────────────────┘    │
-└─────────────────────────────────────────────────────────────────────────────┘
-```
+| 平台        | GPU         | 推荐加速        |
+| ----------- | ----------- | --------------- |
+| Linux       | NVIDIA 独显 | NvdecCuda       |
+| Linux       | Intel/AMD   | Vaapi           |
+| Windows     | NVIDIA 独显 | NvdecCuda       |
+| Windows     | Intel/AMD   | Dxva (D3D11VA)  |
+| macOS       | Any         | VideoToolbox    |
+| 其他/不支持 | -           | Software (软解) |
+
+### 推荐配置输出
+
+| 等级 | 分辨率    | 目标帧率 | 队列大小 | 每帧消费数 |
+| ---- | --------- | -------: | -------: | ---------: |
+| Low  | 1280×720  |   30 fps |        4 |          1 |
+| Mid  | 1920×1080 |   60 fps |        6 |          2 |
+| High | 1920×1080 |  120 fps |        8 |          3 |
 
 ---
 
 ## 3. 解码后端架构
 
+Awake() 阶段逻辑：
+
+1. 调用 `HardwareCapabilityDetector.Detect()` 获取硬件信息
+2. 检查配置的 `decodeBackend`
+        - 若设置为 `NativeNvdec` 但硬件非 NVIDIA → 自动降级为 `FfmpegPipe`
+        - 若设置为 `FfmpegPipe` → 直接使用 ffmpeg 管道
+3. 根据 `ConfigLoader` 配置设置 `maxApplyFps`（纹理上传频率上限）
+
+```mermaid
+flowchart TB
+       A[VideoStreamService.Awake] --> B[HardwareCapabilityDetector.Detect]
+       B --> C{decodeBackend 配置}
+
+       C -->|NativeNvdec| D{是否 NVIDIA}
+       D -->|是| E[NativeNvdec 原生插件]
+       D -->|否| F[降级: FfmpegPipeDecoder]
+
+       C -->|FfmpegPipe| F
+       C -->|Auto/Default| G{选择最优加速}
+       G -->|NVIDIA| F
+       G -->|Intel/AMD| F
+       G -->|不支持| F
+
+       A --> H[ConfigLoader: maxApplyFps]
 ```
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                          VideoStreamService.cs                              │
-│                            解码后端自动选择                                  │
-├─────────────────────────────────────────────────────────────────────────────┤
-│                                                                             │
-│  Awake() 阶段:                                                              │
-│    1. 调用 HardwareCapabilityDetector.Detect() 获取硬件信息                 │
-│    2. 检查配置的 decodeBackend:                                             │
-│       ├── 若设置为 NativeNvdec 但硬件非 NVIDIA → 自动降级为 FfmpegPipe      │
-│       └── 若设置为 FfmpegPipe → 直接使用 ffmpeg 管道                        │
-│    3. 根据 ConfigLoader 配置设置 maxApplyFps (纹理上传频率上限)             │
-│                                                                             │
-│  ┌─────────────────────────────────────────────────────────────────────┐    │
-│  │                      解码后端对比                                   │    │
-│  │                                                                     │    │
-│  │  ┌─────────────┬─────────────────────────────────────────────────┐ │    │
-│  │  │             │ NativeNvdec (原生插件)                           │ │    │
-│  │  │  路径 A     ├─────────────────────────────────────────────────┤ │    │
-│  │  │             │ • NVIDIA NVDEC 硬件解码                         │ │    │
-│  │  │  仅 NVIDIA  │ • CUDA → OpenGL/Vulkan 零拷贝                   │ │    │
-│  │  │             │ • 三缓冲 PBO 异步优化                           │ │    │
-│  │  │             │ • 延迟最低，性能最优                            │ │    │
-│  │  └─────────────┴─────────────────────────────────────────────────┘ │    │
-│  │                                                                     │    │
-│  │  ┌─────────────┬─────────────────────────────────────────────────┐ │    │
-│  │  │             │ FfmpegPipeDecoder (管道解码)                    │ │    │
-│  │  │  路径 B     ├─────────────────────────────────────────────────┤ │    │
-│  │  │             │ • 支持多平台硬件加速:                           │ │    │
-│  │  │  跨平台     │   - CUDA (NVIDIA)                               │ │    │
-│  │  │             │   - VAAPI (Intel/AMD Linux)                     │ │    │
-│  │  │             │   - D3D11VA/DXVA (Windows)                      │ │    │
-│  │  │             │   - VideoToolbox (macOS)                        │ │    │
-│  │  │             │   - Software (纯软解回退)                       │ │    │
-│  │  │             │ • 启动时自动检测最优加速模式                    │ │    │
-│  │  │             │ • 硬件不可用时自动回退软解                      │ │    │
-│  │  └─────────────┴─────────────────────────────────────────────────┘ │    │
-│  └─────────────────────────────────────────────────────────────────────┘    │
-└─────────────────────────────────────────────────────────────────────────────┘
-```
+
+| 后端                          | 适用范围  | 关键特点                                                                                     |
+| ----------------------------- | --------- | -------------------------------------------------------------------------------------------- |
+| NativeNvdec（原生插件）       | 仅 NVIDIA | NVDEC 硬解；CUDA → OpenGL/Vulkan 路径；可用三缓冲 PBO 优化；最低延迟                         |
+| FfmpegPipeDecoder（管道解码） | 跨平台    | 支持 CUDA/VAAPI/D3D11VA(VideoToolbox)/软解回退；启动时自动探测最优加速；硬件不可用时自动回退 |
 
 ### FFmpeg 硬件加速命令行示例
 
@@ -290,75 +128,55 @@ ffmpeg -hwaccel videotoolbox -f hevc -i - \
 
 ## 4. 图传尺寸控制链路
 
-```
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                           尺寸自动适配流程                                   │
-├─────────────────────────────────────────────────────────────────────────────┤
-│                                                                             │
-│  1. MockServer (video_sender.cpp)                                           │
-│     └── FFmpeg scale=2560:1440 → 输出 2K H.265 流                          │
-│                       ↓                                                     │
-│  2. H.265 流 (UDP 传输)                                                     │
-│     └── VPS/SPS/PPS NAL 单元包含分辨率信息                                  │
-│                       ↓                                                     │
-│  3. NVDEC (HandleVideoSequence 回调)                                        │
-│     └── ctx->width = pFormat->coded_width   (2560)                         │
-│     └── ctx->height = pFormat->coded_height (1440)                         │
-│                       ↓                                                     │
-│  4. PBO 管理 (setup_gl_objects)                                             │
-│     └── 预分配 4K 尺寸: MAX_WIDTH=3840, MAX_HEIGHT=2160                    │
-│     └── 实际显示尺寸: gl_width/gl_height = ctx->width/height               │
-│     └── 三缓冲 PBO: 每个 ~25MB，总计 ~75MB GPU 内存                         │
-│                       ↓                                                     │
-│  5. NativeVideoPlugin (nvp_get_stats)                                       │
-│     └── 返回 { width, height, decoded, displayed, dropped }                │
-│                       ↓                                                     │
-│  6. Unity (VideoStreamService.Update)                                       │
-│     └── 检测 stats.width != nativeTexWidth?                                 │
-│         → 是: 销毁旧纹理，创建新尺寸的 Texture2D                            │
-│         → 否: 继续使用当前纹理                                              │
-│                       ↓                                                     │
-│  7. RawImage (MainScene.unity)                                              │
-│     └── RectTransform Anchor (0,0)-(1,1) 全屏自适应拉伸                     │
-│                                                                             │
-└─────────────────────────────────────────────────────────────────────────────┘
+```mermaid
+flowchart TB
+       S1["MockServer\nFFmpeg scale=2560:1440\n输出 2K H.265"] --> S2["UDP 传输\nVPS/SPS/PPS 含分辨率"]
+       S2 --> S3["NVDEC\nHandleVideoSequence\n解析 coded_width/height"]
+       S3 --> S4["PBO 管理\n预分配 4K(MAX 3840×2160)\n按实际尺寸 gl_width/gl_height"]
+       S4 --> S5["nvp_get_stats\n返回 width/height/decoded/displayed/dropped"]
+       S5 --> S6["Unity Update\n检测尺寸变化\n必要时重建 Texture2D"]
+       S6 --> S7["RawImage\n全屏自适应拉伸"]
 ```
 
 ---
 
 ## 5. 三缓冲 PBO 工作流程 (OpenGL 路径)
 
+```mermaid
+sequenceDiagram
+       participant NVDEC as NVDEC 回调
+       participant CUDA as CUDA Stream
+       participant GL as GL 线程
+       participant R as 渲染
+
+       NVDEC->>CUDA: 解码帧 N
+       CUDA->>CUDA: 写 PBO0
+       CUDA-->>GL: cudaEvent(PBO0 ready)
+
+       NVDEC->>CUDA: 解码帧 N+1
+       CUDA->>CUDA: 写 PBO1
+       CUDA-->>GL: cudaEvent(PBO1 ready)
+
+       GL->>GL: 检查 PBO0 event ready?
+       GL->>GL: PBO0 → 纹理上传
+       GL-->>R: glFence(upload done)
+       R->>R: 显示纹理
 ```
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                        三缓冲 PBO 异步流水线                                 │
-├─────────────────────────────────────────────────────────────────────────────┤
-│                                                                             │
-│  时间轴 →                                                                   │
-│  ════════════════════════════════════════════════════════════════════════   │
-│                                                                             │
-│  帧 N:   [NVDEC解码] → [CUDA写PBO₀] → [cudaEvent记录]                      │
-│                              ↓                                              │
-│  帧 N+1: [NVDEC解码] → [CUDA写PBO₁] → [cudaEvent记录]                      │
-│                              ↓          ↓                                   │
-│  帧 N+2: [NVDEC解码] → [CUDA写PBO₂]    [检查PBO₀ Event]                    │
-│                              ↓               ↓                              │
-│  GL 线程:                               [PBO₀→纹理] → [glFence]            │
-│                                                            ↓                │
-│  渲染:                                                [显示纹理]            │
-│                                                                             │
-├─────────────────────────────────────────────────────────────────────────────┤
-│  缓冲区状态:                                                                │
-│    pbo_write_idx   = 当前 CUDA 写入位置 (循环: 0→1→2→0)                    │
-│    pbo_upload_idx  = 当前 GL 上传位置                                       │
-│    pbo_cuda_pending[i] = PBO[i] 是否有未完成的 CUDA 写入                   │
-│    pbo_ready_for_upload[i] = PBO[i] 是否已准备好上传                       │
-│                                                                             │
-├─────────────────────────────────────────────────────────────────────────────┤
-│  帧丢弃策略 (缓冲区满时):                                                   │
-│    if (pbo_ready_for_upload[write_idx] && cudaEvent not ready):            │
-│        frames_dropped++; return; // 丢弃当前帧，保持低延迟                  │
-│                                                                             │
-└─────────────────────────────────────────────────────────────────────────────┘
+
+| 状态/字段               | 含义                               |
+| ----------------------- | ---------------------------------- |
+| pbo_write_idx           | 当前 CUDA 写入位置（循环 0→1→2→0） |
+| pbo_upload_idx          | 当前 GL 上传位置                   |
+| pbo_cuda_pending[i]     | PBO[i] 是否存在未完成的 CUDA 写入  |
+| pbo_ready_for_upload[i] | PBO[i] 是否已准备好 GL 上传        |
+
+帧丢弃策略（缓冲区满时）示例：
+
+```cpp
+if (pbo_ready_for_upload[write_idx] && !cudaEventReady) {
+       frames_dropped++;
+       return; // 丢弃当前帧，保持低延迟
+}
 ```
 
 ---
@@ -413,22 +231,29 @@ struct NvdecContext {
 
 ## 7. 配置分级系统
 
-```
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                           ConfigLoader.cs                                   │
-│                         自动配置档位选择                                     │
-├─────────────────────────────────────────────────────────────────────────────┤
-│                                                                             │
-│  启动流程:                                                                  │
-│    1. HardwareCapabilityDetector.Detect() → 获取 CapabilityLevel           │
-│    2. 根据等级选择配置文件:                                                  │
-│       ├── Low  → Config/params_lowspec.json                                │
-│       ├── Mid  → Config/params_midspec.json                                │
-│       └── High → Config/params.json                                        │
-│    3. 配置文件不存在时自动回退到 params.json                                 │
-│    4. 应用硬件推荐配置补充缺失字段                                           │
-│                                                                             │
-└─────────────────────────────────────────────────────────────────────────────┘
+启动流程：
+
+1. `HardwareCapabilityDetector.Detect()` → 得到 `CapabilityLevel`
+2. 依据等级选择配置文件
+3. 若配置文件不存在 → 回退到 `params.json`
+4. 应用硬件推荐配置，补齐缺失字段
+
+```mermaid
+flowchart TB
+       A[启动] --> B[Detect: CapabilityLevel]
+       B --> C{Level}
+       C -->|Low| L[加载 Config/params_lowspec.json]
+       C -->|Mid| M[加载 Config/params_midspec.json]
+       C -->|High| H[加载 Config/params.json]
+
+       L --> F{文件存在?}
+       M --> F
+       H --> F
+       F -->|否| R[回退加载 Config/params.json]
+       F -->|是| P[解析配置]
+       R --> P
+       P --> Q[应用硬件推荐配置补齐缺失字段]
+       Q --> Z[运行]
 ```
 
 ### 配置文件对比
