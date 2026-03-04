@@ -165,12 +165,58 @@ namespace UI.HUD
             if (eventCooldown.TryGetValue(eventId, out float cd) && cd > 0f)
                 return;
 
+            // 事件过滤：根据设置过滤队友/个体事件，仅显示全局事件
+            if (ShouldFilterEvent(eventId))
+                return;
+
             bool handled = HandleEvent(eventId, param);
 
             if (!handled)
             {
                 PushNotification($"事件[{eventId}]: {param}", UIColors.Silver);
                 OnCustomEvent?.Invoke(eventId, param);
+            }
+        }
+
+        /// <summary>
+        /// 事件过滤器：根据设置决定是否应该过滤掉该事件
+        /// 默认只显示全局事件（能量机关、BUFF/DEBUFF、比赛流程等）
+        /// 队友阵亡/复活/个体弹药/等级事件可通过设置开关控制
+        /// </summary>
+        private bool ShouldFilterEvent(int eventId)
+        {
+            var s = UI.Core.UILayoutManager.Settings;
+
+            switch (eventId)
+            {
+                // 击杀事件
+                case EventIds.KILL:
+                    return !s.showKillFeedEvents;
+
+                // 队友阵亡/离线
+                case EventIds.EXT_ROBOT_OFFLINE:
+                    return !s.showTeammateDeathEvents;
+
+                // 队友复活/重连
+                case EventIds.EXT_ROBOT_RESPAWN:
+                case EventIds.EXT_ROBOT_INSTANT_RESPAWN:
+                case EventIds.EXT_ROBOT_RECONNECT:
+                    return !s.showTeammateRespawnEvents;
+
+                // 个体弹药兑换/远程补给
+                case EventIds.EXT_AMMO_EXCHANGED:
+                case EventIds.EXT_REMOTE_HEAL:
+                case EventIds.EXT_SENTRY_SUPPLY_AMMO:
+                    return !s.showIndividualAmmoEvents;
+
+                // 个体等级提升
+                case EventIds.EXT_LEVEL_UP:
+                case EventIds.EXT_MAX_LEVEL_REACHED:
+                    return !s.showIndividualLevelEvents;
+
+                // 所有其他事件（全局事件）始终显示
+                default:
+                    return false;
             }
         }
 

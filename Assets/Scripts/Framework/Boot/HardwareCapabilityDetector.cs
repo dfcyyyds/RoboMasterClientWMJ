@@ -81,10 +81,13 @@ namespace Framework.Boot
             public int RecommendedWidth { get; set; }
             public int RecommendedHeight { get; set; }
             public int RecommendedTargetFps { get; set; }
+
+            #region 软解相关推荐参数
             // 推荐的解码队列大小（针对软解）
             public int RecommendedDecoderQueueSize { get; set; }
             // 推荐的软解的每帧解码数量
             public int RecommendedMaxDrainPerUpdate { get; set; }
+            #endregion
 
             /// <summary>
             /// 重写输出字符串格式化方法
@@ -113,7 +116,9 @@ namespace Framework.Boot
         {
             // 如果已经有配置缓存，则直接返回缓存参数（除非强制刷新）
             if (_cachedResult != null && !forceRefresh)
+            {
                 return _cachedResult;
+            }
 
             // 检查是否有覆盖配置（用于模拟低配环境）
             var overrideResult = TryLoadOverrideConfig();
@@ -127,6 +132,7 @@ namespace Framework.Boot
             var result = new DetectionResult();
 
             // 1. 获取 GPU 信息
+            // SystemInfo 类是一个Unity 提供的类，用于获取硬件信息，跨平台兼容
             result.GpuName = SystemInfo.graphicsDeviceName ?? "Unknown";
             result.GpuVendorName = SystemInfo.graphicsDeviceVendor ?? "Unknown";
             result.GpuMemoryMB = SystemInfo.graphicsMemorySize;
@@ -243,6 +249,11 @@ namespace Framework.Boot
             return vramMB > 2048;
         }
 
+        /// <summary>
+        /// 检测到的 VAAPI 设备路径（如 /dev/dri/renderD128）
+        /// </summary>
+        public static string VaapiDevicePath { get; private set; } = "/dev/dri/renderD128";
+
         private static bool CheckVaapiAvailable()
         {
             // 仅 Linux 支持 VAAPI
@@ -250,10 +261,25 @@ namespace Framework.Boot
                 Application.platform != RuntimePlatform.LinuxEditor)
                 return false;
 
-            // 检查 /dev/dri/renderD128 是否存在
+            // 动态扫描 /dev/dri/renderD* 设备，兼容多 GPU 或非标准编号
             try
             {
-                return File.Exists("/dev/dri/renderD128");
+                string driDir = "/dev/dri";
+                if (!Directory.Exists(driDir))
+                    return false;
+
+                // 优先检查 renderD128（最常见），再依次检查 renderD129-135
+                for (int i = 128; i <= 135; i++)
+                {
+                    string devPath = Path.Combine(driDir, "renderD" + i);
+                    if (File.Exists(devPath))
+                    {
+                        VaapiDevicePath = devPath;
+                        wmj.Log.I("[HardwareDetection] VAAPI 设备: " + devPath, wmj.Log.Tag.General);
+                        return true;
+                    }
+                }
+                return false;
             }
             catch
             {
@@ -378,7 +404,7 @@ namespace Framework.Boot
 
         #endregion
 
-        #region 覆盖配置支持 (用于模拟低配环境)
+        #region 覆盖配置支持 (用于模拟低配环境) ,仅测试期间使用
 
         /// <summary>
         /// 覆盖配置数据结构

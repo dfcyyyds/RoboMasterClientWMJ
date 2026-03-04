@@ -152,6 +152,21 @@ void GameSimulator::tick(float dt) {
       }
     }
   }
+
+  // ═══════════════════════════════════════════════════════════════
+  // 调试模式：我方无敌 + 无限弹药，便于随意射击测试
+  // 在所有 tick 逻辑之后强制重置，保证无论何种消耗都被补满
+  // ═══════════════════════════════════════════════════════════════
+  for (int i = 0; i < NUM_ROBOTS; ++i) {
+    RobotState& r = ally_.robots[i];
+    r.current_health = r.max_health;   // 满血
+    r.current_heat = 0.0f;             // 0 热量
+    r.is_alive = true;                 // 始终存活
+    if (r.remaining_ammo < 500)
+      r.remaining_ammo = 500;          // 弹药保底 500 发
+  }
+  ally_.base_health = BASE_MAX_HEALTH;       // 基地满血
+  ally_.outpost_health = OUTPOST_MAX_HEALTH; // 前哨站满血
 }
 
 void GameSimulator::initRobot(RobotState& r, RobotType type, uint32_t id,

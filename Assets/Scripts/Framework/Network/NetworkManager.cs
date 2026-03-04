@@ -217,8 +217,22 @@ public class NetworkManager : MonoBehaviour
             }
 
             // 连接MQTT服务器，启动UDP接收
-            mqttService.Connect(ConfigLoader.config.ip, ConfigLoader.config.dataPort, playerTerminalId);
-            udpService.StartReceive(ConfigLoader.config.ip, ConfigLoader.config.videoPort);
+            // 比赛模式自动切换到官方服务器IP和端口
+            string connectIp = ConfigLoader.config.ip;
+            int connectDataPort = ConfigLoader.config.dataPort;
+            int connectVideoPort = ConfigLoader.config.videoPort;
+
+            if (GameParamsConfig.Get.isCompetitionMode)
+            {
+                connectIp = GameParamsConfig.Get.competitionServerIp;
+                connectDataPort = GameParamsConfig.Get.competitionServerPort;
+                // 官方协议: 视频端口 = 数据端口 + 1
+                connectVideoPort = connectDataPort + 1;
+                wmj.Log.I($"[NetworkManager] 比赛模式: 连接官方服务器 {connectIp}:{connectDataPort} (视频: {connectVideoPort})", wmj.Log.Tag.Network);
+            }
+
+            mqttService.Connect(connectIp, connectDataPort, playerTerminalId);
+            udpService.StartReceive(connectIp, connectVideoPort);
         }
         catch (Exception ex)
         {
@@ -284,6 +298,7 @@ public class NetworkManager : MonoBehaviour
     public void ReloadConfigAndReconnect()
     {
         ConfigLoader.LoadConfig();
+        GameParamsConfig.Reload();
         mqttService.Disconnect();
         udpService.StopReceive();
 
@@ -293,8 +308,22 @@ public class NetworkManager : MonoBehaviour
         {
             playerTerminalId = RobotSelectionBootstrap.CurrentSelection.PlayerTerminalId;
         }
-        mqttService.Connect(ConfigLoader.config.ip, ConfigLoader.config.dataPort, playerTerminalId);
-        udpService.StartReceive(ConfigLoader.config.ip, ConfigLoader.config.videoPort);
+
+        // 比赛模式自动切换到官方服务器
+        string connectIp = ConfigLoader.config.ip;
+        int connectDataPort = ConfigLoader.config.dataPort;
+        int connectVideoPort = ConfigLoader.config.videoPort;
+
+        if (GameParamsConfig.Get.isCompetitionMode)
+        {
+            connectIp = GameParamsConfig.Get.competitionServerIp;
+            connectDataPort = GameParamsConfig.Get.competitionServerPort;
+            connectVideoPort = connectDataPort + 1;
+            wmj.Log.I($"[NetworkManager] 热更新: 比赛模式连接 {connectIp}:{connectDataPort}", wmj.Log.Tag.Network);
+        }
+
+        mqttService.Connect(connectIp, connectDataPort, playerTerminalId);
+        udpService.StartReceive(connectIp, connectVideoPort);
     }
 
     // Update is called once per frame

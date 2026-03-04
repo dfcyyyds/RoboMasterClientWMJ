@@ -57,6 +57,7 @@ namespace Framework.Network
         /// </summary>
         /// <typeparam name="T">Protobuf 消息类型</typeparam>
         /// <param name="data">新数据</param>
+        /// 用泛型模板与类型反射实现通用更新逻辑，减少重复代码
         public void UpdateData<T>(T data) where T : class
         {
             if (data == null) return;

@@ -57,12 +57,12 @@ namespace wmj
         // ====================================================================
         public enum Tag
         {
-            General,
-            Network,
-            Video,
-            Decoder,
-            Transport,
-            UI,
+            General,    // 通用日志
+            Network,    // 网络管理日志
+            Video,      // 视频流日志
+            Decoder,    // 解码器日志
+            Transport,  // 数据传输日志
+            UI,         // UI 日志
         }
 
         // ====================================================================
@@ -70,11 +70,11 @@ namespace wmj
         // ====================================================================
         public enum Level
         {
-            Debug = 0,
-            Info = 1,
-            Warn = 2,
-            Error = 3,
-            Fatal = 4,
+            Debug = 0,   // 调试级别
+            Info = 1,    // 信息级别
+            Warn = 2,    // 警告级别
+            Error = 3,   // 错误级别
+            Fatal = 4,   // 致命级别
         }
 
         // ====================================================================
@@ -90,16 +90,16 @@ namespace wmj
         // ====================================================================
         // 后台写入基础设施
         // ====================================================================
-        private static readonly ConcurrentQueue<LogEntry> _queue = new ConcurrentQueue<LogEntry>();
-        private static readonly Thread _writerThread;
-        private static volatile bool _running = true;
-        private static readonly ManualResetEventSlim _flushSignal = new ManualResetEventSlim(false);
+        private static readonly ConcurrentQueue<LogEntry> _queue = new ConcurrentQueue<LogEntry>();  // 日志队列
+        private static readonly Thread _writerThread;  // 后台写入线程
+        private static volatile bool _running = true;  // 运行状态
+        private static readonly ManualResetEventSlim _flushSignal = new ManualResetEventSlim(false);  // 刷新信号
 
-        private static string _debugLogPath;
-        private static string _runLogPath;
-        private static StreamWriter _debugWriter;
-        private static StreamWriter _runWriter;
-        private static readonly object _fileLock = new object();
+        private static string _debugLogPath;  // 调试日志路径
+        private static string _runLogPath;    // 运行日志路径
+        private static StreamWriter _debugWriter;  // 调试日志写入器
+        private static StreamWriter _runWriter;    // 运行日志写入器
+        private static readonly object _fileLock = new object();  // 文件锁
 
         // ====================================================================
         // 节流器
@@ -119,8 +119,8 @@ namespace wmj
             { Tag.Transport, true },
             { Tag.UI, true },
         };
-        private static volatile bool _allEnabled = true;
-        private static readonly object _switchLock = new object();
+        private static volatile bool _allEnabled = true;  // 所有分类开关
+        private static readonly object _switchLock = new object();  // 分类开关锁
 
         // ====================================================================
         // 结构体定义
@@ -128,7 +128,7 @@ namespace wmj
         private struct LogEntry
         {
             public string Formatted;   // 已格式化的完整行
-            public Level Lvl;
+            public Level Lvl;          // 日志级别
             public bool ForceFlush;    // Fatal 级别立即刷盘
         }
 

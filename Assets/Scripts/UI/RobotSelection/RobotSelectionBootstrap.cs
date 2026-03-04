@@ -73,24 +73,82 @@ namespace UI.RobotSelection
             RobotSelectionPanel.Show(OnPanelComplete);
         }
 
+        /// <summary>性能体系同步接收标志（线程安全）</summary>
+        private volatile bool perfSyncReceived;
+
         private void OnPanelComplete(RobotSelectionResult result)
         {
             // 检查该兵种是否需要体系选择
             if (RobotCapabilities.NeedsPerformanceSelection(result.Robot))
             {
-                var profile = RobotCapabilities.GetProfile(result.Robot);
-                PerformanceSelectionPanel.Show(profile, perfResult =>
-                {
-                    CompleteSelection(result, perfResult);
-
-                    // 通过 MQTT 发送体系选择命令
-                    SendPerformanceCommand(perfResult);
-                });
+                // 先查询服务器是否已有性能体系选择（操作手在官方设备上选择的情况）
+                StartCoroutine(CheckPerfSyncThenSelect(result));
             }
             else
             {
                 CompleteSelection(result, null);
             }
+        }
+
+        /// <summary>
+        /// 查询服务器性能体系同步状态：
+        /// - 若操作手已在官方设备上选择，直接使用服务器数据跳过选择
+        /// - 若超时未收到，显示手动选择面板
+        /// </summary>
+        private System.Collections.IEnumerator CheckPerfSyncThenSelect(RobotSelectionResult result)
+        {
+            var gp = GameParamsConfig.Get;
+            float timeout = gp.perfSyncCheckTimeout;
+            float interval = gp.perfSyncCheckInterval;
+            float elapsed = 0f;
+
+            // 订阅同步事件
+            perfSyncReceived = false;
+            Framework.Network.ProtobufManager.Instance.OnDataUpdated += OnPerfSyncArrived;
+
+            wmj.Log.I("[RobotSelection] 正在查询服务器性能体系状态...", wmj.Log.Tag.UI);
+
+            while (elapsed < timeout)
+            {
+                if (perfSyncReceived)
+                {
+                    // 收到服务器同步数据
+                    var sync = Framework.Network.ProtobufManager.Instance.RobotPerformanceSelectionSync;
+                    var perf = new PerformanceSelectionPanel.PerformanceResult
+                    {
+                        Shooter = sync.Shooter,
+                        Chassis = sync.Chassis,
+                        SentryControl = sync.SentryControl
+                    };
+                    Framework.Network.ProtobufManager.Instance.OnDataUpdated -= OnPerfSyncArrived;
+                    wmj.Log.I($"[RobotSelection] 操作手已在官方设备选择性能体系: " +
+                        $"Shooter={sync.Shooter}, Chassis={sync.Chassis}, SentryCtrl={sync.SentryControl}",
+                        wmj.Log.Tag.UI);
+                    CompleteSelection(result, perf);
+                    yield break;
+                }
+
+                yield return new WaitForSecondsRealtime(interval);
+                elapsed += interval;
+            }
+
+            Framework.Network.ProtobufManager.Instance.OnDataUpdated -= OnPerfSyncArrived;
+
+            // 超时未收到同步数据，显示手动选择面板
+            wmj.Log.I("[RobotSelection] 未检测到服务器性能体系数据，进入手动选择", wmj.Log.Tag.UI);
+            var profile = RobotCapabilities.GetProfile(result.Robot);
+            PerformanceSelectionPanel.Show(profile, perfResult =>
+            {
+                CompleteSelection(result, perfResult);
+                SendPerformanceCommand(perfResult);
+            });
+        }
+
+        /// <summary>后台线程回调：标记性能同步数据已到达</summary>
+        private void OnPerfSyncArrived(string typeName, object data)
+        {
+            if (typeName == "RobotPerformanceSelectionSync")
+                perfSyncReceived = true;
         }
 
         /// <summary>通过 MQTT 发送 RobotPerformanceSelectionCommand</summary>

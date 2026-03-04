@@ -92,6 +92,33 @@ namespace Framework.Video
             }
         }
 
+        /// <summary>检查系统是否安装了 ffmpeg</summary>
+        public static bool IsFfmpegAvailable()
+        {
+            try
+            {
+                var checkProc = new Process();
+                checkProc.StartInfo = new ProcessStartInfo
+                {
+                    FileName = "ffmpeg",
+                    Arguments = "-version",
+                    UseShellExecute = false,
+                    RedirectStandardOutput = true,
+                    RedirectStandardError = true,
+                    CreateNoWindow = true
+                };
+                checkProc.Start();
+                string output = checkProc.StandardOutput.ReadLine() ?? "";
+                checkProc.WaitForExit(3000);
+                if (!checkProc.HasExited) checkProc.Kill();
+                return output.Contains("ffmpeg");
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
         // 暴露队列长度与上限，便于诊断与调参
         public int GetQueueCount() => Volatile.Read(ref queueCount);
         public int MaxQueueSize
@@ -103,6 +130,20 @@ namespace Framework.Video
         {
             try
             {
+                // 前置检查：ffmpeg 是否可用
+                if (!IsFfmpegAvailable())
+                {
+                    string platform = Environment.OSVersion.Platform.ToString();
+                    string hint;
+                    if (platform.Contains("Unix"))
+                        hint = "Ubuntu/Debian: sudo apt install ffmpeg\nArch: sudo pacman -S ffmpeg\nFedora: sudo dnf install ffmpeg";
+                    else if (platform.Contains("Win"))
+                        hint = "请从 https://www.gyan.dev/ffmpeg/builds/ 下载 ffmpeg，解压后将 ffmpeg.exe 所在目录加入系统 PATH 环境变量";
+                    else
+                        hint = "请安装 ffmpeg 并确保其在 PATH 中可用";
+                    wmj.Log.F($"[FfmpegPipeDecoder] ❌ 未检测到 ffmpeg！视频解码需要 ffmpeg。\n安装方式:\n{hint}", wmj.Log.Tag.Decoder);
+                    return;
+                }
                 if (overrideMode.HasValue)
                     accelMode = overrideMode.Value;
                 if (fallbackToSoftware)
@@ -207,9 +248,10 @@ namespace Framework.Video
                     }
                     if (accelMode == AccelMode.Vaapi)
                     {
-                        // VAAPI 硬解：添加 extra_hw_frames 以改善缓冲减少卡顿
+                        // VAAPI 硬解：使用动态检测的设备路径，添加 extra_hw_frames 以改善缓冲减少卡顿
+                        string vaapiDev = HardwareCapabilityDetector.VaapiDevicePath;
                         vf = $"scale_vaapi={outputWidth}:{outputHeight}:format=nv12,hwdownload,format=nv12,format=rgb24";
-                        return $"-loglevel warning -nostdin -hide_banner -hwaccel vaapi -hwaccel_output_format vaapi -vaapi_device /dev/dri/renderD128 -extra_hw_frames 8 -probesize 32 -analyzeduration 0 -fflags +nobuffer -flags low_delay -threads 4 -an -sn -vsync passthrough -f {inputCodec} -i - -vf {vf} -pix_fmt rgb24 -f rawvideo pipe:1";
+                        return $"-loglevel warning -nostdin -hide_banner -hwaccel vaapi -hwaccel_output_format vaapi -vaapi_device {vaapiDev} -extra_hw_frames 8 -probesize 32 -analyzeduration 0 -fflags +nobuffer -flags low_delay -threads 4 -an -sn -vsync passthrough -f {inputCodec} -i - -vf {vf} -pix_fmt rgb24 -f rawvideo pipe:1";
                     }
                     if (accelMode == AccelMode.Dxva)
                     {
@@ -238,9 +280,10 @@ namespace Framework.Video
                     }
                     if (accelMode == AccelMode.Vaapi)
                     {
-                        // VAAPI 硬解：添加 extra_hw_frames 以改善缓冲减少卡顿
+                        // VAAPI 硬解：使用动态检测的设备路径
+                        string vaapiDev = HardwareCapabilityDetector.VaapiDevicePath;
                         vf = "scale_vaapi=1280:-2:format=nv12,hwdownload,format=nv12,format=rgb24";
-                        return $"-loglevel warning -nostdin -hide_banner -hwaccel vaapi -hwaccel_output_format vaapi -vaapi_device /dev/dri/renderD128 -extra_hw_frames 8 -probesize 32 -analyzeduration 0 -fflags +nobuffer -flags low_delay -threads 4 -an -sn -vsync passthrough -f {inputCodec} -i - -vf {vf} -f image2pipe -vcodec ppm -pix_fmt rgb24 pipe:1";
+                        return $"-loglevel warning -nostdin -hide_banner -hwaccel vaapi -hwaccel_output_format vaapi -vaapi_device {vaapiDev} -extra_hw_frames 8 -probesize 32 -analyzeduration 0 -fflags +nobuffer -flags low_delay -threads 4 -an -sn -vsync passthrough -f {inputCodec} -i - -vf {vf} -f image2pipe -vcodec ppm -pix_fmt rgb24 pipe:1";
                     }
                     if (accelMode == AccelMode.Dxva)
                     {

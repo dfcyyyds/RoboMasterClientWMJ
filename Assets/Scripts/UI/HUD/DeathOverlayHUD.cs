@@ -337,10 +337,18 @@ namespace UI.HUD
             if (buybackRequested || buybackCooldown > 0f) return;
             if (NetworkManager.Instance == null) return;
 
-            // 发送买活指令：CommonCommand(cmd_type=102, param=0)
+            // 发送买活指令
             var cmd = new CommonCommand();
-            cmd.CmdType = 102; // 买活指令
-            cmd.Param = 0;
+            if (GameParamsConfig.Get.isCompetitionMode)
+            {
+                cmd.CmdType = 4; // 官方协议：兑换立即复活
+                cmd.Param = 0;
+            }
+            else
+            {
+                cmd.CmdType = 102; // MockServer 模式：买活
+                cmd.Param = 0;
+            }
 
             byte[] payload = cmd.ToByteArray();
             NetworkManager.Instance.SendMqttMessage("CommonCommand", payload);

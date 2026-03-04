@@ -1,16 +1,29 @@
 ﻿{
+  // 自定义客户端配置文件，扩展了功能，可以识别 // 注释
+  // 服务器消息端口
   "dataPort": 3333,
-  "decoderOutputHeight": 1080,
+  // 解码器输出视频的高度
   "decoderOutputWidth": 1920,
+  // 解码队列大小
   "decoderQueueSize": 8,
+  // 初始文件队列大小
   "initialFileQueueSize": 8,
+  // 服务器IP地址
   "ip": "127.0.0.1",
+  // 日志缓冲区大小
   "logBufferSize": 4,
+  // 每次更新的最大排空数量
   "maxDrainPerUpdate": 2,
+  // 最大文件队列大小
   "maxFileQueueSize": 64,
+  // MQTT重连间隔(单位:s)
   "mqttReconnectInterval": 2,
+  // 初始化机器人ID
   "RobotID": 1,
+  // 场上的机器人数量
   "RobotNum": 10,
+  // 目标帧率
   "targetFrameRate": 120,
+  // 视频端口
   "videoPort": 3334
 }

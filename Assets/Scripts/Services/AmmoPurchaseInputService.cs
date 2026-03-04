@@ -121,10 +121,20 @@ namespace UI.HUD
                 }
             }
 
-            // 发送购买指令：CommonCommand(cmd_type=101, param=批次数)
+            // 发送购买指令
             var cmd = new CommonCommand();
-            cmd.CmdType = 101;
-            cmd.Param = batchCount;
+            var gp = GameParamsConfig.Get;
+            if (gp.isCompetitionMode)
+            {
+                // 官方协议：cmd_type=1(17mm) param=发数(10的倍数), cmd_type=2(42mm) param=发数
+                cmd.CmdType = isHero ? 2u : 1u;
+                cmd.Param = totalAmmo; // 已经是发数
+            }
+            else
+            {
+                cmd.CmdType = 101; // MockServer 模式
+                cmd.Param = batchCount;
+            }
 
             byte[] payload = cmd.ToByteArray();
             NetworkManager.Instance.SendMqttMessage("CommonCommand", payload);

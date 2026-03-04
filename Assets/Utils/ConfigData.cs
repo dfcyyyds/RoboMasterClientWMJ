@@ -1,5 +1,9 @@
 using UnityEngine;
 
+/// <summary>
+/// 配置数据存储器，包含了客户端运行所需的各种参数
+/// DTO设计，纯数据结构，不包含任何逻辑
+/// </summary>
 [System.Serializable]
 public class ConfigData
 {

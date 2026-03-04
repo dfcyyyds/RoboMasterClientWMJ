@@ -184,15 +184,24 @@ namespace UI.HUD
         }
 
         /// <summary>
-        /// 创建仿真服务（射击按键 + 自动补给）
+        /// 创建仿真/比赛服务
         /// </summary>
         private void CreateSimulationServices(RobotType robotType)
         {
-            // 编辑器仿真按键服务
+            // 编辑器仿真按键服务（仅编辑器下可用）
             var simGO = new GameObject("SimulationInput");
             simGO.transform.SetParent(transform, false);
             simInput = simGO.AddComponent<SimulationInputService>();
             simInput.Initialize(robotType);
+
+            // 比赛模式: 键鼠控制服务 (75Hz KeyboardMouseControl)
+            if (GameParamsConfig.Get.isCompetitionMode)
+            {
+                var kmGO = new GameObject("KeyboardMouseInput");
+                kmGO.transform.SetParent(transform, false);
+                var kmService = kmGO.AddComponent<KeyboardMouseInputService>();
+                kmService.Initialize();
+            }
 
             // 自动补给服务
             var resupplyGO = new GameObject("AutoResupply");
@@ -217,7 +226,8 @@ namespace UI.HUD
                     lobShotService.SetHUD(lobShotHUD);
             }
 
-            wmj.Log.I("[BattleHUD] 仿真服务已创建", wmj.Log.Tag.UI);
+            string modeStr = GameParamsConfig.Get.isCompetitionMode ? "比赛" : "仿真";
+            wmj.Log.I($"[BattleHUD] 服务已创建 [{modeStr}模式]", wmj.Log.Tag.UI);
         }
 
         void Update()
@@ -249,7 +259,8 @@ namespace UI.HUD
                 // 弹药环视觉上限：42mm(英雄)全队上限100, 17mm视觉参考500
                 bool isHeroType = RobotSelectionBootstrap.CurrentSelection != null
                     && RobotSelectionBootstrap.CurrentSelection.Robot == RobotType.Hero;
-                uint maxAmmo = isHeroType ? 100u : 500u;
+                var gp = GameParamsConfig.Get;
+                uint maxAmmo = isHeroType ? (uint)gp.heroAmmoDisplayMax : (uint)gp.normalAmmoDisplayMax;
                 crosshairRing.UpdateAmmo(dynamicVM.RemainingAmmo, maxAmmo);
                 crosshairRing.UpdateHeat(heatPct);
             }
@@ -308,8 +319,8 @@ namespace UI.HUD
                     // 准星环：提升渲染层级 + 隐藏敌人面板（保留热量/弹药环）
                     if (crosshairRing != null)
                         crosshairRing.SetDeployMode(isDeployed);
-                    // 屏蔽吊射无关的HUD元素（保留血条供战场感知）
-                    if (buffStatus != null) buffStatus.gameObject.SetActive(!isDeployed);
+                    // 屏蔽吊射无关的HUD元素（保留血条、BUFF供战场感知）
+                    // BUFF 列表始终可见，便于操作手在战斗中查看增益/减益状态
                     if (notifications != null) notifications.gameObject.SetActive(!isDeployed);
                     if (matchInfo != null) matchInfo.gameObject.SetActive(!isDeployed);
                     if (aimZoom != null) aimZoom.gameObject.SetActive(!isDeployed);
@@ -330,8 +341,9 @@ namespace UI.HUD
             // ─── 编辑器自动回血(HP=0时自动恢复) ───
             if (curHealth == 0 && maxHealth > 0)
             {
-                // 通过CommonCommand发送回血指令(复用买活满血机制：cmd_type=102, param=1)
-                var healCmd = new CommonCommand { CmdType = 102, Param = 1 };
+                // 通过CommonCommand发送回血指令
+                uint buybackCmdType = GameParamsConfig.Get.isCompetitionMode ? 4u : 102u;
+                var healCmd = new CommonCommand { CmdType = buybackCmdType, Param = 0 };
                 byte[] healPayload = healCmd.ToByteArray();
                 if (NetworkManager.Instance != null)
                     NetworkManager.Instance.SendMqttMessage("CommonCommand", healPayload);

@@ -1,4 +1,5 @@
 {
+  // 中级配置参数文件
   "dataPort": 3333,
   "decoderOutputHeight": 1080,
   "decoderOutputWidth": 1920,

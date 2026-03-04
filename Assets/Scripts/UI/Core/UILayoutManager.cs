@@ -80,6 +80,19 @@ namespace UI.Core
         public bool showMatchScore = true;        // 比分
         public bool showMatchEconomy = true;      // 经济
 
+        // 事件过滤
+        public bool showTeammateDeathEvents = false;    // 是否显示队友阵亡事件
+        public bool showTeammateRespawnEvents = false;  // 是否显示队友复活事件
+        public bool showIndividualAmmoEvents = false;   // 是否显示个体弹药兑换事件
+        public bool showIndividualLevelEvents = true;   // 是否显示个体升级事件
+        public bool showKillFeedEvents = true;          // 是否显示击杀事件
+
+        // 经济智能管控
+        public bool smartResupplyEnabled = true;        // 是否启用智能补给（根据战斗强度调整）
+        public uint emergencyAmmoThreshold = 20;        // 紧急补给阈值（弹药低于此值立即触发）
+        public uint goldReserveForBuyback = 100;        // 买活金币预留
+        public float combatIntensityWeight = 1.5f;      // 战斗强度补给权重
+
         // 弹药购买快捷键
         public float ammoPurchasePopupDuration = 0.5f;  // 购买提示显示时长（秒）
         public List<AmmoKeyBinding> ammoKeyBindings = DefaultAmmoKeyBindings();

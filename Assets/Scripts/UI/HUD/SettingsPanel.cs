@@ -88,15 +88,15 @@ namespace UI.HUD
 
         // 侧边栏菜单定义
         private static readonly string[] MenuIds = {
-            "matchinfo", "notify", "aim", "hit", "crosshair", "health", "buff", "font", "shortcut", "layout"
+            "matchinfo", "notify", "aim", "hit", "crosshair", "health", "buff", "font", "shortcut", "economy", "layout"
         };
         private static readonly string[] MenuLabels = {
-            "对局信息", "通知设置", "开镜设置", "受击提示", "准星设置", "血条设置", "BUFF设置", "字体大小", "快捷键", "UI 布局"
+            "对局信息", "通知设置", "开镜设置", "受击提示", "准星设置", "血条设置", "BUFF设置", "字体大小", "快捷键", "经济管控", "UI 布局"
         };
         private static readonly string[] MenuIcons = {
             IconManager.ICON_INFORM, IconManager.ICON_INFORM, IconManager.ICON_PILL,
             IconManager.ICON_FATAL_WARNING, IconManager.ICON_PILL, IconManager.ICON_WARNING,
-            IconManager.ICON_PILL, IconManager.ICON_SETTING, IconManager.ICON_SETTING, IconManager.ICON_PULL
+            IconManager.ICON_PILL, IconManager.ICON_SETTING, IconManager.ICON_SETTING, IconManager.ICON_PILL, IconManager.ICON_PULL
         };
 
         void Awake()
@@ -475,6 +475,7 @@ namespace UI.HUD
                 case "buff": BuildBuffPage(); break;
                 case "font": BuildFontPage(); break;
                 case "shortcut": BuildShortcutPage(); break;
+                case "economy": BuildEconomyPage(); break;
                 case "layout": BuildLayoutPage(); break;
             }
         }
@@ -562,6 +563,11 @@ namespace UI.HUD
                 v => { s.showMatchScore = v; ScheduleLivePreview(); });
             AddToggleRow(c, "显示经济", s.showMatchEconomy,
                 v => { s.showMatchEconomy = v; ScheduleLivePreview(); });
+
+            AddSectionHeader(c, "运 行 模 式", IconManager.ICON_FATAL_WARNING);
+            var gp = GameParamsConfig.Get;
+            AddToggleRow(c, "比赛模式 (官方协议)", gp.isCompetitionMode,
+                v => { gp.isCompetitionMode = v; GameParamsConfig.Save(); });
         }
 
         private void BuildNotifyPage()
@@ -577,6 +583,18 @@ namespace UI.HUD
             AddSliderRow(c, "最大通知数", "",
                 s.maxNotifications, d.maxNotifications, 1f, 10f,
                 v => s.maxNotifications = Mathf.RoundToInt(v));
+
+            AddSectionHeader(c, "事 件 过 滤", IconManager.ICON_INFORM);
+            AddToggleRow(c, "显示击杀事件", s.showKillFeedEvents,
+                v => { s.showKillFeedEvents = v; });
+            AddToggleRow(c, "显示队友阵亡", s.showTeammateDeathEvents,
+                v => { s.showTeammateDeathEvents = v; });
+            AddToggleRow(c, "显示队友复活", s.showTeammateRespawnEvents,
+                v => { s.showTeammateRespawnEvents = v; });
+            AddToggleRow(c, "显示弹药兑换事件", s.showIndividualAmmoEvents,
+                v => { s.showIndividualAmmoEvents = v; });
+            AddToggleRow(c, "显示等级提升事件", s.showIndividualLevelEvents,
+                v => { s.showIndividualLevelEvents = v; });
         }
 
         private void BuildAimPage()
@@ -598,15 +616,6 @@ namespace UI.HUD
                 s.aimZoomCloseDelay, d.aimZoomCloseDelay, 0.5f, 8f,
                 v => s.aimZoomCloseDelay = v);
 
-            AddSectionHeader(c, "自 动 补 给", IconManager.ICON_PILL);
-            AddToggleRow(c, "启用激战自动补给", s.autoResupplyEnabled,
-                v => { s.autoResupplyEnabled = v; });
-            AddSliderRow(c, "补给触发阈值", "发",
-                s.autoResupplyThreshold, (float)HUDSettings.Defaults().autoResupplyThreshold, 20f, 500f,
-                v => s.autoResupplyThreshold = (uint)Mathf.RoundToInt(v));
-            AddSliderRow(c, "每次购买批数", "批",
-                s.autoResupplyBatchCount, (float)HUDSettings.Defaults().autoResupplyBatchCount, 1f, 20f,
-                v => s.autoResupplyBatchCount = (uint)Mathf.RoundToInt(v));
         }
 
         private void BuildHitPage()
@@ -1057,6 +1066,40 @@ namespace UI.HUD
             if (rawName.StartsWith("Keypad"))
                 return "Num" + rawName.Substring(6); // "Keypad1" → "Num1"
             return rawName;
+        }
+
+        // ═══════════════════ 经济管控页面 ═══════════════════
+
+        private void BuildEconomyPage()
+        {
+            var c = CreateParamScrollContent("economy");
+            var s = UILayoutManager.Settings;
+            var d = HUDSettings.Defaults();
+
+            AddSectionHeader(c, "自 动 补 给", IconManager.ICON_PILL);
+            AddToggleRow(c, "启用自动补给", s.autoResupplyEnabled,
+                v => { s.autoResupplyEnabled = v; });
+            AddSliderRow(c, "补给触发阈值", "发",
+                s.autoResupplyThreshold, (float)d.autoResupplyThreshold, 20f, 500f,
+                v => s.autoResupplyThreshold = (uint)Mathf.RoundToInt(v));
+            AddSliderRow(c, "每次购买批数", "批",
+                s.autoResupplyBatchCount, (float)d.autoResupplyBatchCount, 1f, 20f,
+                v => s.autoResupplyBatchCount = (uint)Mathf.RoundToInt(v));
+
+            AddSectionHeader(c, "智 能 补 给", IconManager.ICON_PILL);
+            AddToggleRow(c, "启用智能模式", s.smartResupplyEnabled,
+                v => { s.smartResupplyEnabled = v; });
+            AddSliderRow(c, "紧急补给阈值", "发",
+                s.emergencyAmmoThreshold, (float)d.emergencyAmmoThreshold, 5f, 100f,
+                v => s.emergencyAmmoThreshold = (uint)Mathf.RoundToInt(v));
+            AddSliderRow(c, "战斗强度补给权重", "x",
+                s.combatIntensityWeight, d.combatIntensityWeight, 1.0f, 3.0f,
+                v => s.combatIntensityWeight = v);
+
+            AddSectionHeader(c, "金 币 预 留", IconManager.ICON_SETTING);
+            AddSliderRow(c, "买活金币预留", "金",
+                s.goldReserveForBuyback, (float)d.goldReserveForBuyback, 0f, 500f,
+                v => s.goldReserveForBuyback = (uint)Mathf.RoundToInt(v));
         }
 
         // ═══════════════════ UI 布局编辑器页面 ═══════════════════

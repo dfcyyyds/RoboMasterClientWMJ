@@ -7,17 +7,17 @@ using UnityEngine;
 /// MQTT 客户端服务，封装连接、订阅、发布等功能
 public class MqttClientService
 {
-    private MqttClient client;
-    public event Action<string, byte[]> OnMessageReceived;
-    public event Action OnConnected;
-    public event Action OnDisconnected;
-    private string brokerIp;
-    private int brokerPort;
-    private string clientId;
-    private bool isConnecting = false;
-    private float reconnectInterval => ConfigLoader.config.mqttReconnectInterval;
+    private MqttClient client;  // MQTT客户端的实例引用
+    public event Action<string, byte[]> OnMessageReceived;  // 消息接受事件，参数为主题和消息内容
+    public event Action OnConnected;  // 连接成功事件
+    public event Action OnDisconnected;  // 连接断开事件
+    private string brokerIp;  // MQTT服务器的IP地址
+    private int brokerPort;  // MQTT服务器的端口号
+    private string clientId;  // MQTT客户端的ID
+    private bool isConnecting = false;  // 是否正在连接中
+    private float reconnectInterval => ConfigLoader.config.mqttReconnectInterval;  // 重连间隔
     // 缓存订阅的主题，确保连接/重连后自动订阅
-    private Dictionary<string, byte> subscriptions = new Dictionary<string, byte>();
+    private Dictionary<string, byte> subscriptions = new Dictionary<string, byte>();  // 缓存订阅的主题
 
     // 消息发送队列及发送协程
     private struct MqttSendItem { public string Topic; public byte[] Payload; }
@@ -169,7 +169,7 @@ public class MqttClientService
         wmj.Log.I("[MqttClientService] 断开连接", wmj.Log.Tag.Network);
     }
 
-    // 订阅指定主题
+    // 订阅指定主题(新版协议Qos全是1,省事了)
     public void Subscribe(string topic, byte qos = 1)
     {
         // 先记录订阅（用于连接后自动订阅与重连）

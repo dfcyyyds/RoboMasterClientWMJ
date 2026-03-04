@@ -54,13 +54,26 @@ public static class ConfigLoader
 
         // 根据能力等级选择配置文件
         string configFileName = GetConfigFileNameByLevel(_detectedLevel);
-        _configPath = Path.Combine(Application.streamingAssetsPath, configFileName);
 
-        // 如果分档配置不存在，回退到默认配置
-        if (!File.Exists(_configPath))
+        // 加载优先级: persistentDataPath (用户修改) > streamingAssetsPath (默认)
+        string persistPath = Path.Combine(Application.persistentDataPath, configFileName);
+        string streamPath = Path.Combine(Application.streamingAssetsPath, configFileName);
+
+        if (File.Exists(persistPath))
         {
+            _configPath = persistPath;
+        }
+        else if (File.Exists(streamPath))
+        {
+            _configPath = streamPath;
+        }
+        else
+        {
+            // 分档配置不存在，回退到默认配置
             wmj.Log.W($"[ConfigLoader] 分档配置 {configFileName} 不存在，回退到默认配置", wmj.Log.Tag.General);
-            _configPath = Path.Combine(Application.streamingAssetsPath, "Config/params.json");
+            string defaultPersist = Path.Combine(Application.persistentDataPath, "Config/params.json");
+            string defaultStream = Path.Combine(Application.streamingAssetsPath, "Config/params.json");
+            _configPath = File.Exists(defaultPersist) ? defaultPersist : defaultStream;
         }
 
         if (!File.Exists(_configPath))
@@ -131,8 +144,23 @@ public static class ConfigLoader
         if (_configPath == null)
             _configPath = GetConfigPath();
         string jsonStr = JsonUtility.ToJson(_config, true);
-        File.WriteAllText(_configPath, jsonStr);
-        wmj.Log.I($"[ConfigLoader] 参数已保存到 {_configPath}", wmj.Log.Tag.General);
+
+        try
+        {
+            File.WriteAllText(_configPath, jsonStr);
+            wmj.Log.I($"[ConfigLoader] 参数已保存到 {_configPath}", wmj.Log.Tag.General);
+        }
+        catch (System.UnauthorizedAccessException)
+        {
+            // StreamingAssets 只读（打包后的 Linux），回退到 persistentDataPath
+            string fallbackPath = Path.Combine(Application.persistentDataPath,
+                "Config/" + Path.GetFileName(_configPath));
+            string fallbackDir = Path.GetDirectoryName(fallbackPath);
+            if (!Directory.Exists(fallbackDir)) Directory.CreateDirectory(fallbackDir);
+            File.WriteAllText(fallbackPath, jsonStr);
+            _configPath = fallbackPath;
+            wmj.Log.I($"[ConfigLoader] StreamingAssets 只读，已保存到 {fallbackPath}", wmj.Log.Tag.General);
+        }
     }
 
     private static string GetConfigPath()

@@ -1,19 +1,31 @@
 namespace Framework.Network
 {
+    /// <summary>
+    /// 比赛事件枚举
+    /// </summary>
     public enum GameEventId
     {
-        MatchStart = 1,
-        MatchEnd = 2,
-        StageChange = 3,
-        MatchPaused = 4,
-        MatchResumed = 5,
+        /// <summary>
+        /// 比赛进程相关事件
+        /// </summary>
+        MatchStart = 1, // 比赛开始
+        MatchEnd = 2,   // 比赛结束
+        StageChange = 3,  // 阶段改变
+        MatchPaused = 4,  // 比赛暂停
+        MatchResumed = 5,  // 比赛恢复
 
-        RobotKilled = 10,
-        RobotRespawn = 11,
-        RobotInstantRespawn = 12,
-        RobotOffline = 13,
-        RobotReconnect = 14,
+        /// <summary>
+        /// 车相关事件
+        /// </summary>
+        RobotKilled = 10,  // 车被击杀
+        RobotRespawn = 11,  // 车复活
+        RobotInstantRespawn = 12,  // 车复活（瞬间复活）
+        RobotOffline = 13,  // 车离线
+        RobotReconnect = 14,  // 车重新连接
 
+        /// <summary>
+        /// 前哨站相关事件
+        /// </summary>
         OutpostDestroyed = 20,
         OutpostRebuilt = 21,
         BaseShieldOpen = 22,

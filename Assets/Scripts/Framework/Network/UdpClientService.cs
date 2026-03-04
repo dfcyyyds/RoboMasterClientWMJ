@@ -10,17 +10,18 @@ using System.Buffers;
 /// </summary>
 public class UdpClientService
 {
+    // 零拷贝接收缓存DTO
     private struct PooledPacket
     {
-        public string Remote;
-        public byte[] Buffer;
-        public int Length;
+        public string Remote;  // 远程地址字符串
+        public byte[] Buffer;  // 零拷贝接收缓存
+        public int Length;  // 数据长度
     }
     // 创建UDP客户端
-    private UdpClient udpClient;
-    private const int MaxUdpPacketSize = 65535;
-    private bool isReceiving = false;
-    private readonly ConcurrentQueue<PooledPacket> recvQueue = new ConcurrentQueue<PooledPacket>();
+    private UdpClient udpClient;  // UDP客户端
+    private const int MaxUdpPacketSize = 65535;  // UDP最大包大小
+    private bool isReceiving = false;  // 接受参数
+    private readonly ConcurrentQueue<PooledPacket> recvQueue = new ConcurrentQueue<PooledPacket>();  // 线程安全的接受队列
     // 首次启动后是否已开启队列耗尽协程
     private bool drainCoroutineStarted = false;
     // 阻塞接收线程（双保险）
@@ -75,7 +76,7 @@ public class UdpClientService
             try { udpClient.Client.ReceiveBufferSize = 1 << 20; } catch { }
             try { udpClient.Client.SendBufferSize = 1 << 18; } catch { }
 #if UNITY_EDITOR || DIAGNOSE_UDP
-            wmj.Log.I($"[UdpClientService] 🔗 已绑定 0.0.0.0:{port}，监听来自任意源的 UDP 包", wmj.Log.Tag.Network);
+            wmj.Log.I($"[UdpClientService]  已绑定 0.0.0.0:{port}，监听来自任意源的 UDP 包", wmj.Log.Tag.Network);
             diagLastReport = UnityEngine.Time.realtimeSinceStartup;
 #endif
             wmj.Log.I($"[UdpClientService] 已绑定 0.0.0.0:{port}，开始接收UDP", wmj.Log.Tag.Network);
@@ -210,7 +211,7 @@ public class UdpClientService
 #if UNITY_EDITOR || DIAGNOSE_UDP
             if (now - diagLastReport >= 1.0f)
             {
-                wmj.Log.I($"[UdpClientService] 📊 诊断: 包 {diagPacketsReceived}, 字节 {diagBytesReceived}, 来自 {diagLastRemote}", wmj.Log.Tag.Network);
+                wmj.Log.I($"[UdpClientService]  诊断: 包 {diagPacketsReceived}, 字节 {diagBytesReceived}, 来自 {diagLastRemote}", wmj.Log.Tag.Network);
                 diagPacketsReceived = 0;
                 diagBytesReceived = 0;
                 diagLastReport = now;
@@ -262,7 +263,7 @@ public class UdpClientService
         {
             wmj.Log.I("[UdpClientService] 停止UDP监听", wmj.Log.Tag.Network);
 #if UNITY_EDITOR || DIAGNOSE_UDP
-            wmj.Log.I($"[UdpClientService] ⏹️ UDP 接收已停止 (总计接收: {diagFramesReceived} 帧)", wmj.Log.Tag.Network);
+            wmj.Log.I($"[UdpClientService] ⏹ UDP 接收已停止 (总计接收: {diagFramesReceived} 帧)", wmj.Log.Tag.Network);
 #endif
             udpClient.Close();
             udpClient = null;

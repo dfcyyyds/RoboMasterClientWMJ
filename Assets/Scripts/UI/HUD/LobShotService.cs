@@ -116,8 +116,11 @@ namespace UI.HUD
         {
             isActive = true;
 
-            // 发送部署进入指令(cmd_type=103)
-            SendCommand(103, 0);
+            // 发送部署进入指令
+            if (GameParamsConfig.Get.isCompetitionMode)
+                SendDeployModeCommand(1); // 官方协议: HeroDeployModeEventCommand(mode=1)
+            else
+                SendCommand(103, 0); // MockServer模式
 
             // 停止图传解码
             var videoService = VideoStreamService.Instance;
@@ -138,8 +141,11 @@ namespace UI.HUD
         {
             isActive = false;
 
-            // 发送部署退出指令(cmd_type=104)
-            SendCommand(104, 0);
+            // 发送部署退出指令
+            if (GameParamsConfig.Get.isCompetitionMode)
+                SendDeployModeCommand(0); // 官方协议: HeroDeployModeEventCommand(mode=0)
+            else
+                SendCommand(104, 0); // MockServer模式
 
             // 恢复图传画面
             HideVideoDisplay(false);
@@ -194,6 +200,15 @@ namespace UI.HUD
             var cmd = new CommonCommand { CmdType = cmdType, Param = param };
             byte[] payload = cmd.ToByteArray();
             NetworkManager.Instance.SendMqttMessage("CommonCommand", payload);
+        }
+
+        /// <summary>官方协议：通过 HeroDeployModeEventCommand 发送部署模式指令</summary>
+        private void SendDeployModeCommand(uint mode)
+        {
+            if (NetworkManager.Instance == null) return;
+            var deployCmd = new HeroDeployModeEventCommand { Mode = mode };
+            byte[] payload = deployCmd.ToByteArray();
+            NetworkManager.Instance.SendMqttMessage("HeroDeployModeEventCommand", payload);
         }
 
         void OnDestroy()
