@@ -85,6 +85,8 @@ public class VideoStreamService : MonoBehaviour
     private bool gateNotified;
     private int watchdogAttempts;
     private float lastWatchdogSend;
+    // NVDEC 回退专用：累计已组帧数（不随统计窗口重置）
+    private int totalFramesAssembled;
     // 增量GC辅助：每隔一定帧数在Update末尾触发低开销GC
     private int framesSinceLastGcHint;
     private const int GC_HINT_INTERVAL_FRAMES = 60; // 每60帧（约1秒@60fps）发一次GC提示
@@ -256,6 +258,7 @@ public class VideoStreamService : MonoBehaviour
         {
             NativeVideoBridge.Push(annexB, annexB?.Length ?? 0);
             statFramesAssembled++;
+            totalFramesAssembled++;
             return;
         }
 
@@ -339,13 +342,20 @@ public class VideoStreamService : MonoBehaviour
                 statFramesAssembled = 0;
             }
 
-            // 安全回退门限：仅在累计帧数充足且长时间无显示时触发（放宽时间与帧数阈值，避免误回退）
+            // 安全回退门限：仅在累计帧数充足且长时间无显示时触发
             if (!nvdecFallbackTriggered && nvdecStartTime > 0f && NativeVideoBridge.TryGetStats(out var st))
             {
                 float sinceStart = Time.realtimeSinceStartup - nvdecStartTime;
-                if (sinceStart > 5f && st.framesDisplayed <= 0 && st.framesDecoded >= 80 && statFramesAssembled >= 150)
+                // GL 互操作失败快速回退：无需等待 5 秒
+                if (sinceStart > 2f && st.glFailed != 0 && st.framesDisplayed <= 0)
                 {
-                    SwitchToFfmpeg("NVDEC 长时间未产出纹理，已解码=" + st.framesDecoded + ", 已接收帧=" + statFramesAssembled);
+                    SwitchToFfmpeg("NVDEC GL 互操作失败 (glFailed=" + st.glFailed + ")，decoded=" + st.framesDecoded);
+                    return;
+                }
+                // 通用回退：解码正常但长时间无纹理产出（使用累计计数器，不受每秒重置影响）
+                if (sinceStart > 5f && st.framesDisplayed <= 0 && st.framesDecoded >= 80 && totalFramesAssembled >= 60)
+                {
+                    SwitchToFfmpeg("NVDEC 长时间未产出纹理，已解码=" + st.framesDecoded + ", 累计组帧=" + totalFramesAssembled);
                     return;
                 }
             }

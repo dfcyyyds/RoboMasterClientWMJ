@@ -16,6 +16,7 @@ public class RuntimeTuner : MonoBehaviour
     private int lowFpsCount; // 连续低帧率计数
 
     void Awake()
+    
     {
         Application.runInBackground = true; // 后台仍刷新
 

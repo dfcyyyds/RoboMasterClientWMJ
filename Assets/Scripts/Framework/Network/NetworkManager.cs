@@ -74,6 +74,8 @@ public class NetworkManager : MonoBehaviour
 
     void Awake()
     {
+        Debug.Log("[NetworkManager] ===== Awake() 开始执行 =====");
+
         // 读取队列长度配置
         try
         {
@@ -83,6 +85,7 @@ public class NetworkManager : MonoBehaviour
         }
         catch (Exception ex)
         {
+            Debug.LogWarning($"[NetworkManager] 读取队列配置失败，使用默认值(8/32): {ex.Message}");
             wmj.Log.W($"[NetworkManager] 读取队列配置失败，使用默认值(8/32): {ex.Message}", wmj.Log.Tag.Network);
             currentQueueLimit = 8;
             maxQueueLimit = 32;
@@ -167,6 +170,14 @@ public class NetworkManager : MonoBehaviour
             wmj.Log.I("[NetworkManager] 自动创建 VideoStreamService", wmj.Log.Tag.Network);
         }
 
+        // 吐射图传 UDP 接收器：仅在非比赛模式下自动创建（比赛模式下 CustomByteBlock 通过 MQTT 传输）
+        if (!GameParamsConfig.Get.isCompetitionMode && LobShotUdpReceiver.Instance == null)
+        {
+            var lobUdpGO = new GameObject("[LobShotUdpReceiver]");
+            lobUdpGO.AddComponent<LobShotUdpReceiver>();
+            wmj.Log.I("[NetworkManager] 仿真模式: 自动创建 LobShotUdpReceiver", wmj.Log.Tag.Network);
+        }
+
         // 订阅消息接收事件
         mqttService.OnMessageReceived += dispatcher.Dispatch;
         // UDP 图传数据分发：优先零拷贝段分发，回退到 byte[]
@@ -201,6 +212,7 @@ public class NetworkManager : MonoBehaviour
     {
         try
         {
+            Debug.Log("[NetworkManager] ===== Start() 启动网络服务 =====");
             wmj.Log.I("[NetworkManager] 启动网络服务...", wmj.Log.Tag.Network);
 
             // 根据用户选择的兵种和阵营，计算选手端 ID 作为 MQTT clientId
@@ -230,7 +242,14 @@ public class NetworkManager : MonoBehaviour
                 connectVideoPort = connectDataPort + 1;
                 wmj.Log.I($"[NetworkManager] 比赛模式: 连接官方服务器 {connectIp}:{connectDataPort} (视频: {connectVideoPort})", wmj.Log.Tag.Network);
             }
+            else
+            {
+                // 仿真模式: 强制使用本机回环地址连接 MockServer
+                connectIp = "127.0.0.1";
+                wmj.Log.I($"[NetworkManager] 仿真模式: 连接本机 MockServer {connectIp}:{connectDataPort} (视频: {connectVideoPort})", wmj.Log.Tag.Network);
+            }
 
+            wmj.Log.I($"[NetworkManager] 最终连接参数: MQTT={connectIp}:{connectDataPort}, UDP={connectIp}:{connectVideoPort}", wmj.Log.Tag.Network);
             mqttService.Connect(connectIp, connectDataPort, playerTerminalId);
             udpService.StartReceive(connectIp, connectVideoPort);
         }
@@ -320,6 +339,11 @@ public class NetworkManager : MonoBehaviour
             connectDataPort = GameParamsConfig.Get.competitionServerPort;
             connectVideoPort = connectDataPort + 1;
             wmj.Log.I($"[NetworkManager] 热更新: 比赛模式连接 {connectIp}:{connectDataPort}", wmj.Log.Tag.Network);
+        }
+        else
+        {
+            connectIp = "127.0.0.1";
+            wmj.Log.I($"[NetworkManager] 热更新: 仿真模式连接 {connectIp}:{connectDataPort}", wmj.Log.Tag.Network);
         }
 
         mqttService.Connect(connectIp, connectDataPort, playerTerminalId);

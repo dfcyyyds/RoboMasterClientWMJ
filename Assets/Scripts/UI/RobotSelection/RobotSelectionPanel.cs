@@ -25,9 +25,13 @@ namespace UI.RobotSelection
         {
             _onCompleteCallback = onComplete;
             if (_instance == null)
+            {
                 CreatePanel();
+            }
             else
+            {
                 _instance.gameObject.SetActive(true);
+            }
         }
 
         public static void Hide()
@@ -86,11 +90,23 @@ namespace UI.RobotSelection
 
         void Awake()
         {
+            Debug.Log("[RobotSelectionPanel] ===== Awake() 开始 =====");
             _instance = this;
             viewModel = new RobotSelectionViewModel();
             viewModel.PropertyChanged += OnVMChanged;
             viewModel.SelectionCompleted += OnSelectionDone;
-            BuildUI();
+            try
+            {
+                Debug.Log("[RobotSelectionPanel] 开始 BuildUI...");
+                BuildUI();
+                Debug.Log("[RobotSelectionPanel] BuildUI 完成，UI 初始化成功");
+                wmj.Log.I("[RobotSelectionPanel] UI 初始化完成", wmj.Log.Tag.UI);
+            }
+            catch (System.Exception ex)
+            {
+                Debug.LogError($"[RobotSelectionPanel] BuildUI() 异常: {ex}");
+                wmj.Log.E($"[RobotSelectionPanel] BuildUI() 异常: {ex}", wmj.Log.Tag.UI);
+            }
         }
 
         void Update()

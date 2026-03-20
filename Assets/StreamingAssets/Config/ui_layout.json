@@ -53,7 +53,7 @@
         "aimZoomFactor": 2.7627384662628176,
         "aimZoomSpeed": 11.917722702026368,
         "aimZoomCloseDelay": 0.7472683787345886,
-        "autoResupplyEnabled": true,
+        "autoResupplyEnabled": false,
         "autoResupplyThreshold": 20,
         "autoResupplyBatchCount": 5,
         "hitFlashDuration": 0.30000001192092898,

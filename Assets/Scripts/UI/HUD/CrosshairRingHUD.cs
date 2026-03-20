@@ -71,6 +71,8 @@ namespace UI.HUD
             // 用于吊射模式整体透明度控制
             deployCanvasGroup = gameObject.AddComponent<CanvasGroup>();
             deployCanvasGroup.alpha = 1f;
+            deployCanvasGroup.blocksRaycasts = false; // 准星环不应阻断其他 Canvas 的 raycast
+            deployCanvasGroup.interactable = false;
             baseHeatRingRadius = heatRingRadius;
             baseAmmoRingRadius = ammoRingRadius;
         }
@@ -190,7 +192,7 @@ namespace UI.HUD
             ammoLabel.rectTransform.offsetMax = Vector2.zero;
 
             ammoValueText = UIFactory.CreateText(prt, "AmmoVal", "∞", fSize,
-                TextAlignmentOptions.Center, UIColors.BrightBlue, FontStyles.Bold);
+                TextAlignmentOptions.Center, UIColors.WithAlpha(UIColors.BrightBlue, 0.80f), FontStyles.Bold);
             ammoValueText.rectTransform.anchorMin = new Vector2(0.02f, 0.05f);
             ammoValueText.rectTransform.anchorMax = new Vector2(0.48f, 0.62f);
             ammoValueText.rectTransform.offsetMin = Vector2.zero;
@@ -205,7 +207,7 @@ namespace UI.HUD
             heatLabel.rectTransform.offsetMax = Vector2.zero;
 
             heatValueText = UIFactory.CreateText(prt, "HeatVal", "0%", fSize,
-                TextAlignmentOptions.Center, UIColors.HeatYellow, FontStyles.Bold);
+                TextAlignmentOptions.Center, UIColors.WithAlpha(UIColors.HeatYellow, 0.80f), FontStyles.Bold);
             heatValueText.rectTransform.anchorMin = new Vector2(0.52f, 0.05f);
             heatValueText.rectTransform.anchorMax = new Vector2(0.98f, 0.62f);
             heatValueText.rectTransform.offsetMin = Vector2.zero;

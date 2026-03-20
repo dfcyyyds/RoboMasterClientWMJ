@@ -24,7 +24,7 @@ public class MqttClientService
     private Queue<MqttSendItem> sendQueue = new Queue<MqttSendItem>();
     private bool isSending = false;
 
-    // 连接到指定服务器
+    // 连接到指定服务器（非阻塞，所有连接尝试均在后台线程执行）
     public void Connect(string brokerIp, int brokerPort, string clientId = null)
     {
         // 保存连接参数
@@ -41,9 +41,10 @@ public class MqttClientService
             this.clientId = Guid.NewGuid().ToString();
             wmj.Log.W($"[MqttClientService] 未提供选手端 ID，使用随机 GUID（仅限调试）: {this.clientId}", wmj.Log.Tag.Network);
         }
-        TryConnect();
+        // 不在主线程同步连接，避免阻塞 UI 导致启动卡顿
+        // 由 ReconnectRoutine 在后台线程发起首次连接和断线重连
         NetworkManager.Instance.StartCoroutine(ReconnectRoutine());
-        wmj.Log.I($"[MqttClientService] 当前重连间隔: {reconnectInterval}s (由参数系统ConfigLoader.config.mqttReconnectInterval控制)", wmj.Log.Tag.Network);
+        wmj.Log.I($"[MqttClientService] 已启动异步重连协程，间隔: {reconnectInterval}s", wmj.Log.Tag.Network);
     }
 
     private void TryConnect()
@@ -53,7 +54,7 @@ public class MqttClientService
         // 否则尝试连接
         try
         {
-            wmj.Log.D("[MqttClientService] 尝试连接MQTT...", wmj.Log.Tag.Network);
+            wmj.Log.I($"[MqttClientService] 尝试连接MQTT: {brokerIp}:{brokerPort} (clientId={clientId})", wmj.Log.Tag.Network);
             // 以明文（非加密）方式连接指定IP和端口的MQTT服务器，不使用证书
             client = new MqttClient(brokerIp, brokerPort, false, null, null, MqttSslProtocols.None);
 
@@ -106,12 +107,25 @@ public class MqttClientService
     {
         while (true)
         {
-            if (client == null || !client.IsConnected)
+            if ((client == null || !client.IsConnected) && !isConnecting)
             {
-                if (!isConnecting)
+                isConnecting = true;
+                // 在后台线程执行 TCP 连接，避免阻塞主线程（TCP 超时可达 20-60 秒）
+                System.Threading.ThreadPool.QueueUserWorkItem(_ =>
                 {
-                    TryConnect();
-                }
+                    try
+                    {
+                        TryConnect();
+                    }
+                    catch (Exception ex)
+                    {
+                        wmj.Log.F($"[MqttClientService] 后台连接异常: {ex.Message}", wmj.Log.Tag.Network);
+                    }
+                    finally
+                    {
+                        isConnecting = false;
+                    }
+                });
             }
             yield return new WaitForSeconds(reconnectInterval);
         }

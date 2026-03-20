@@ -5,7 +5,7 @@
   "decoderOutputWidth": 1920,
   "decoderQueueSize": 6,
   "initialFileQueueSize": 6,
-  "ip": "127.0.0.1",
+  "ip": "192.168.12.1",
   "logBufferSize": 8,
   "maxDrainPerUpdate": 2,
   "maxFileQueueSize": 48,

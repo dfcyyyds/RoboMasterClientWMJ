@@ -42,7 +42,7 @@ namespace UI.Core
         public float aimZoomCloseDelay = 2.0f;         // 停止射击后自动关镜延迟(秒)
 
         // 自动补给
-        public bool autoResupplyEnabled = true;        // 是否启用自动补给
+        public bool autoResupplyEnabled = false;        // 是否启用自动补给（默认关闭，需在设置中手动开启）
         public uint autoResupplyThreshold = 100;       // 弹药低于此值时触发补给
         public uint autoResupplyBatchCount = 5;        // 每次购买批次数（17mm: 5批=50发）
 
@@ -85,7 +85,7 @@ namespace UI.Core
         public bool showTeammateRespawnEvents = false;  // 是否显示队友复活事件
         public bool showIndividualAmmoEvents = false;   // 是否显示个体弹药兑换事件
         public bool showIndividualLevelEvents = true;   // 是否显示个体升级事件
-        public bool showKillFeedEvents = true;          // 是否显示击杀事件
+        public bool showKillFeedEvents = false;         // 是否显示击杀事件（默认关闭）
 
         // 经济智能管控
         public bool smartResupplyEnabled = true;        // 是否启用智能补给（根据战斗强度调整）

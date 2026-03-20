@@ -1,5 +1,7 @@
 using UnityEngine;
 using UnityEngine.UI;
+using UnityEngine.InputSystem;
+using UnityEngine.InputSystem.UI;
 using TMPro;
 
 namespace UI.Core
@@ -83,15 +85,310 @@ namespace UI.Core
 
             go.AddComponent<GraphicRaycaster>();
 
-            // 确保场景中存在 EventSystem（UI 交互必需）
-            if (UnityEngine.EventSystems.EventSystem.current == null)
-            {
-                var esGo = new GameObject("EventSystem");
-                esGo.AddComponent<UnityEngine.EventSystems.EventSystem>();
-                esGo.AddComponent<UnityEngine.EventSystems.StandaloneInputModule>();
-            }
+            // 确保场景中存在正确配置的 EventSystem（UI 交互必需）
+            EnsureEventSystem();
 
             return canvas;
+        }
+
+        // ─── EventSystem 可靠输入适配 ───
+
+        private const string DynamicEventSystemName = "[EventSystem-Dynamic]";
+
+        /// <summary>
+        /// 确保存在正确配置的 EventSystem — 全平台兼容
+        /// 核心策略：disable → configure → enable
+        /// 确保 InputSystemUIInputModule.OnEnable 在拥有正确 actionsAsset 的状态下运行
+        /// </summary>
+        public static void EnsureEventSystem()
+        {
+            // 查找所有 EventSystem（包括被禁用的和待销毁的）
+            var allEventSystems = Object.FindObjectsByType<UnityEngine.EventSystems.EventSystem>(
+                FindObjectsInactive.Include, FindObjectsSortMode.None);
+
+            UnityEngine.EventSystems.EventSystem dynamicES = null;
+            foreach (var es in allEventSystems)
+            {
+                if (es.gameObject.name == DynamicEventSystemName)
+                {
+                    dynamicES = es;
+                    break;
+                }
+            }
+
+            // 如果已有动态 EventSystem，验证并复用
+            if (dynamicES != null)
+            {
+                ValidateAndRepairModule(dynamicES);
+                // 确保它是 current
+                if (UnityEngine.EventSystems.EventSystem.current != dynamicES)
+                {
+                    dynamicES.enabled = false;
+                    dynamicES.enabled = true;
+                }
+                return;
+            }
+
+            // 检查场景中的 EventSystem
+            var existing = UnityEngine.EventSystems.EventSystem.current;
+            if (existing != null)
+            {
+                var sceneModule = existing.GetComponent<InputSystemUIInputModule>();
+                if (sceneModule != null && sceneModule.isActiveAndEnabled && sceneModule.actionsAsset != null)
+                {
+                    try
+                    {
+                        var uiMap = sceneModule.actionsAsset.FindActionMap("UI");
+                        if (uiMap != null && uiMap.enabled
+                            && uiMap.FindAction("Point") != null
+                            && uiMap.FindAction("Click") != null)
+                        {
+                            Debug.Log("[UIFactory] 场景 EventSystem 正常，复用");
+                            return;
+                        }
+                    }
+                    catch { }
+                }
+
+                // 场景 EventSystem 异常，禁用它而不是销毁（避免时序问题）
+                Debug.LogWarning("[UIFactory] 场景 EventSystem 异常，禁用并创建新的");
+                existing.enabled = false;
+            }
+
+            CreateDynamicEventSystem();
+        }
+
+        /// <summary>
+        /// 创建全新的动态 EventSystem
+        /// 关键流程：AddComponent → 立即 disable → 配置 actionsAsset + 绑定动作 → enable
+        /// 解决 AddComponent 时 OnEnable 空跑导致鼠标事件不处理的问题
+        /// </summary>
+        private static void CreateDynamicEventSystem()
+        {
+            Debug.Log("[UIFactory] ═══ 创建动态 EventSystem ═══");
+
+            var esGo = new GameObject(DynamicEventSystemName);
+            Object.DontDestroyOnLoad(esGo);
+
+            var eventSystem = esGo.AddComponent<UnityEngine.EventSystems.EventSystem>();
+            eventSystem.sendNavigationEvents = true;
+            eventSystem.pixelDragThreshold = 5;
+
+            // ① AddComponent 会立即触发 OnEnable（此时 actionsAsset 为空，回调注册为空）
+            var uiModule = esGo.AddComponent<InputSystemUIInputModule>();
+
+            // ② 立即禁用 — 触发 OnDisable，清理空白状态的回调
+            uiModule.enabled = false;
+
+            // ③ 在禁用状态下完整配置 actionsAsset 和各个动作引用
+            var actionsAsset = FindInputActionAsset();
+            if (actionsAsset != null)
+            {
+                uiModule.actionsAsset = actionsAsset;
+                Debug.Log($"[UIFactory] actionsAsset = {actionsAsset.name}");
+
+                // 显式绑定各个 UI 动作引用，防止 auto-discovery 失效
+                SetModuleActionReferences(uiModule, actionsAsset);
+
+                // 预先启用 UI ActionMap，确保 OnEnable 时所有动作已就绪
+                var uiMap = actionsAsset.FindActionMap("UI");
+                if (uiMap != null)
+                {
+                    uiMap.Enable();
+                    Debug.Log($"[UIFactory] UI ActionMap 预启用完成 (actions={uiMap.actions.Count})");
+                }
+            }
+            else
+            {
+                Debug.LogError("[UIFactory] 未找到 InputActionAsset — UI 将无法交互!");
+            }
+
+            // ④ 重新启用 — OnEnable 使用完整配置初始化所有回调和事件处理管线
+            uiModule.enabled = true;
+
+            // ⑤ 输出诊断信息验证初始化结果
+            LogModuleDiagnostics(uiModule, "创建完成");
+
+            // ⑥ 添加运行时健康监护组件
+            esGo.AddComponent<EventSystemGuard>();
+
+            Debug.Log($"[UIFactory] EventSystem.current = " +
+                $"{UnityEngine.EventSystems.EventSystem.current?.name ?? "NULL"}");
+        }
+
+        /// <summary>查找项目中的 InputActionAsset</summary>
+        private static UnityEngine.InputSystem.InputActionAsset FindInputActionAsset()
+        {
+            // 优先使用项目全局 InputActions（Player Settings 中配置）
+            try
+            {
+                var asset = UnityEngine.InputSystem.InputSystem.actions;
+                if (asset != null)
+                {
+                    Debug.Log($"[UIFactory] 从 InputSystem.actions 获取到资产: {asset.name}");
+                    return asset;
+                }
+            }
+            catch (System.Exception ex)
+            {
+                Debug.LogWarning($"[UIFactory] InputSystem.actions 访问异常: {ex.Message}");
+            }
+
+            // 后备 1：搜索已加载的 InputActionAsset
+            try
+            {
+                var found = Resources.FindObjectsOfTypeAll<UnityEngine.InputSystem.InputActionAsset>();
+                if (found != null && found.Length > 0)
+                {
+                    foreach (var a in found)
+                    {
+                        if (a.FindActionMap("UI") != null)
+                        {
+                            Debug.Log($"[UIFactory] 从已加载资产中找到含 UI ActionMap 的: {a.name}");
+                            return a;
+                        }
+                    }
+                    Debug.Log($"[UIFactory] 使用第一个 InputActionAsset: {found[0].name}");
+                    return found[0];
+                }
+            }
+            catch { }
+
+            // 后备 2：从 Resources 加载
+            try
+            {
+                var loaded = Resources.Load<UnityEngine.InputSystem.InputActionAsset>("InputSystem_Actions");
+                if (loaded != null)
+                {
+                    Debug.Log($"[UIFactory] 从 Resources 加载到: {loaded.name}");
+                    return loaded;
+                }
+            }
+            catch { }
+
+            Debug.LogWarning("[UIFactory] 未找到任何 InputActionAsset");
+            return null;
+        }
+
+        /// <summary>
+        /// 在模块禁用状态下显式设置各个 UI 动作引用
+        /// 使用 InputActionReference.Create 确保每个动作正确映射到模块属性
+        /// </summary>
+        private static void SetModuleActionReferences(InputSystemUIInputModule module,
+            UnityEngine.InputSystem.InputActionAsset asset)
+        {
+            try
+            {
+                var uiMap = asset.FindActionMap("UI");
+                if (uiMap == null)
+                {
+                    Debug.LogWarning("[UIFactory] InputActions 中未找到 UI ActionMap");
+                    return;
+                }
+
+                System.Action<string, System.Action<InputActionReference>> bind =
+                    (actionName, setter) =>
+                    {
+                        var action = uiMap.FindAction(actionName);
+                        if (action != null) setter(InputActionReference.Create(action));
+                    };
+
+                bind("Point", r => module.point = r);
+                bind("Click", r => module.leftClick = r);
+                bind("ScrollWheel", r => module.scrollWheel = r);
+                bind("Navigate", r => module.move = r);
+                bind("Submit", r => module.submit = r);
+                bind("Cancel", r => module.cancel = r);
+                bind("RightClick", r => module.rightClick = r);
+                bind("MiddleClick", r => module.middleClick = r);
+
+                Debug.Log("[UIFactory] UI Action 引用绑定完成");
+            }
+            catch (System.Exception ex)
+            {
+                Debug.LogWarning($"[UIFactory] 绑定 UI Actions 异常: {ex.Message}");
+            }
+        }
+
+        /// <summary>验证并修复已存在的动态 EventSystem</summary>
+        private static void ValidateAndRepairModule(UnityEngine.EventSystems.EventSystem es)
+        {
+            var module = es.GetComponent<InputSystemUIInputModule>();
+            if (module == null)
+            {
+                Debug.LogWarning("[UIFactory] 动态 EventSystem 缺少 InputModule，重建");
+                Object.Destroy(es.gameObject);
+                CreateDynamicEventSystem();
+                return;
+            }
+
+            // 模块异常 — 执行 disable→configure→enable 修复
+            if (!module.isActiveAndEnabled || module.actionsAsset == null)
+            {
+                Debug.LogWarning("[UIFactory] InputModule 异常，执行修复流程");
+                module.enabled = false;
+
+                if (module.actionsAsset == null)
+                {
+                    var asset = FindInputActionAsset();
+                    if (asset != null)
+                    {
+                        module.actionsAsset = asset;
+                        SetModuleActionReferences(module, asset);
+                    }
+                }
+
+                if (module.actionsAsset != null)
+                {
+                    var uiMap = module.actionsAsset.FindActionMap("UI");
+                    if (uiMap != null) uiMap.Enable();
+                }
+
+                module.enabled = true;
+                LogModuleDiagnostics(module, "修复完成");
+                return;
+            }
+
+            // 检查 UI ActionMap 是否启用
+            try
+            {
+                var uiMap = module.actionsAsset.FindActionMap("UI");
+                if (uiMap != null && !uiMap.enabled)
+                {
+                    uiMap.Enable();
+                    Debug.Log("[UIFactory] 已重新启用 UI ActionMap");
+                }
+            }
+            catch { }
+        }
+
+        /// <summary>输出 InputModule 详细诊断信息</summary>
+        private static void LogModuleDiagnostics(InputSystemUIInputModule module, string context)
+        {
+            if (module == null) return;
+            var sb = new System.Text.StringBuilder();
+            sb.AppendLine($"[UIFactory] ─── InputModule 诊断 ({context}) ───");
+            sb.AppendLine($"  isActiveAndEnabled = {module.isActiveAndEnabled}");
+            sb.AppendLine($"  actionsAsset = {module.actionsAsset?.name ?? "NULL"}");
+            sb.Append($"  point={module.point != null} leftClick={module.leftClick != null}");
+            sb.AppendLine($" scrollWheel={module.scrollWheel != null} move={module.move != null}");
+
+            if (module.actionsAsset != null)
+            {
+                try
+                {
+                    var uiMap = module.actionsAsset.FindActionMap("UI");
+                    if (uiMap != null)
+                    {
+                        sb.AppendLine($"  UI ActionMap: enabled={uiMap.enabled}, actions={uiMap.actions.Count}");
+                        foreach (var action in uiMap.actions)
+                            sb.AppendLine($"    {action.name}: enabled={action.enabled}, bindings={action.bindings.Count}");
+                    }
+                }
+                catch { }
+            }
+
+            Debug.Log(sb.ToString());
         }
 
         // ─── Image ───
@@ -287,6 +584,82 @@ namespace UI.Core
             img.raycastTarget = true;
             btn.transition = Selectable.Transition.None;
             return btn;
+        }
+
+        // ─── TMP InputField ───
+
+        /// <summary>创建 TMP 文本输入框，用于设置面板中的参数编辑</summary>
+        public static TMP_InputField CreateInputField(Transform parent, string name,
+            string initialText, int fontSize = 20, TMP_InputField.ContentType contentType = TMP_InputField.ContentType.Standard)
+        {
+            var go = new GameObject(name);
+            go.transform.SetParent(parent, false);
+
+            // 背景
+            var bg = go.AddComponent<Image>();
+            bg.color = new Color(0.06f, 0.07f, 0.14f, 0.90f);
+            ApplyRoundedCorners(bg, 32, 8);
+            bg.raycastTarget = true;
+
+            // 文本区域
+            var textAreaGo = new GameObject("TextArea");
+            textAreaGo.transform.SetParent(go.transform, false);
+            var textAreaRt = textAreaGo.AddComponent<RectTransform>();
+            textAreaRt.anchorMin = new Vector2(0.02f, 0f);
+            textAreaRt.anchorMax = new Vector2(0.98f, 1f);
+            textAreaRt.offsetMin = Vector2.zero;
+            textAreaRt.offsetMax = Vector2.zero;
+            textAreaGo.AddComponent<RectMask2D>();
+
+            // 文本内容
+            var textGo = new GameObject("Text");
+            textGo.transform.SetParent(textAreaGo.transform, false);
+            var textTmp = textGo.AddComponent<TextMeshProUGUI>();
+            textTmp.fontSize = fontSize;
+            textTmp.color = UIColors.White;
+            textTmp.alignment = TextAlignmentOptions.Left;
+            textTmp.textWrappingMode = TextWrappingModes.NoWrap;
+            textTmp.overflowMode = TextOverflowModes.ScrollRect;
+            textTmp.richText = false;
+            if (!_fontSearched) PreloadFont();
+            if (_cachedFont != null) textTmp.font = _cachedFont;
+            var textRt = textGo.GetComponent<RectTransform>();
+            SetFullStretch(textRt);
+
+            // 占位符文本
+            var placeholderGo = new GameObject("Placeholder");
+            placeholderGo.transform.SetParent(textAreaGo.transform, false);
+            var placeholderTmp = placeholderGo.AddComponent<TextMeshProUGUI>();
+            placeholderTmp.text = "输入...";
+            placeholderTmp.fontSize = fontSize;
+            placeholderTmp.color = new Color(0.5f, 0.5f, 0.6f, 0.5f);
+            placeholderTmp.fontStyle = FontStyles.Italic;
+            placeholderTmp.alignment = TextAlignmentOptions.Left;
+            placeholderTmp.textWrappingMode = TextWrappingModes.NoWrap;
+            if (_cachedFont != null) placeholderTmp.font = _cachedFont;
+            var phRt = placeholderGo.GetComponent<RectTransform>();
+            SetFullStretch(phRt);
+
+            // InputField 组件
+            var inputField = go.AddComponent<TMP_InputField>();
+            inputField.textViewport = textAreaRt;
+            inputField.textComponent = textTmp;
+            inputField.placeholder = placeholderTmp;
+            inputField.text = initialText ?? "";
+            inputField.contentType = contentType;
+            inputField.pointSize = fontSize;
+            inputField.caretColor = UIColors.WithAlpha(UIColors.BrightBlue, 0.9f);
+            inputField.selectionColor = UIColors.WithAlpha(UIColors.BrightBlue, 0.3f);
+
+            // 聚焦时高亮边框
+            var colors = inputField.colors;
+            colors.normalColor = new Color(0.06f, 0.07f, 0.14f, 0.90f);
+            colors.highlightedColor = new Color(0.10f, 0.12f, 0.22f, 0.95f);
+            colors.selectedColor = new Color(0.10f, 0.14f, 0.28f, 0.95f);
+            colors.fadeDuration = 0.1f;
+            inputField.colors = colors;
+
+            return inputField;
         }
     }
 }

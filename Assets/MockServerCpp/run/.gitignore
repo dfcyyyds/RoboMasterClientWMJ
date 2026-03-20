@@ -1,5 +1,0 @@
-# 运行时生成的文件，不应提交到版本控制
-*.log
-pids.*
-mosquitto_mock.conf
-

@@ -9,10 +9,10 @@ using UI.ViewModels;
 namespace UI.HUD
 {
     /// <summary>
-    /// 英雄吊射模式服务 — 管理模式切换、双Shift手势检测、射击输入、视频流控制
+    /// 英雄吊射模式服务 — 管理模式切换、Shift键切换、射击输入、视频流控制
     /// 仅在英雄兵种注册时创建，非英雄不实例化（注册期划分）
     /// 
-    /// 手势：同时按下左右Shift键两次 → 切换吊射模式
+    /// 手势：按一次左Shift或右Shift → 切换吊射模式（进入/退出）
     /// 命令：cmd_type=103(进入), 104(退出), 105(吊射射击)
     /// </summary>
     public class LobShotService : MonoBehaviour
@@ -20,13 +20,6 @@ namespace UI.HUD
         // ─── 状态 ───
         private bool isActive;
         private bool isHero;
-
-        // ─── 双Shift手势检测 ───
-        private int dualShiftCount;
-        private float lastDualShiftTime;
-        private bool wasBothShiftDown;
-        private const float DUAL_SHIFT_WINDOW = 1.5f; // 两次双Shift间最大间隔
-        private const int DUAL_SHIFT_REQUIRED = 2;     // 需要连续按两次
 
         // ─── 射击冷却(本地预判) ───
         private float fireCooldown;
@@ -66,7 +59,7 @@ namespace UI.HUD
         {
             if (!isHero) return;
 
-            DetectDualShiftGesture();
+            DetectShiftToggle();
             HandleFireInput();
 
             // Escape 键退出吊射模式
@@ -77,29 +70,15 @@ namespace UI.HUD
             if (recoilTimer > 0) recoilTimer -= Time.deltaTime;
         }
 
-        // ═══════════════════════════════ 手势检测 ═══════════════════════════════
+        // ═══════════════════════════════ Shift 切换检测 ═══════════════════════════════
 
-        private void DetectDualShiftGesture()
+        /// <summary>按一次左Shift或右Shift即切换吊射模式</summary>
+        private void DetectShiftToggle()
         {
-            bool bothDown = Input.GetKey(KeyCode.LeftShift) && Input.GetKey(KeyCode.RightShift);
-
-            // 检测"按下"动作（上升沿）
-            if (bothDown && !wasBothShiftDown)
+            if (Input.GetKeyDown(KeyCode.LeftShift) || Input.GetKeyDown(KeyCode.RightShift))
             {
-                float now = Time.realtimeSinceStartup;
-                if (now - lastDualShiftTime > DUAL_SHIFT_WINDOW)
-                    dualShiftCount = 0; // 超时重置
-
-                dualShiftCount++;
-                lastDualShiftTime = now;
-
-                if (dualShiftCount >= DUAL_SHIFT_REQUIRED)
-                {
-                    dualShiftCount = 0;
-                    ToggleDeployMode();
-                }
+                ToggleDeployMode();
             }
-            wasBothShiftDown = bothDown;
         }
 
         private void ToggleDeployMode()

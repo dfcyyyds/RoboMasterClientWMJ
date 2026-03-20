@@ -758,12 +758,19 @@ int nvdec_get_texture(const NvdecContext& ctx) {
     return 0;
   }
 
+  // GL 互操作已确认失败，不再反复重试（避免日志刷屏），等待上层回退到 ffmpeg
+  if (mut_ctx.gl_failed) {
+    return 0;
+  }
+
   // 创建或重新创建 GL 对象（如果尺寸变化）
   if (!mut_ctx.gl_ready || mut_ctx.tex == 0 || mut_ctx.pbo[0] == 0 ||
       mut_ctx.pbo[1] == 0 || mut_ctx.pbo[2] == 0 || mut_ctx.gl_width != w ||
       mut_ctx.gl_height != h) {
     if (setup_gl_objects(mut_ctx, w, h) != 0) {
-      fprintf(stderr, "[NVDEC] GL setup failed\n");
+      fprintf(stderr,
+              "[NVDEC] GL setup failed (gl_failed=%d), will not retry\n",
+              mut_ctx.gl_failed ? 1 : 0);
       return 0;
     }
   }

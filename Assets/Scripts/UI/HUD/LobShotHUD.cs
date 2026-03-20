@@ -41,6 +41,11 @@ namespace UI.HUD
         private byte[] frameBuf = new byte[TEX_W * TEX_H / 8]; // 3456B
         private byte[] pixelBuf = new byte[TEX_W * TEX_H * 4]; // RGBA展开
 
+        // 渐进I帧缓冲 (96×72 缩略帧，§5.5)
+        private const int THUMB_W = 96, THUMB_H = 72;
+        private byte[] thumbBuf = new byte[THUMB_W * THUMB_H / 8]; // 864B
+        private ushort lastPart1FrameId;
+
         // 轨迹元数据(从服务端包解析)
         private struct TrailPoint { public int x, y; }
         private TrailPoint[] trailPoints = new TrailPoint[120];
@@ -48,10 +53,43 @@ namespace UI.HUD
         private bool ballDetected;
         private int ballCX, ballCY, ballRadius;
 
+        // ─── 轨迹叠加算法 ───
+        // 客户端跨 I 帧周期累积整次发射的轨迹，检测到新发射时清除
+        private TrailPoint[] accTrail = new TrailPoint[4096];
+        private int accTrailCount;
+        private int accTrailNewStart;            // 本批次新增点在 accTrail 的起始索引
+        private bool prevBallState;              // 上一帧弹丸检测状态
+        private float lastBallDetectTime = -10f; // 上次检测到弹丸的时刻
+        private int lastServerTrailCount;        // 上一帧服务端轨迹点数(增量检测用)
+        private const float SHOT_GAP_SEC = 1.5f; // 超过此间隔无弹丸 → 本轮发射结束
+        private int consecutiveNoBall;           // 连续无弹丸帧计数
+        private const int MIN_TRAIL_TO_KEEP = 3; // 轨迹点少于此数时不视为有效轨迹
+
+        // 客户端帧差弹丸检测
+        private byte[] prevFrameBuf;             // 上一帧的 frameBuf 副本
+        private bool clientBallDetected;
+        private int clientBallCX, clientBallCY;
+        private int prevClientCX = -1, prevClientCY = -1; // 上一帧客户端检测质心
+        private int clientConfirmCount;           // 连续有效检测帧计数
+
+        // 诊断统计
+        private int diagIFrames, diagDFrames, diagDEmpty, diagTrailFrames;
+        private int diagBallDetected, diagAccPoints, diagClientBall;
+        private float lastDiagLogTime;
+        private const float DIAG_LOG_INTERVAL = 3f;
+
         // 颜色渲染常量
         // 靶标屏幕坐标(与服务端3D投影参数匹配: cx≈101, cy≈75)
-        private const int TARGET_CX = 101, TARGET_CY = 75, TARGET_R = 2;
-        private const int COLORFUL_TAIL = 8; // 末尾N个轨迹点用彩色渐变
+        private const int TARGET_CX = 101, TARGET_CY = 75, TARGET_R = 6;
+        private const int COLORFUL_TAIL = 16; // 末尾N个轨迹点保证彩色渐变
+
+        // 客户端帧差弹丸检测阈值 (与§8.1 服务端一致)
+        private const int BALL_MIN_PIXELS = 4;
+        private const int BALL_MAX_PIXELS = 50;
+        private const int BALL_MIN_AREA = 4;
+        private const int BALL_MAX_AREA = 400;
+        private const int BALL_MAX_DISP = 20; // 质心位移上限(像素)
+        private const int BALL_CONFIRM_FRAMES = 2; // 连续N帧有效才确认
 
         // 帧类型常量 (§4.3 严格按规范)
         private const byte FT_I_PART1 = 0x01;
@@ -66,9 +104,9 @@ namespace UI.HUD
         private const int BLOCKS_X = 24; // 192/8
         private const int BLOCKS_Y = 18; // 144/8
 
-        // ─── 线程安全帧缓冲 ───
-        private byte[] pendingFrame;
-        private readonly object frameLock = new object();
+        // ─── 线程安全帧队列 ───
+        private readonly System.Collections.Concurrent.ConcurrentQueue<byte[]> pendingFrames
+            = new System.Collections.Concurrent.ConcurrentQueue<byte[]>();
 
         // ─── 数据 ───
         private GlobalUnitStatusViewModel unitVM;
@@ -111,6 +149,21 @@ namespace UI.HUD
         {
             isShowing = true;
             frameCount = 0;
+            // 进入吊射模式时重置累积轨迹
+            accTrailCount = 0;
+            accTrailNewStart = 0;
+            lastServerTrailCount = 0;
+            prevBallState = false;
+            lastBallDetectTime = -10f;
+            consecutiveNoBall = 0;
+            clientBallDetected = false;
+            prevClientCX = -1; prevClientCY = -1;
+            clientConfirmCount = 0;
+            if (prevFrameBuf == null) prevFrameBuf = new byte[TEX_W * TEX_H / 8];
+            System.Array.Copy(frameBuf, prevFrameBuf, frameBuf.Length);
+            diagIFrames = diagDFrames = diagDEmpty = diagTrailFrames = 0;
+            diagBallDetected = diagAccPoints = diagClientBall = 0;
+            lastDiagLogTime = Time.realtimeSinceStartup;
             if (lobCanvas != null) lobCanvas.gameObject.SetActive(true);
             wmj.Log.I("[LobShotHUD] 显示吊射画面", wmj.Log.Tag.UI);
         }
@@ -181,6 +234,16 @@ namespace UI.HUD
             displayTex = new Texture2D(TEX_W, TEX_H, TextureFormat.RGBA32, false);
             displayTex.filterMode = FilterMode.Point;
             displayTex.wrapMode = TextureWrapMode.Clamp;
+
+            // 初始化为纯黑(Unity默认灰色，不便于诊断)
+            var blackPixels = new byte[TEX_W * TEX_H * 4];
+            for (int i = 0; i < blackPixels.Length; i += 4)
+            {
+                blackPixels[i] = 0; blackPixels[i + 1] = 0;
+                blackPixels[i + 2] = 0; blackPixels[i + 3] = 255;
+            }
+            displayTex.SetPixelData(blackPixels, 0);
+            displayTex.Apply(false);
 
             // RawImage 居中显示
             var go = new GameObject("VisionDisplay");
@@ -273,29 +336,79 @@ namespace UI.HUD
             if (typeName != "CustomByteBlock") return;
 
             var block = data as CustomByteBlock;
-            if (block == null || block.Data == null || block.Data.Length < 10) return;
+            if (block == null || block.Data == null)
+            {
+                wmj.Log.W("[LobShotHUD] 收到 CustomByteBlock 但 Data 为空", wmj.Log.Tag.UI);
+                return;
+            }
+            if (block.Data.Length < 9)
+            {
+                wmj.Log.W($"[LobShotHUD] 收到 CustomByteBlock 但数据太短: {block.Data.Length} 字节", wmj.Log.Tag.UI);
+                return;
+            }
 
-            // 仅缓存原始数据，在主线程Update中解码（MQTT回调在后台线程）
+            // 入队而非覆盖，确保D帧XOR增量不丢失
             byte[] raw = block.Data.ToByteArray();
-            lock (frameLock) { pendingFrame = raw; }
+            pendingFrames.Enqueue(raw);
 
-            // 诊断日志（每10帧打印一次，避免刷屏）
+            // 诊断日志 — 前5帧用Info级别(Release可见)，之后每50帧输出一次
             int fc = System.Threading.Interlocked.Increment(ref frameCount);
-            if (fc <= 3 || fc % 10 == 0)
-                wmj.Log.D($"[LobShotHUD] 收到帧 #{fc}, 长度={raw.Length}", wmj.Log.Tag.UI);
+            if (fc <= 5)
+            {
+                string hexHead = "";
+                for (int i = 0; i < Mathf.Min(16, raw.Length); i++)
+                    hexHead += raw[i].ToString("X2") + " ";
+                wmj.Log.I($"[LobShotHUD] 帧 #{fc} 到达, 长度={raw.Length}, 头={hexHead}", wmj.Log.Tag.UI);
+            }
+            else if (fc % 50 == 0)
+            {
+                wmj.Log.D($"[LobShotHUD] 已收到 {fc} 帧", wmj.Log.Tag.UI);
+            }
         }
+
+        // 诊断：DecodeFrame 拒绝计数
+        private int diagDecodeReject;
+        private int diagDecodeSuccess;
 
         private void DecodeFrame(byte[] packet)
         {
             // 基本校验 (包头至少9字节: sync+type+fid*2+frag+plen*2 + xor + end)
-            if (packet.Length < 9) return;
-            if (packet[0] != 0xA5) return;
-            if (packet[packet.Length - 1] != 0x5A) return;
+            if (packet.Length < 9)
+            {
+                if (diagDecodeReject++ < 5)
+                    wmj.Log.W($"[LobShotHUD] DecodeFrame: 包太短 ({packet.Length} 字节)", wmj.Log.Tag.UI);
+                return;
+            }
+            if (packet[0] != 0xA5)
+            {
+                if (diagDecodeReject++ < 5)
+                {
+                    string hex = "";
+                    for (int i = 0; i < Mathf.Min(8, packet.Length); i++)
+                        hex += packet[i].ToString("X2") + " ";
+                    wmj.Log.W($"[LobShotHUD] DecodeFrame: 首字节非 0xA5, 前8字节=[{hex}], 总长={packet.Length}", wmj.Log.Tag.UI);
+                }
+                return;
+            }
+            if (packet[packet.Length - 1] != 0x5A)
+            {
+                if (diagDecodeReject++ < 5)
+                    wmj.Log.W($"[LobShotHUD] DecodeFrame: 尾字节非 0x5A (实际=0x{packet[packet.Length - 1]:X2})", wmj.Log.Tag.UI);
+                return;
+            }
 
             // XOR校验
             byte xor = 0;
             for (int i = 0; i < packet.Length - 2; i++) xor ^= packet[i];
-            if (xor != packet[packet.Length - 2]) return;
+            if (xor != packet[packet.Length - 2])
+            {
+                if (diagDecodeReject++ < 5)
+                    wmj.Log.W($"[LobShotHUD] DecodeFrame: XOR校验失败 (计算=0x{xor:X2}, 期望=0x{packet[packet.Length - 2]:X2})", wmj.Log.Tag.UI);
+                return;
+            }
+
+            if (diagDecodeSuccess++ < 3)
+                wmj.Log.I($"[LobShotHUD] DecodeFrame: 帧解码成功 type=0x{packet[1]:X2} len={packet.Length}", wmj.Log.Tag.UI);
 
             byte frameType = packet[1];
             // payload_len: 2字节 uint16 LE (偏移5-6)
@@ -304,7 +417,15 @@ namespace UI.HUD
 
             switch (frameType)
             {
-                case FT_I_SINGLE: // 0x03 — 全帧RLE + 轨迹元数据
+                case FT_I_PART1: // 0x01 — 渐进I帧第1包 (96×72 缩略帧 RLE)
+                    DecodeIFramePart1(packet, payloadStart, payloadLen);
+                    break;
+
+                case FT_I_PART2: // 0x02 — 渐进I帧第2包 (上采样差分补丁)
+                    DecodeIFramePart2(packet, payloadStart, payloadLen);
+                    break;
+
+                case FT_I_SINGLE: // 0x03 — 单包I帧 (bg_color + 块跳过, §4.5.3)
                     DecodeIFrameSingle(packet, payloadStart, payloadLen);
                     break;
 
@@ -315,6 +436,8 @@ namespace UI.HUD
                 case FT_D_EMPTY: // 0x11 — 无变化, 保持当前帧
                     // 不修改frameBuf; D_EMPTY表示无弹丸检测, 清除弹丸状态
                     ballDetected = false;
+                    diagDEmpty++;
+                    HandleShotDetection(false);
                     UpdateTexture();
                     break;
 
@@ -331,22 +454,87 @@ namespace UI.HUD
             }
         }
 
-        /// <summary>解码I帧(全帧RLE重建)</summary>
+        /// <summary>
+        /// 解码单包I帧 (§4.5.3 块跳过格式)
+        /// 载荷: width_div4(1B) + height_div4(1B) + bg_color(1B) + mixed_count(1B) + block_entries
+        /// 混合块条目: bx(1B) + by(1B) + rle_len(1B) + data(变长)
+        ///   rle_len==0: 全翻转(纯色但非背景色)
+        ///   rle_len&0x80: 原始8字节  rle_len&0x7F=数据长度
+        ///   其他: 块内RLE编码  rle_len=RLE字节数
+        /// </summary>
         private void DecodeIFrameSingle(byte[] packet, int payloadStart, int payloadLen)
         {
-            if (payloadLen < 5) return; // w/h/bg + rle_len(2B)
+            if (payloadLen < 4) return; // width_div4 + height_div4 + bg_color + mixed_count
             byte bgColor = packet[payloadStart + 2];
+            int mixedCount = packet[payloadStart + 3];
 
-            // 读取 rle_len (uint16 LE, payload偏移3-4)
-            int rleLen = packet[payloadStart + 3] | (packet[payloadStart + 4] << 8);
-            int rleStart = payloadStart + 5;
+            // 用背景色填充整个帧缓冲
+            byte bgFill = (bgColor == 0xFF) ? (byte)0xFF : (byte)0x00;
+            for (int i = 0; i < frameBuf.Length; i++) frameBuf[i] = bgFill;
 
-            // RLE解码到frameBuf(完全重建)
-            DecodeRLE(packet, rleStart, rleLen, bgColor);
+            // 解码混合块列表（覆盖写入, 非XOR）
+            int pos = payloadStart + 4;
+            int packetEnd = packet.Length - 2;
+            DecodeBlockEntries(packet, pos, mixedCount, packetEnd, false, bgFill);
 
-            // 解析轨迹元数据(RLE数据之后)
-            int trailMetaStart = rleStart + rleLen;
-            ParseTrailMeta(packet, trailMetaStart);
+            // I帧开启新周期：服务端重置轨迹计数，但客户端累积轨迹跨I帧保持
+            lastServerTrailCount = 0;
+            diagIFrames++;
+
+            if (prevFrameBuf != null)
+                System.Array.Copy(frameBuf, prevFrameBuf, frameBuf.Length);
+
+            UpdateTexture();
+        }
+
+        /// <summary>
+        /// 解码渐进I帧第1包 (§4.5.1 缩略帧RLE)
+        /// 载荷: width_div4(1B) + height_div4(1B) + bg_color(1B) + rle_data(变长)
+        /// 解码96×72缩略帧，最近邻上采样到192×144
+        /// </summary>
+        private void DecodeIFramePart1(byte[] packet, int payloadStart, int payloadLen)
+        {
+            if (payloadLen < 3) return;
+            byte bgColor = packet[payloadStart + 2];
+            int rleDataLen = payloadLen - 3;
+
+            // RLE解码到缩略帧缓冲 (96×72)
+            DecodeRLEToBuf(packet, payloadStart + 3, rleDataLen, bgColor,
+                           thumbBuf, THUMB_W, THUMB_H);
+
+            // 最近邻上采样 96×72 → 192×144
+            UpsampleNN(thumbBuf, THUMB_W, THUMB_H, frameBuf, TEX_W, TEX_H);
+
+            // 记录frame_id，供Part2关联
+            lastPart1FrameId = (ushort)(packet[2] | (packet[3] << 8));
+
+            // I帧开启新周期：服务端重置轨迹计数，但客户端累积轨迹跨I帧保持
+            lastServerTrailCount = 0;
+            diagIFrames++;
+
+            if (prevFrameBuf != null)
+                System.Array.Copy(frameBuf, prevFrameBuf, frameBuf.Length);
+
+            UpdateTexture();
+        }
+
+        /// <summary>
+        /// 解码渐进I帧第2包 (§4.5.2 上采样差分补丁)
+        /// 载荷: ref_frame_id(2B) + mixed_count(1B) + block_entries
+        /// 块数据为上采样缩略帧与原帧的XOR差分，需XOR应用到frameBuf
+        /// </summary>
+        private void DecodeIFramePart2(byte[] packet, int payloadStart, int payloadLen)
+        {
+            if (payloadLen < 3) return;
+            int pos = payloadStart;
+            int packetEnd = packet.Length - 2;
+
+            // ref_frame_id (2字节, 用于关联Part1, 暂不做严格校验)
+            pos += 2;
+            int mixedCount = packet[pos++];
+
+            // Part2的块数据是XOR补丁，需要异或到frameBuf上
+            DecodeBlockEntries(packet, pos, mixedCount, packetEnd, true, 0x00);
 
             UpdateTexture();
         }
@@ -402,6 +590,26 @@ namespace UI.HUD
                 trailCount = maxPts;
             }
 
+            // 客户端帧差弹丸检测 (不依赖服务端 ball_detected)
+            ClientDiffDetectBall();
+
+            // 融合：服务端或客户端任一检测到弹丸即累积
+            bool anyBall = ballDetected || clientBallDetected;
+            int useCX = ballDetected ? ballCX : clientBallCX;
+            int useCY = ballDetected ? ballCY : clientBallCY;
+
+            // 检测新一轮发射 + 累积轨迹
+            HandleShotDetection(anyBall);
+            if (anyBall) AccumulateBallXY(useCX, useCY);
+            // 也接收服务端轨迹作为补充
+            AccumulateServerTrail();
+            diagDFrames++;
+            if (ballDetected) diagBallDetected++;
+            if (clientBallDetected) diagClientBall++;
+
+            // 保存当前帧作为下一次差分的参考帧
+            System.Array.Copy(frameBuf, prevFrameBuf, frameBuf.Length);
+
             UpdateTexture();
         }
 
@@ -424,9 +632,184 @@ namespace UI.HUD
             }
             trailCount = maxPts;
 
+            // 增量累积轨迹
+            AccumulateServerTrail();
+            diagTrailFrames++;
+
             // 轨迹帧不改变frameBuf, 仅更新轨迹并重新渲染
             UpdateTexture();
         }
+
+        /// <summary>
+        /// 解码混合块列表（I_FRAME_SINGLE / I_FRAME_PART2 共用）
+        /// </summary>
+        /// <param name="applyXor">true=XOR叠加(Part2补丁), false=直接覆盖(Single)</param>
+        /// <param name="bgFill">背景填充字节, 用于 rle_len=0 的全翻转块</param>
+        private void DecodeBlockEntries(byte[] packet, int startPos, int count,
+                                        int packetEnd, bool applyXor, byte bgFill)
+        {
+            int pos = startPos;
+            byte[] blockBuf = new byte[8];
+
+            for (int i = 0; i < count && pos < packetEnd; i++)
+            {
+                if (pos + 3 > packetEnd) break;
+
+                int bx = packet[pos++];
+                int by = packet[pos++];
+                byte rleLenByte = packet[pos++];
+
+                if (rleLenByte == 0)
+                {
+                    // 全翻转: 块内所有像素为背景色的反色 (§5.3 rle_len=0)
+                    byte fillVal = (byte)(bgFill ^ 0xFF);
+                    for (int r = 0; r < 8; r++) blockBuf[r] = fillVal;
+                }
+                else if ((rleLenByte & 0x80) != 0)
+                {
+                    // 原始8字节: 最高位=1 表示未压缩 (§5.3.2)
+                    int rawLen = rleLenByte & 0x7F;
+                    if (pos + rawLen > packetEnd) break;
+                    for (int r = 0; r < 8; r++)
+                        blockBuf[r] = (r < rawLen) ? packet[pos + r] : (byte)0;
+                    pos += rawLen;
+                }
+                else
+                {
+                    // 块内RLE: rleLenByte = RLE数据字节数 (§5.3.2)
+                    int rleLen = rleLenByte & 0x7F;
+                    if (pos + rleLen > packetEnd) break;
+                    DecodeBlockRLE(packet, pos, rleLen, blockBuf);
+                    pos += rleLen;
+                }
+
+                // 写入frameBuf对应位置
+                for (int row = 0; row < 8; row++)
+                {
+                    int y = by * 8 + row;
+                    int byteOffset = y * (TEX_W / 8) + bx;
+                    if (byteOffset >= 0 && byteOffset < frameBuf.Length)
+                    {
+                        if (applyXor)
+                            frameBuf[byteOffset] ^= blockBuf[row];
+                        else
+                            frameBuf[byteOffset] = blockBuf[row];
+                    }
+                }
+            }
+        }
+
+        /// <summary>
+        /// 解码8×8块的内部RLE（64像素 → 8字节）
+        /// 格式同全帧RLE: 起始颜色(1B) + run计数序列
+        /// </summary>
+        private void DecodeBlockRLE(byte[] data, int offset, int rleLen, byte[] blockBuf)
+        {
+            for (int i = 0; i < 8; i++) blockBuf[i] = 0;
+            if (rleLen <= 0 || offset >= data.Length) return;
+
+            bool curColor = (data[offset] == 0x01);
+            int dataIdx = offset + 1;
+            int endOffset = offset + rleLen;
+            int pixIdx = 0;
+            const int totalPixels = 64; // 8×8
+
+            while (dataIdx < endOffset && dataIdx < data.Length && pixIdx < totalPixels)
+            {
+                int run = data[dataIdx++];
+                if (run == 0) { curColor = !curColor; continue; }
+
+                for (int j = 0; j < run && pixIdx < totalPixels; j++, pixIdx++)
+                {
+                    if (curColor)
+                    {
+                        int byteIdx = pixIdx / 8;
+                        int bitIdx = 7 - (pixIdx % 8);
+                        blockBuf[byteIdx] |= (byte)(1 << bitIdx);
+                    }
+                }
+                curColor = !curColor;
+            }
+        }
+
+        /// <summary>
+        /// RLE解码到指定缓冲区（用于Part1缩略帧 96×72）
+        /// </summary>
+        private void DecodeRLEToBuf(byte[] data, int offset, int rleLen, byte bgColor,
+                                    byte[] buf, int width, int height)
+        {
+            int totalPixels = width * height;
+            int bytesCount = totalPixels / 8;
+
+            byte fillByte = (bgColor == 0xFF) ? (byte)0xFF : (byte)0x00;
+            for (int i = 0; i < bytesCount && i < buf.Length; i++) buf[i] = fillByte;
+
+            if (rleLen <= 0 || offset >= data.Length) return;
+
+            bool curColor = (data[offset] == 0x01);
+            int dataIdx = offset + 1;
+            int endOffset = offset + rleLen;
+            int pixIdx = 0;
+
+            while (dataIdx < endOffset && dataIdx < data.Length && pixIdx < totalPixels)
+            {
+                int run = data[dataIdx++];
+                if (run == 0) { curColor = !curColor; continue; }
+
+                for (int j = 0; j < run && pixIdx < totalPixels; j++, pixIdx++)
+                {
+                    int byteIdx = pixIdx / 8;
+                    int bitIdx = 7 - (pixIdx % 8);
+                    if (byteIdx < buf.Length)
+                    {
+                        if (curColor)
+                            buf[byteIdx] |= (byte)(1 << bitIdx);
+                        else
+                            buf[byteIdx] &= (byte)~(1 << bitIdx);
+                    }
+                }
+                curColor = !curColor;
+            }
+        }
+
+        /// <summary>
+        /// 最近邻2×上采样: 96×72 → 192×144
+        /// 每个源像素复制为2×2目标像素 (§5.5.3)
+        /// </summary>
+        private void UpsampleNN(byte[] src, int srcW, int srcH,
+                                byte[] dst, int dstW, int dstH)
+        {
+            for (int i = 0; i < dst.Length; i++) dst[i] = 0;
+
+            for (int ty = 0; ty < srcH; ty++)
+            {
+                for (int tx = 0; tx < srcW; tx++)
+                {
+                    int sByte = ty * (srcW / 8) + tx / 8;
+                    int sBit = 7 - (tx % 8);
+                    if (sByte >= src.Length) continue;
+                    bool pixel = (src[sByte] & (1 << sBit)) != 0;
+
+                    if (pixel)
+                    {
+                        for (int dy = 0; dy < 2; dy++)
+                        {
+                            for (int dx = 0; dx < 2; dx++)
+                            {
+                                int fx = tx * 2 + dx;
+                                int fy = ty * 2 + dy;
+                                int fByte = fy * (dstW / 8) + fx / 8;
+                                int fBit = 7 - (fx % 8);
+                                if (fByte < dst.Length)
+                                    dst[fByte] |= (byte)(1 << fBit);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // ─── 以下保留旧RLE方法供兼容，新逻辑不再调用 ───
 
         private void DecodeRLE(byte[] data, int offset, int rleLen, byte bgColor)
         {
@@ -492,10 +875,193 @@ namespace UI.HUD
             trailCount = maxPts;
         }
 
+        // ═══════════════════ 轨迹叠加算法 ═══════════════════
+
+        /// <summary>
+        /// 新弹丸发射检测：弹丸消失超过阈值后重新出现 → 新一轮发射
+        /// 清除上次累积轨迹，开始叠加本次轨迹
+        /// </summary>
+        private void HandleShotDetection(bool anyBallNow)
+        {
+            if (anyBallNow)
+            {
+                consecutiveNoBall = 0;
+                if (!prevBallState &&
+                    Time.realtimeSinceStartup - lastBallDetectTime > SHOT_GAP_SEC &&
+                    accTrailCount >= MIN_TRAIL_TO_KEEP)
+                {
+                    // 新一轮发射 → 清除上次轨迹
+                    accTrailCount = 0;
+                    accTrailNewStart = 0;
+                    lastServerTrailCount = 0;
+                    wmj.Log.I("[LobShotHUD] 检测到新一轮发射，清除历史轨迹",
+                        wmj.Log.Tag.UI);
+                }
+                lastBallDetectTime = Time.realtimeSinceStartup;
+                prevBallState = true;
+            }
+            else
+            {
+                consecutiveNoBall++;
+                // 只有连续多帧无弹丸才判定弹丸消失
+                if (consecutiveNoBall > 15)
+                    prevBallState = false;
+            }
+        }
+
+        /// <summary>
+        /// 客户端帧差弹丸检测：严格按 §8.1 协议参数过滤。
+        /// 像素数 4~50, 面积 4~400, 质心位移 &lt;20px, 连续2帧确认
+        /// </summary>
+        private void ClientDiffDetectBall()
+        {
+            clientBallDetected = false;
+            if (prevFrameBuf == null) return;
+
+            // Step 1: 帧差分统计
+            int sumX = 0, sumY = 0, count = 0;
+            int minX = TEX_W, maxX = 0, minY = TEX_H, maxY = 0;
+
+            for (int byteIdx = 0; byteIdx < frameBuf.Length; byteIdx++)
+            {
+                int diff = frameBuf[byteIdx] ^ prevFrameBuf[byteIdx];
+                if (diff == 0) continue;
+
+                int baseX = (byteIdx % (TEX_W / 8)) * 8;
+                int y = byteIdx / (TEX_W / 8);
+
+                for (int bit = 7; bit >= 0; bit--)
+                {
+                    if (((diff >> bit) & 1) == 0) continue;
+                    int x = baseX + (7 - bit);
+                    sumX += x; sumY += y; count++;
+                    if (x < minX) minX = x;
+                    if (x > maxX) maxX = x;
+                    if (y < minY) minY = y;
+                    if (y > maxY) maxY = y;
+                }
+            }
+
+            // Step 2: 像素数门限 (§8.1: 4~50)
+            if (count < BALL_MIN_PIXELS || count > BALL_MAX_PIXELS)
+            {
+                clientConfirmCount = 0;
+                prevClientCX = -1; prevClientCY = -1;
+                return;
+            }
+
+            // Step 3: 包围盒面积 (§8.1: 4~400)
+            int area = (maxX - minX + 1) * (maxY - minY + 1);
+            if (area < BALL_MIN_AREA || area > BALL_MAX_AREA)
+            {
+                clientConfirmCount = 0;
+                prevClientCX = -1; prevClientCY = -1;
+                return;
+            }
+
+            int cx = sumX / count;
+            int cy = sumY / count;
+
+            // Step 4: 运动连续性 — 与上一帧客户端质心距离 < 20px
+            if (prevClientCX >= 0)
+            {
+                int dx = cx - prevClientCX, dy = cy - prevClientCY;
+                if (dx * dx + dy * dy > BALL_MAX_DISP * BALL_MAX_DISP)
+                {
+                    // 不连续 → 可能是新弹丸出现，重置连续计数但记住位置
+                    clientConfirmCount = 1;
+                    prevClientCX = cx; prevClientCY = cy;
+                    return;
+                }
+            }
+
+            // 更新候选质心
+            prevClientCX = cx; prevClientCY = cy;
+            clientConfirmCount++;
+
+            // Step 5: 连续确认 — 需连续 N 帧通过上述检测才输出
+            if (clientConfirmCount >= BALL_CONFIRM_FRAMES)
+            {
+                clientBallDetected = true;
+                clientBallCX = cx;
+                clientBallCY = cy;
+            }
+        }
+
+        /// <summary>
+        /// 将弹丸坐标追加到累积轨迹（去重）
+        /// </summary>
+        private void AccumulateBallXY(int cx, int cy)
+        {
+            // 去重：与上一个累积点相同则跳过
+            if (accTrailCount > 0)
+            {
+                var last = accTrail[accTrailCount - 1];
+                if (last.x == cx && last.y == cy) return;
+                // 跳跃过大也跳过 — 与§8.1 BALL_MAX_DISP 一致
+                int dx = cx - last.x, dy = cy - last.y;
+                if (dx * dx + dy * dy > BALL_MAX_DISP * BALL_MAX_DISP) return;
+            }
+
+            if (accTrailCount < accTrail.Length)
+            {
+                accTrailNewStart = accTrailCount;
+                accTrail[accTrailCount].x = cx;
+                accTrail[accTrailCount].y = cy;
+                accTrailCount++;
+                diagAccPoints++;
+            }
+        }
+
+        /// <summary>
+        /// 增量累积服务端轨迹到客户端缓冲
+        /// 服务端每个 D 帧发送完整累积轨迹；客户端检测增量部分追加到 accTrail
+        /// </summary>
+        private void AccumulateServerTrail()
+        {
+            int newStart, newCount;
+
+            if (trailCount > lastServerTrailCount)
+            {
+                // 正常增长：仅追加新增的点
+                newStart = lastServerTrailCount;
+                newCount = trailCount - lastServerTrailCount;
+            }
+            else if (trailCount > 0 && trailCount < lastServerTrailCount)
+            {
+                // 服务端重置（I帧后重新开始）：追加全部
+                newStart = 0;
+                newCount = trailCount;
+            }
+            else
+            {
+                // 数量不变 — 没有新增
+                lastServerTrailCount = trailCount;
+                return;
+            }
+
+            // 标记新批次起始位置（用于彩色渲染）
+            accTrailNewStart = accTrailCount;
+
+            for (int i = 0; i < newCount && accTrailCount < accTrail.Length; i++)
+                accTrail[accTrailCount++] = trailPoints[newStart + i];
+
+            lastServerTrailCount = trailCount;
+        }
+
+        /// <summary>HSV 彩虹映射: t∈[0,1] → 红→黄→绿→青→蓝</summary>
+        private static void RainbowColor(float t, out byte r, out byte g, out byte b)
+        {
+            Color c = Color.HSVToRGB(t * 0.75f, 1f, 1f);
+            r = (byte)(c.r * 255);
+            g = (byte)(c.g * 255);
+            b = (byte)(c.b * 255);
+        }
+
         private void UpdateTexture()
         {
             // ═══ 第一遍: 1bit→RGBA, 分类着色 ═══
-            // 靶标区域白色像素→亮绿, 其余白色像素→暗绿(噪声), 黑色→黑色
+            // 所有白色像素清晰显示(亮白绿)
             for (int y = 0; y < TEX_H; y++)
             {
                 int srcY = TEX_H - 1 - y; // 翻转Y轴(Unity纹理Y=0在底部)
@@ -514,62 +1080,17 @@ namespace UI.HUD
                     }
                     else
                     {
-                        // 判断是否在靶标区域内(使用原始坐标系)
-                        int dx = x - TARGET_CX;
-                        int dy = srcY - TARGET_CY;
-                        if (dx * dx + dy * dy <= (TARGET_R + 1) * (TARGET_R + 1))
-                        {
-                            // 靶标: 亮绿色
-                            pixelBuf[pi] = 0; pixelBuf[pi + 1] = 255;
-                            pixelBuf[pi + 2] = 50; pixelBuf[pi + 3] = 255;
-                        }
-                        else
-                        {
-                            // 噪声/其他白色像素: 暗绿色
-                            pixelBuf[pi] = 20; pixelBuf[pi + 1] = 60;
-                            pixelBuf[pi + 2] = 35; pixelBuf[pi + 3] = 255;
-                        }
+                        // 场景白色像素: 明亮白绿色(清晰可见)
+                        pixelBuf[pi] = 180; pixelBuf[pi + 1] = 220;
+                        pixelBuf[pi + 2] = 190; pixelBuf[pi + 3] = 255;
                     }
                 }
             }
 
-            // ═══ 第二遍: 叠加轨迹点颜色 ═══
-            if (trailCount > 0)
-            {
-                int oldEnd = Mathf.Max(0, trailCount - COLORFUL_TAIL);
-
-                // 历史轨迹: 白色
-                for (int i = 0; i < oldEnd; i++)
-                    DrawColoredDot(trailPoints[i].x, trailPoints[i].y, 2, 255, 255, 255);
-
-                // 最新变化: 彩色渐变 蓝→红→黄
-                for (int i = oldEnd; i < trailCount; i++)
-                {
-                    float ratio = (float)(i - oldEnd) / COLORFUL_TAIL;
-                    byte cr, cg, cb;
-                    if (ratio < 0.5f)
-                    {
-                        // 蓝→红
-                        float t = ratio * 2f;
-                        cr = (byte)(t * 255);
-                        cg = 0;
-                        cb = (byte)((1f - t) * 255);
-                    }
-                    else
-                    {
-                        // 红→黄
-                        float t = (ratio - 0.5f) * 2f;
-                        cr = 255;
-                        cg = (byte)(t * 255);
-                        cb = 0;
-                    }
-                    DrawColoredDot(trailPoints[i].x, trailPoints[i].y, 2, cr, cg, cb);
-                }
-            }
-
-            // ═══ 第三遍: 叠加当前弹丸(亮黄色) ═══
-            if (ballDetected)
-                DrawColoredDot(ballCX, ballCY, ballRadius, 255, 255, 0);
+            // ═══ 轨迹叠加暂时禁用，只显示原始图像 ═══
+            // TODO: 轨迹叠加待调试完成后重新启用
+            // if (accTrailCount > 1) { ... }
+            // if (ballDetected) DrawColoredDot(...);
 
             displayTex.SetPixelData(pixelBuf, 0);
             displayTex.Apply(false);
@@ -593,16 +1114,80 @@ namespace UI.HUD
             }
         }
 
+        /// <summary>在pixelBuf上绘制十字线标记(服务端坐标系, 自动翻转Y)</summary>
+        private void DrawCrosshair(int cx, int cy, int armLen, byte r, byte g, byte b)
+        {
+            int fcy = TEX_H - 1 - cy;
+            // 水平臂
+            for (int dx = -armLen; dx <= armLen; dx++)
+            {
+                int px = cx + dx;
+                if (px < 0 || px >= TEX_W || fcy < 0 || fcy >= TEX_H) continue;
+                int pi = (fcy * TEX_W + px) * 4;
+                pixelBuf[pi] = r; pixelBuf[pi + 1] = g;
+                pixelBuf[pi + 2] = b; pixelBuf[pi + 3] = 255;
+            }
+            // 垂直臂
+            for (int dy = -armLen; dy <= armLen; dy++)
+            {
+                int py = fcy + dy;
+                if (cx < 0 || cx >= TEX_W || py < 0 || py >= TEX_H) continue;
+                int pi = (py * TEX_W + cx) * 4;
+                pixelBuf[pi] = r; pixelBuf[pi + 1] = g;
+                pixelBuf[pi + 2] = b; pixelBuf[pi + 3] = 255;
+            }
+        }
+
+        /// <summary>Bresenham 线段绘制（服务端坐标系，自动翻转Y）</summary>
+        private void DrawLine(int x0, int y0, int x1, int y1, byte r, byte g, byte b)
+        {
+            int fy0 = TEX_H - 1 - y0;
+            int fy1 = TEX_H - 1 - y1;
+            int dx = Mathf.Abs(x1 - x0), sx = x0 < x1 ? 1 : -1;
+            int dy = -Mathf.Abs(fy1 - fy0), sy = fy0 < fy1 ? 1 : -1;
+            int err = dx + dy;
+            int px = x0, py = fy0;
+
+            for (int step = 0; step < 500; step++) // 安全上限
+            {
+                if (px >= 0 && px < TEX_W && py >= 0 && py < TEX_H)
+                {
+                    int pi = (py * TEX_W + px) * 4;
+                    pixelBuf[pi] = r; pixelBuf[pi + 1] = g;
+                    pixelBuf[pi + 2] = b; pixelBuf[pi + 3] = 255;
+                }
+                if (px == x1 && py == fy1) break;
+                int e2 = 2 * err;
+                if (e2 >= dy) { err += dy; px += sx; }
+                if (e2 <= dx) { err += dx; py += sy; }
+            }
+        }
+
         // ═══════════════════════════════ Update ═══════════════════════════════
 
         void Update()
         {
             if (!isShowing) return;
 
-            // 在主线程处理挂起的帧数据（线程安全）
-            byte[] frame = null;
-            lock (frameLock) { frame = pendingFrame; pendingFrame = null; }
-            if (frame != null) DecodeFrame(frame);
+            // 在主线程顺序解码所有挂起的帧数据（D帧是XOR增量，不能跳过）
+            int decoded = 0;
+            while (pendingFrames.TryDequeue(out byte[] frame))
+            {
+                DecodeFrame(frame);
+                decoded++;
+                // 每帧最多解码64个包防止卡顿
+                if (decoded >= 64) break;
+            }
+
+            // 定期诊断日志 (Info级别, Release可见)
+            if (isShowing && Time.realtimeSinceStartup - lastDiagLogTime > DIAG_LOG_INTERVAL)
+            {
+                lastDiagLogTime = Time.realtimeSinceStartup;
+                wmj.Log.I($"[LobShotHUD] 诊断: I={diagIFrames} D={diagDFrames} " +
+                    $"D_E={diagDEmpty} Trail={diagTrailFrames} | " +
+                    $"srvBall={diagBallDetected} cltBall={diagClientBall} " +
+                    $"accPts={diagAccPoints} accTotal={accTrailCount}", wmj.Log.Tag.UI);
+            }
 
             // 更新敌方基地血量
             UpdateBaseHealth();

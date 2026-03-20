@@ -44,14 +44,17 @@ namespace UI.RobotSelection
 
         private void Start()
         {
+            Debug.Log("[RobotSelectionBootstrap] ===== Start() 开始执行 =====");
+
             if (!autoShowOnStart)
             {
+                Debug.Log("[RobotSelectionBootstrap] autoShowOnStart=false, 跳过");
                 return;
             }
 
             if (skipSelection)
             {
-                // 调试模式：直接使用默认值
+                Debug.Log("[RobotSelectionBootstrap] skipSelection=true, 使用调试默认值");
                 var result = new RobotSelectionResult
                 {
                     Team = debugTeam,
@@ -62,7 +65,9 @@ namespace UI.RobotSelection
             }
 
             // 显示选择界面
+            Debug.Log("[RobotSelectionBootstrap] 准备显示兵种选择面板...");
             ShowSelectionPanel();
+            Debug.Log("[RobotSelectionBootstrap] ShowSelectionPanel() 调用完成");
         }
 
         /// <summary>

@@ -1,64 +1,130 @@
 using UnityEngine;
 using UnityEngine.UI;
 using UnityEngine.InputSystem;
-using UnityEngine.EventSystems;
 using TMPro;
 using UI.Core;
 using UI.RobotSelection;
 using System.Collections;
 using System.Collections.Generic;
 
-// EventTrigger 已在 UnityEngine.EventSystems 中
-
 namespace UI.HUD
 {
     /// <summary>
-    /// 设置面板 — 左侧多级侧边栏菜单
-    /// 模式一：参数配置（滑块调节各 HUD 参数）
-    /// 模式二：UI 布局自定义（缩略图预览 + 拖拽定位）
-    /// 现代风格：渐变背景、柔和边框、阴影
+    /// 设置面板（全键盘交互版）
+    /// 完全通过键盘操作，不依赖鼠标/EventSystem，兼容 Linux 和 Windows
+    ///
+    /// 快捷键总览：
+    ///   F10         打开/关闭设置面板
+    ///   Esc         关闭面板 / 取消编辑 / 返回侧边栏
+    ///   1~9,0,-,=   直接选择侧边栏页面 1~12
+    ///   W/↑  S/↓    侧边栏/内容行 上下导航
+    ///   A/←  D/→    滑块 减/增  |  整数 -1/+1
+    ///   Space/Enter  切换开关  |  开始/确认文字编辑
+    ///   R           重置当前行到默认值
+    ///   Tab         侧边栏 ↔ 内容区 焦点切换
+    ///   Ctrl+S      保存并预览
+    ///   Ctrl+R      全部重置
+    ///   F1          重新选择兵种
     /// </summary>
     public class SettingsPanel : MonoBehaviour
     {
         public static SettingsPanel Instance { get; private set; }
 
+        // ─── 焦点模式 ───
+        private enum FocusMode { Sidebar, Content, TextEditing }
+        private FocusMode focusMode = FocusMode.Sidebar;
+
+        // ─── 行类型 ───
+        private enum RowType { Slider, Toggle, TextInput, IntInput, KeyBinding, Button }
+
+        // ─── 行数据 ───
+        private class RowData
+        {
+            public RowType type;
+            public GameObject go;
+            public Image rowBg;
+            public TextMeshProUGUI hintText;
+            // Slider
+            public Slider slider;
+            public float defaultValue, sliderMin, sliderMax;
+            public System.Action<float> onSliderChange;
+            public TextMeshProUGUI valueText;
+            public string fmt, unit;
+            // Toggle
+            public bool toggleValue;
+            public System.Action<bool> onToggleChange;
+            public Image toggleBg;
+            public TextMeshProUGUI toggleLabel;
+            // TextInput
+            public string textValue;
+            public System.Action<string> onTextChange;
+            public TextMeshProUGUI textDisplay;
+            // IntInput
+            public int intValue, intMin, intMax, intDefault;
+            public System.Action<int> onIntChange;
+            public TextMeshProUGUI intDisplay;
+            public TextMeshProUGUI rangeText;
+            // KeyBinding
+            public AmmoKeyBinding binding;
+            public int bindingIndex;
+            public TextMeshProUGUI keyDisplay;
+            // Button
+            public System.Action onButtonClick;
+        }
+
+        // ─── UI 状态 ───
+        private Canvas gearCanvas;
         private Canvas settingsCanvas;
         private GameObject panelRoot;
         private bool isOpen;
-        private Button gearButton;
 
-        // 侧边栏
+        // ─── 侧边栏 ───
         private readonly List<SidebarItem> sidebarItems = new List<SidebarItem>();
         private int activeSidebarIndex = -1;
         private RectTransform contentArea;
 
-        // 参数页面
-        private readonly List<SliderBinding> sliderBindings = new List<SliderBinding>();
-        private int rowIndex;
+        // ─── 内容行 ───
+        private readonly List<RowData> rows = new List<RowData>();
+        private int focusedRowIndex = -1;
+        private int rowBuildIndex;
 
-        // 布局编辑器
+        // ─── 文字编辑状态 ───
+        private string editBuffer = "";
+        private string editOriginal = "";
+        private float cursorBlinkTimer;
+        private bool cursorVisible;
+
+        // ─── 布局编辑器 ───
         private RectTransform minimapRoot;
         private readonly List<LayoutHandle> layoutHandles = new List<LayoutHandle>();
+        private int layoutFocusIndex = -1;
 
-        // 实时预览防抖
+        // ─── 实时预览 ───
         private Coroutine previewCoroutine;
         private const float PREVIEW_DELAY = 0.6f;
 
-        private struct SliderBinding
-        {
-            public Slider slider;
-            public float defaultValue;
-            public System.Action<float> onChange;
-            public TextMeshProUGUI valueText;
-            public string fmt, unit;
-        }
+        // ─── 快捷键监听 ───
+        private bool isListeningForKey;
 
+        // ─── 帮助栏 ───
+        private TextMeshProUGUI helpBarText;
+
+        // ─── 按键重复 ───
+        private float keyRepeatTimer;
+        private Key lastHeldKey = Key.None;
+        private const float KEY_REPEAT_INITIAL = 0.35f;
+        private const float KEY_REPEAT_INTERVAL = 0.06f;
+
+        // ─── 滚动 ───
+        private ScrollRect currentScrollRect;
+
+        // ─── 数据结构 ───
         private class SidebarItem
         {
-            public Button button;
             public Image bg;
             public Image accent;
             public TextMeshProUGUI label;
+            public TextMeshProUGUI keyHint;
             public string pageId;
         }
 
@@ -67,1173 +133,1620 @@ namespace UI.HUD
             public string id;
             public RectTransform rt;
             public UIElementLayout layout;
+            public Image bg;
         }
 
-        // ─── 设计常量 ───
-        private static readonly Color PanelBgColor = new Color(0.04f, 0.05f, 0.10f, 0.94f);
-        private static readonly Color SidebarBgColor = new Color(0.03f, 0.04f, 0.08f, 0.95f);
-        private static readonly Color SectionBgColor = new Color(0.08f, 0.10f, 0.18f, 0.85f);
-        private static readonly Color RowBgEven = new Color(0.06f, 0.07f, 0.13f, 0.55f);
-        private static readonly Color RowBgOdd = new Color(0.04f, 0.05f, 0.10f, 0.40f);
-        private static readonly Color SliderTrackColor = new Color(0.08f, 0.08f, 0.16f, 0.95f);
-        private static readonly Color SliderFillColor = new Color(0.22f, 0.55f, 0.95f, 0.70f);
-        private static readonly Color SliderHandleColor = new Color(0.85f, 0.90f, 0.98f, 1f);
-        private static readonly Color BtnSaveColor = new Color(0.16f, 0.50f, 0.88f, 0.80f);
-        private static readonly Color BtnResetColor = new Color(0.80f, 0.25f, 0.20f, 0.65f);
-        private static readonly Color BtnReselectColor = new Color(0.75f, 0.60f, 0.18f, 0.70f);
-        private static readonly Color AccentBlue = new Color(0.35f, 0.72f, 0.98f, 1f);
-        private static readonly Color SidebarItemHover = new Color(0.08f, 0.12f, 0.22f, 0.70f);
-        private static readonly Color SidebarItemActive = new Color(0.12f, 0.18f, 0.32f, 0.85f);
-        private static readonly Color MinimapBg = new Color(0.06f, 0.07f, 0.12f, 0.80f);
+        // ─── 颜色常量 ───
+        private static readonly Color PanelBg       = new Color(0.04f, 0.05f, 0.10f, 0.96f);
+        private static readonly Color SidebarBg      = new Color(0.03f, 0.04f, 0.08f, 0.98f);
+        private static readonly Color ContentBg      = new Color(0.05f, 0.06f, 0.12f, 0.90f);
+        private static readonly Color TitleBarBg     = new Color(0.03f, 0.04f, 0.08f, 0.95f);
+        private static readonly Color RowEven        = new Color(0.07f, 0.08f, 0.14f, 0.60f);
+        private static readonly Color RowOdd         = new Color(0.05f, 0.06f, 0.11f, 0.45f);
+        private static readonly Color RowFocused     = new Color(0.15f, 0.25f, 0.45f, 0.80f);
+        private static readonly Color SliderTrack    = new Color(0.08f, 0.08f, 0.16f, 0.95f);
+        private static readonly Color SliderFill     = new Color(0.22f, 0.55f, 0.95f, 0.70f);
+        private static readonly Color SliderHandle   = new Color(0.85f, 0.90f, 0.98f, 1f);
+        private static readonly Color Accent         = new Color(0.35f, 0.72f, 0.98f, 1f);
+        private static readonly Color SidebarActive  = new Color(0.12f, 0.18f, 0.32f, 0.85f);
+        private static readonly Color BtnSave        = new Color(0.16f, 0.50f, 0.88f, 0.80f);
+        private static readonly Color BtnReset       = new Color(0.80f, 0.25f, 0.20f, 0.65f);
+        private static readonly Color BtnReselect    = new Color(0.75f, 0.60f, 0.18f, 0.70f);
+        private static readonly Color BtnClose       = new Color(0.35f, 0.35f, 0.40f, 0.60f);
+        private static readonly Color GearNormal     = new Color(0.20f, 0.25f, 0.35f, 0.70f);
+        private static readonly Color MinimapBg      = new Color(0.06f, 0.07f, 0.12f, 0.80f);
+        private static readonly Color HintColor      = new Color(0.55f, 0.65f, 0.78f, 0.55f);
+        private static readonly Color EditingBg      = new Color(0.10f, 0.14f, 0.28f, 0.95f);
+        private static readonly Color LayoutSelected = new Color(0.40f, 0.75f, 1.0f, 0.60f);
 
-        // 侧边栏菜单定义
+        // ─── 菜单定义 ───
         private static readonly string[] MenuIds = {
-            "matchinfo", "notify", "aim", "hit", "crosshair", "health", "buff", "font", "shortcut", "economy", "layout"
+            "matchinfo", "notify", "aim", "hit", "crosshair", "health",
+            "buff", "font", "shortcut", "economy", "network", "layout"
         };
         private static readonly string[] MenuLabels = {
-            "对局信息", "通知设置", "开镜设置", "受击提示", "准星设置", "血条设置", "BUFF设置", "字体大小", "快捷键", "经济管控", "UI 布局"
+            "对局信息", "通知设置", "开镜设置", "受击提示", "准星设置", "血条设置",
+            "BUFF设置", "字体大小", "快捷键", "经济管控", "网络配置", "UI 布局"
         };
-        private static readonly string[] MenuIcons = {
-            IconManager.ICON_INFORM, IconManager.ICON_INFORM, IconManager.ICON_PILL,
-            IconManager.ICON_FATAL_WARNING, IconManager.ICON_PILL, IconManager.ICON_WARNING,
-            IconManager.ICON_PILL, IconManager.ICON_SETTING, IconManager.ICON_SETTING, IconManager.ICON_PILL, IconManager.ICON_PULL
+        private static readonly string[] MenuKeyHints = {
+            "1", "2", "3", "4", "5", "6",
+            "7", "8", "9", "0", "-", "="
         };
+
+        // ═══════════════════ 生命周期 ═══════════════════
 
         void Awake()
         {
-            if (Instance != null) { Destroy(gameObject); return; }
+            if (Instance != null && Instance != this) { Destroy(gameObject); return; }
             Instance = this;
             DontDestroyOnLoad(gameObject);
             BuildGearButton();
         }
 
-        void OnDestroy() { if (Instance == this) Instance = null; }
+        void OnDestroy()
+        {
+            if (Instance == this) Instance = null;
+        }
 
         void Update()
         {
-            if (!isOpen) return;
             var kb = Keyboard.current;
-            if (kb != null && kb.escapeKey.wasPressedThisFrame)
+            if (kb == null) return;
+
+            if (kb.f10Key.wasPressedThisFrame)
+            {
                 ToggleSettings();
+                return;
+            }
+
+            if (!isOpen) return;
+
+            // 快捷键监听模式（改键）
+            if (isListeningForKey)
+            {
+                HandleKeyListeningInput(kb);
+                return;
+            }
+
+            // 文字编辑模式
+            if (focusMode == FocusMode.TextEditing)
+            {
+                HandleTextEditingInput(kb);
+                return;
+            }
+
+            // Esc 处理
+            if (kb.escapeKey.wasPressedThisFrame)
+            {
+                if (focusMode == FocusMode.Content)
+                {
+                    SetFocusMode(FocusMode.Sidebar);
+                    return;
+                }
+                else
+                {
+                    HidePanel();
+                    return;
+                }
+            }
+
+            // Ctrl+S 保存
+            if ((kb.leftCtrlKey.isPressed || kb.rightCtrlKey.isPressed) && kb.sKey.wasPressedThisFrame)
+            {
+                OnSaveClicked();
+                return;
+            }
+
+            // Ctrl+R 重置
+            if ((kb.leftCtrlKey.isPressed || kb.rightCtrlKey.isPressed) && kb.rKey.wasPressedThisFrame)
+            {
+                OnResetAllClicked();
+                return;
+            }
+
+            // F1 重新选择兵种
+            if (kb.f1Key.wasPressedThisFrame) { OnReselectClicked(); return; }
+
+            // Tab 切换焦点区域
+            if (kb.tabKey.wasPressedThisFrame)
+            {
+                if (focusMode == FocusMode.Sidebar && rows.Count > 0)
+                    SetFocusMode(FocusMode.Content);
+                else
+                    SetFocusMode(FocusMode.Sidebar);
+                return;
+            }
+
+            // 数字键直接选页面（无修饰键时）
+            if (!kb.leftCtrlKey.isPressed && !kb.rightCtrlKey.isPressed &&
+                !kb.leftShiftKey.isPressed && !kb.rightShiftKey.isPressed)
+            {
+                if (focusMode == FocusMode.Sidebar)
+                {
+                    int pageIdx = GetPageIndexFromKey(kb);
+                    if (pageIdx >= 0 && pageIdx < MenuIds.Length)
+                    {
+                        SelectSidebarByIndex(pageIdx);
+                        SetFocusMode(FocusMode.Content);
+                        return;
+                    }
+                }
+            }
+
+            if (focusMode == FocusMode.Sidebar)
+                HandleSidebarInput(kb);
+            else if (focusMode == FocusMode.Content)
+                HandleContentInput(kb);
+        }
+
+        // ═══════════════════ 页面快捷键映射 ═══════════════════
+
+        private int GetPageIndexFromKey(Keyboard kb)
+        {
+            if (kb.digit1Key.wasPressedThisFrame) return 0;
+            if (kb.digit2Key.wasPressedThisFrame) return 1;
+            if (kb.digit3Key.wasPressedThisFrame) return 2;
+            if (kb.digit4Key.wasPressedThisFrame) return 3;
+            if (kb.digit5Key.wasPressedThisFrame) return 4;
+            if (kb.digit6Key.wasPressedThisFrame) return 5;
+            if (kb.digit7Key.wasPressedThisFrame) return 6;
+            if (kb.digit8Key.wasPressedThisFrame) return 7;
+            if (kb.digit9Key.wasPressedThisFrame) return 8;
+            if (kb.digit0Key.wasPressedThisFrame) return 9;
+            if (kb.minusKey.wasPressedThisFrame) return 10;
+            if (kb.equalsKey.wasPressedThisFrame) return 11;
+            return -1;
+        }
+
+        // ═══════════════════ 侧边栏键盘处理 ═══════════════════
+
+        private void HandleSidebarInput(Keyboard kb)
+        {
+            if (sidebarItems.Count == 0) return;
+
+            bool up = kb.wKey.wasPressedThisFrame || kb.upArrowKey.wasPressedThisFrame;
+            bool down = kb.sKey.wasPressedThisFrame || kb.downArrowKey.wasPressedThisFrame;
+            bool enter = kb.enterKey.wasPressedThisFrame || kb.numpadEnterKey.wasPressedThisFrame
+                      || kb.dKey.wasPressedThisFrame || kb.rightArrowKey.wasPressedThisFrame;
+
+            if (up)
+                SelectSidebarByIndex((activeSidebarIndex - 1 + sidebarItems.Count) % sidebarItems.Count);
+            else if (down)
+                SelectSidebarByIndex((activeSidebarIndex + 1) % sidebarItems.Count);
+            else if (enter && rows.Count > 0)
+                SetFocusMode(FocusMode.Content);
+        }
+
+        // ═══════════════════ 内容区键盘处理 ═══════════════════
+
+        private void HandleContentInput(Keyboard kb)
+        {
+            if (rows.Count == 0) return;
+
+            // 布局页面特殊处理
+            if (activeSidebarIndex >= 0 && activeSidebarIndex < sidebarItems.Count
+                && sidebarItems[activeSidebarIndex].pageId == "layout")
+            {
+                HandleLayoutInput(kb);
+                return;
+            }
+
+            // 上下导航
+            bool up = kb.wKey.wasPressedThisFrame || kb.upArrowKey.wasPressedThisFrame;
+            bool down = kb.sKey.wasPressedThisFrame || kb.downArrowKey.wasPressedThisFrame;
+
+            if (up) { NavigateRow(-1); return; }
+            if (down) { NavigateRow(1); return; }
+
+            if (focusedRowIndex < 0 || focusedRowIndex >= rows.Count) return;
+            var row = rows[focusedRowIndex];
+
+            switch (row.type)
+            {
+                case RowType.Slider:
+                    HandleSliderRowInput(kb, row);
+                    break;
+                case RowType.Toggle:
+                    HandleToggleRowInput(kb, row);
+                    break;
+                case RowType.IntInput:
+                    HandleIntInputRowInput(kb, row);
+                    break;
+                case RowType.TextInput:
+                    HandleTextInputRowInput(kb, row);
+                    break;
+                case RowType.KeyBinding:
+                    HandleKeyBindingRowInput(kb, row);
+                    break;
+                case RowType.Button:
+                    if (kb.enterKey.wasPressedThisFrame || kb.numpadEnterKey.wasPressedThisFrame
+                        || kb.spaceKey.wasPressedThisFrame)
+                        row.onButtonClick?.Invoke();
+                    break;
+            }
+        }
+
+        private void HandleSliderRowInput(Keyboard kb, RowData row)
+        {
+            if (row.slider == null) return;
+
+            bool shift = kb.leftShiftKey.isPressed || kb.rightShiftKey.isPressed;
+            float range = row.sliderMax - row.sliderMin;
+            float step = shift ? range * 0.01f : range * 0.05f;
+
+            bool left = CheckKeyWithRepeat(kb, Key.A, Key.LeftArrow);
+            bool right = CheckKeyWithRepeat(kb, Key.D, Key.RightArrow);
+
+            if (left)
+            {
+                row.slider.value = Mathf.Clamp(row.slider.value - step, row.sliderMin, row.sliderMax);
+                row.onSliderChange?.Invoke(row.slider.value);
+                UpdateSliderValueText(row);
+                ScheduleLivePreview();
+            }
+            else if (right)
+            {
+                row.slider.value = Mathf.Clamp(row.slider.value + step, row.sliderMin, row.sliderMax);
+                row.onSliderChange?.Invoke(row.slider.value);
+                UpdateSliderValueText(row);
+                ScheduleLivePreview();
+            }
+
+            if (kb.rKey.wasPressedThisFrame)
+            {
+                row.slider.value = row.defaultValue;
+                row.onSliderChange?.Invoke(row.defaultValue);
+                UpdateSliderValueText(row);
+                ScheduleLivePreview();
+            }
+
+            if (kb.enterKey.wasPressedThisFrame || kb.numpadEnterKey.wasPressedThisFrame)
+            {
+                editBuffer = row.slider.value.ToString(row.fmt);
+                editOriginal = editBuffer;
+                SetFocusMode(FocusMode.TextEditing);
+            }
+        }
+
+        private void HandleToggleRowInput(Keyboard kb, RowData row)
+        {
+            bool toggle = kb.spaceKey.wasPressedThisFrame || kb.enterKey.wasPressedThisFrame
+                       || kb.numpadEnterKey.wasPressedThisFrame
+                       || kb.dKey.wasPressedThisFrame || kb.rightArrowKey.wasPressedThisFrame
+                       || kb.aKey.wasPressedThisFrame || kb.leftArrowKey.wasPressedThisFrame;
+
+            if (toggle)
+            {
+                row.toggleValue = !row.toggleValue;
+                UpdateToggleVisual(row.toggleBg, row.toggleLabel, row.toggleValue);
+                row.onToggleChange?.Invoke(row.toggleValue);
+                ScheduleLivePreview();
+            }
+        }
+
+        private void HandleIntInputRowInput(Keyboard kb, RowData row)
+        {
+            bool shift = kb.leftShiftKey.isPressed || kb.rightShiftKey.isPressed;
+            int step = shift ? 1 : Mathf.Max(1, (row.intMax - row.intMin) / 20);
+
+            bool left = CheckKeyWithRepeat(kb, Key.A, Key.LeftArrow);
+            bool right = CheckKeyWithRepeat(kb, Key.D, Key.RightArrow);
+
+            if (left)
+            {
+                row.intValue = Mathf.Clamp(row.intValue - step, row.intMin, row.intMax);
+                row.onIntChange?.Invoke(row.intValue);
+                if (row.intDisplay) row.intDisplay.text = row.intValue.ToString();
+                ScheduleLivePreview();
+            }
+            else if (right)
+            {
+                row.intValue = Mathf.Clamp(row.intValue + step, row.intMin, row.intMax);
+                row.onIntChange?.Invoke(row.intValue);
+                if (row.intDisplay) row.intDisplay.text = row.intValue.ToString();
+                ScheduleLivePreview();
+            }
+
+            if (kb.rKey.wasPressedThisFrame)
+            {
+                row.intValue = row.intDefault;
+                row.onIntChange?.Invoke(row.intValue);
+                if (row.intDisplay) row.intDisplay.text = row.intValue.ToString();
+                ScheduleLivePreview();
+            }
+
+            if (kb.enterKey.wasPressedThisFrame || kb.numpadEnterKey.wasPressedThisFrame)
+            {
+                editBuffer = row.intValue.ToString();
+                editOriginal = editBuffer;
+                SetFocusMode(FocusMode.TextEditing);
+            }
+        }
+
+        private void HandleTextInputRowInput(Keyboard kb, RowData row)
+        {
+            if (kb.enterKey.wasPressedThisFrame || kb.numpadEnterKey.wasPressedThisFrame)
+            {
+                editBuffer = row.textValue ?? "";
+                editOriginal = editBuffer;
+                SetFocusMode(FocusMode.TextEditing);
+            }
+        }
+
+        private void HandleKeyBindingRowInput(Keyboard kb, RowData row)
+        {
+            if (kb.enterKey.wasPressedThisFrame || kb.numpadEnterKey.wasPressedThisFrame
+                || kb.spaceKey.wasPressedThisFrame)
+            {
+                if (!isListeningForKey)
+                {
+                    isListeningForKey = true;
+                    if (row.keyDisplay) { row.keyDisplay.text = "按下新键..."; row.keyDisplay.color = UIColors.Orange; }
+                }
+            }
+
+            if (kb.rKey.wasPressedThisFrame)
+            {
+                var defaults = HUDSettings.DefaultAmmoKeyBindings();
+                if (row.bindingIndex < defaults.Count)
+                {
+                    row.binding.keyCode = defaults[row.bindingIndex].keyCode;
+                    if (row.keyDisplay)
+                    {
+                        row.keyDisplay.text = FormatKeyName(((KeyCode)row.binding.keyCode).ToString());
+                        row.keyDisplay.color = UIColors.White;
+                    }
+                }
+            }
+        }
+
+        // ═══════════════════ 按键监听处理 ═══════════════════
+
+        private void HandleKeyListeningInput(Keyboard kb)
+        {
+            if (kb.escapeKey.wasPressedThisFrame)
+            {
+                isListeningForKey = false;
+                if (focusedRowIndex >= 0 && focusedRowIndex < rows.Count)
+                {
+                    var row = rows[focusedRowIndex];
+                    if (row.keyDisplay)
+                    {
+                        row.keyDisplay.text = FormatKeyName(((KeyCode)row.binding.keyCode).ToString());
+                        row.keyDisplay.color = UIColors.White;
+                    }
+                }
+                return;
+            }
+
+            foreach (KeyCode kc in System.Enum.GetValues(typeof(KeyCode)))
+            {
+                if (kc == KeyCode.None || kc == KeyCode.Escape) continue;
+                try
+                {
+                    if (Input.GetKeyDown(kc))
+                    {
+                        isListeningForKey = false;
+                        if (focusedRowIndex >= 0 && focusedRowIndex < rows.Count)
+                        {
+                            var row = rows[focusedRowIndex];
+                            if (row.type == RowType.KeyBinding)
+                            {
+                                var s = UILayoutManager.Settings;
+                                bool conflict = false;
+                                if (s.ammoKeyBindings != null)
+                                {
+                                    for (int i = 0; i < s.ammoKeyBindings.Count; i++)
+                                    {
+                                        if (i != row.bindingIndex && s.ammoKeyBindings[i].keyCode == (int)kc)
+                                        {
+                                            conflict = true;
+                                            break;
+                                        }
+                                    }
+                                }
+
+                                if (conflict)
+                                {
+                                    if (row.keyDisplay)
+                                    {
+                                        row.keyDisplay.text = FormatKeyName(kc.ToString()) + " (冲突!)";
+                                        row.keyDisplay.color = Color.red;
+                                    }
+                                    StartCoroutine(ResetKeyLabelAfterDelay(row));
+                                }
+                                else
+                                {
+                                    row.binding.keyCode = (int)kc;
+                                    if (row.keyDisplay)
+                                    {
+                                        row.keyDisplay.text = FormatKeyName(kc.ToString());
+                                        row.keyDisplay.color = UIColors.White;
+                                    }
+                                }
+                            }
+                        }
+                        return;
+                    }
+                }
+                catch { continue; }
+            }
+        }
+
+        // ═══════════════════ 文字编辑处理 ═══════════════════
+
+        private void HandleTextEditingInput(Keyboard kb)
+        {
+            if (kb.escapeKey.wasPressedThisFrame)
+            {
+                editBuffer = editOriginal;
+                FinishTextEditing(false);
+                return;
+            }
+
+            if (kb.enterKey.wasPressedThisFrame || kb.numpadEnterKey.wasPressedThisFrame)
+            {
+                FinishTextEditing(true);
+                return;
+            }
+
+            if (CheckKeyWithRepeat(kb, Key.Backspace, Key.None))
+            {
+                if (editBuffer.Length > 0)
+                    editBuffer = editBuffer.Substring(0, editBuffer.Length - 1);
+            }
+
+            if (kb.deleteKey.wasPressedThisFrame)
+                editBuffer = "";
+
+            // 字符输入
+            AppendCharFromKey(kb, Key.A, 'a', 'A'); AppendCharFromKey(kb, Key.B, 'b', 'B');
+            AppendCharFromKey(kb, Key.C, 'c', 'C'); AppendCharFromKey(kb, Key.D, 'd', 'D');
+            AppendCharFromKey(kb, Key.E, 'e', 'E'); AppendCharFromKey(kb, Key.F, 'f', 'F');
+            AppendCharFromKey(kb, Key.G, 'g', 'G'); AppendCharFromKey(kb, Key.H, 'h', 'H');
+            AppendCharFromKey(kb, Key.I, 'i', 'I'); AppendCharFromKey(kb, Key.J, 'j', 'J');
+            AppendCharFromKey(kb, Key.K, 'k', 'K'); AppendCharFromKey(kb, Key.L, 'l', 'L');
+            AppendCharFromKey(kb, Key.M, 'm', 'M'); AppendCharFromKey(kb, Key.N, 'n', 'N');
+            AppendCharFromKey(kb, Key.O, 'o', 'O'); AppendCharFromKey(kb, Key.P, 'p', 'P');
+            AppendCharFromKey(kb, Key.Q, 'q', 'Q'); AppendCharFromKey(kb, Key.R, 'r', 'R');
+            AppendCharFromKey(kb, Key.S, 's', 'S'); AppendCharFromKey(kb, Key.T, 't', 'T');
+            AppendCharFromKey(kb, Key.U, 'u', 'U'); AppendCharFromKey(kb, Key.V, 'v', 'V');
+            AppendCharFromKey(kb, Key.W, 'w', 'W'); AppendCharFromKey(kb, Key.X, 'x', 'X');
+            AppendCharFromKey(kb, Key.Y, 'y', 'Y'); AppendCharFromKey(kb, Key.Z, 'z', 'Z');
+            AppendCharFromKey(kb, Key.Digit0, '0', ')');
+            AppendCharFromKey(kb, Key.Digit1, '1', '!');
+            AppendCharFromKey(kb, Key.Digit2, '2', '@');
+            AppendCharFromKey(kb, Key.Digit3, '3', '#');
+            AppendCharFromKey(kb, Key.Digit4, '4', '$');
+            AppendCharFromKey(kb, Key.Digit5, '5', '%');
+            AppendCharFromKey(kb, Key.Digit6, '6', '^');
+            AppendCharFromKey(kb, Key.Digit7, '7', '&');
+            AppendCharFromKey(kb, Key.Digit8, '8', '*');
+            AppendCharFromKey(kb, Key.Digit9, '9', '(');
+            AppendCharFromKey(kb, Key.Period, '.', '>');
+            AppendCharFromKey(kb, Key.Minus, '-', '_');
+            AppendCharFromKey(kb, Key.Slash, '/', '?');
+            AppendCharFromKey(kb, Key.Semicolon, ';', ':');
+            AppendCharFromKey(kb, Key.Quote, '\'', '"');
+            AppendCharFromKey(kb, Key.Comma, ',', '<');
+            AppendCharFromKey(kb, Key.Space, ' ', ' ');
+            AppendCharFromKey(kb, Key.Numpad0, '0', '0');
+            AppendCharFromKey(kb, Key.Numpad1, '1', '1');
+            AppendCharFromKey(kb, Key.Numpad2, '2', '2');
+            AppendCharFromKey(kb, Key.Numpad3, '3', '3');
+            AppendCharFromKey(kb, Key.Numpad4, '4', '4');
+            AppendCharFromKey(kb, Key.Numpad5, '5', '5');
+            AppendCharFromKey(kb, Key.Numpad6, '6', '6');
+            AppendCharFromKey(kb, Key.Numpad7, '7', '7');
+            AppendCharFromKey(kb, Key.Numpad8, '8', '8');
+            AppendCharFromKey(kb, Key.Numpad9, '9', '9');
+            AppendCharFromKey(kb, Key.NumpadPeriod, '.', '.');
+
+            UpdateTextEditDisplay();
+            cursorBlinkTimer += Time.unscaledDeltaTime;
+            if (cursorBlinkTimer > 0.5f) { cursorBlinkTimer = 0; cursorVisible = !cursorVisible; }
+        }
+
+        private void AppendCharFromKey(Keyboard kb, Key key, char lower, char upper)
+        {
+            if (kb[key].wasPressedThisFrame)
+            {
+                bool shift = kb.leftShiftKey.isPressed || kb.rightShiftKey.isPressed;
+                editBuffer += shift ? upper : lower;
+            }
+        }
+
+        private void UpdateTextEditDisplay()
+        {
+            if (focusedRowIndex < 0 || focusedRowIndex >= rows.Count) return;
+            var row = rows[focusedRowIndex];
+            string displayText = editBuffer + (cursorVisible ? "|" : " ");
+
+            switch (row.type)
+            {
+                case RowType.TextInput:
+                    if (row.textDisplay) row.textDisplay.text = displayText;
+                    break;
+                case RowType.IntInput:
+                    if (row.intDisplay) row.intDisplay.text = displayText;
+                    break;
+                case RowType.Slider:
+                    if (row.valueText) row.valueText.text = displayText;
+                    break;
+            }
+        }
+
+        private void FinishTextEditing(bool confirm)
+        {
+            if (focusedRowIndex < 0 || focusedRowIndex >= rows.Count)
+            {
+                SetFocusMode(FocusMode.Content);
+                return;
+            }
+
+            var row = rows[focusedRowIndex];
+
+            if (confirm)
+            {
+                switch (row.type)
+                {
+                    case RowType.TextInput:
+                        row.textValue = editBuffer;
+                        row.onTextChange?.Invoke(editBuffer);
+                        if (row.textDisplay) row.textDisplay.text = editBuffer;
+                        break;
+                    case RowType.IntInput:
+                        if (int.TryParse(editBuffer, out int iv))
+                        {
+                            iv = Mathf.Clamp(iv, row.intMin, row.intMax);
+                            row.intValue = iv;
+                            row.onIntChange?.Invoke(iv);
+                            if (row.intDisplay) row.intDisplay.text = iv.ToString();
+                        }
+                        else
+                        {
+                            if (row.intDisplay) row.intDisplay.text = row.intValue.ToString();
+                        }
+                        break;
+                    case RowType.Slider:
+                        if (float.TryParse(editBuffer, System.Globalization.NumberStyles.Float,
+                            System.Globalization.CultureInfo.InvariantCulture, out float fv))
+                        {
+                            fv = Mathf.Clamp(fv, row.sliderMin, row.sliderMax);
+                            row.slider.value = fv;
+                            row.onSliderChange?.Invoke(fv);
+                            UpdateSliderValueText(row);
+                        }
+                        else
+                        {
+                            UpdateSliderValueText(row);
+                        }
+                        break;
+                }
+                ScheduleLivePreview();
+            }
+            else
+            {
+                switch (row.type)
+                {
+                    case RowType.TextInput:
+                        if (row.textDisplay) row.textDisplay.text = row.textValue ?? "";
+                        break;
+                    case RowType.IntInput:
+                        if (row.intDisplay) row.intDisplay.text = row.intValue.ToString();
+                        break;
+                    case RowType.Slider:
+                        UpdateSliderValueText(row);
+                        break;
+                }
+            }
+
+            SetFocusMode(FocusMode.Content);
+        }
+
+        // ═══════════════════ 按键重复 ═══════════════════
+
+        private bool CheckKeyWithRepeat(Keyboard kb, Key key1, Key key2)
+        {
+            bool pressed1 = key1 != Key.None && kb[key1].wasPressedThisFrame;
+            bool pressed2 = key2 != Key.None && kb[key2].wasPressedThisFrame;
+            bool held1 = key1 != Key.None && kb[key1].isPressed;
+            bool held2 = key2 != Key.None && kb[key2].isPressed;
+
+            if (pressed1 || pressed2)
+            {
+                lastHeldKey = pressed1 ? key1 : key2;
+                keyRepeatTimer = KEY_REPEAT_INITIAL;
+                return true;
+            }
+
+            if ((held1 || held2) && (lastHeldKey == key1 || lastHeldKey == key2))
+            {
+                keyRepeatTimer -= Time.unscaledDeltaTime;
+                if (keyRepeatTimer <= 0)
+                {
+                    keyRepeatTimer = KEY_REPEAT_INTERVAL;
+                    return true;
+                }
+            }
+            else if (lastHeldKey == key1 || lastHeldKey == key2)
+            {
+                lastHeldKey = Key.None;
+            }
+
+            return false;
+        }
+
+        // ═══════════════════ 行导航 ═══════════════════
+
+        private void NavigateRow(int delta)
+        {
+            if (rows.Count == 0) return;
+
+            int newIdx = focusedRowIndex + delta;
+            if (newIdx < 0) newIdx = 0;
+            if (newIdx >= rows.Count) newIdx = rows.Count - 1;
+
+            SetFocusedRow(newIdx);
+        }
+
+        private void SetFocusedRow(int index)
+        {
+            if (focusedRowIndex >= 0 && focusedRowIndex < rows.Count)
+            {
+                var old = rows[focusedRowIndex];
+                if (old.rowBg)
+                    old.rowBg.color = (focusedRowIndex % 2 == 0) ? RowEven : RowOdd;
+            }
+
+            focusedRowIndex = index;
+
+            if (focusedRowIndex >= 0 && focusedRowIndex < rows.Count)
+            {
+                var cur = rows[focusedRowIndex];
+                if (cur.rowBg) cur.rowBg.color = RowFocused;
+                ScrollToRow(cur.go);
+            }
+
+            UpdateHelpBar();
+        }
+
+        private void ScrollToRow(GameObject rowGo)
+        {
+            if (currentScrollRect == null || rowGo == null) return;
+
+            var rowRt = rowGo.GetComponent<RectTransform>();
+            var contentRt = currentScrollRect.content;
+            var viewportRt = currentScrollRect.viewport;
+            if (rowRt == null || contentRt == null || viewportRt == null) return;
+
+            float contentHeight = contentRt.rect.height;
+            float viewportHeight = viewportRt.rect.height;
+            if (contentHeight <= viewportHeight) return;
+
+            Vector3 localPos = contentRt.InverseTransformPoint(rowRt.position);
+            float rowY = -localPos.y;
+
+            float scrollRange = contentHeight - viewportHeight;
+            float targetScroll = Mathf.Clamp01((rowY - viewportHeight * 0.3f) / scrollRange);
+            currentScrollRect.verticalNormalizedPosition = 1f - targetScroll;
+        }
+
+        // ═══════════════════ 焦点模式切换 ═══════════════════
+
+        private void SetFocusMode(FocusMode mode)
+        {
+            focusMode = mode;
+
+            if (mode == FocusMode.Content && rows.Count > 0)
+            {
+                if (focusedRowIndex < 0) SetFocusedRow(0);
+                else SetFocusedRow(focusedRowIndex);
+            }
+            else if (mode == FocusMode.Sidebar)
+            {
+                if (focusedRowIndex >= 0 && focusedRowIndex < rows.Count)
+                {
+                    var old = rows[focusedRowIndex];
+                    if (old.rowBg)
+                        old.rowBg.color = (focusedRowIndex % 2 == 0) ? RowEven : RowOdd;
+                }
+                focusedRowIndex = -1;
+            }
+            else if (mode == FocusMode.TextEditing)
+            {
+                cursorBlinkTimer = 0;
+                cursorVisible = true;
+                if (focusedRowIndex >= 0 && focusedRowIndex < rows.Count)
+                {
+                    var row = rows[focusedRowIndex];
+                    if (row.rowBg) row.rowBg.color = EditingBg;
+                }
+            }
+
+            UpdateHelpBar();
+        }
+
+        // ═══════════════════ 帮助栏 ═══════════════════
+
+        private void UpdateHelpBar()
+        {
+            if (helpBarText == null) return;
+
+            switch (focusMode)
+            {
+                case FocusMode.Sidebar:
+                    helpBarText.text =
+                        "<color=#5BC1FA>[W/\u2191][S/\u2193]</color> \u9009\u9875\u9762  " +
+                        "<color=#5BC1FA>[Enter/\u2192]</color> \u8fdb\u5165  " +
+                        "<color=#5BC1FA>[1~0,-,=]</color> \u5feb\u9009  " +
+                        "<color=#5BC1FA>[Tab]</color> \u5207\u6362\u533a\u57df  " +
+                        "<color=#5BC1FA>[Ctrl+S]</color> \u4fdd\u5b58  " +
+                        "<color=#5BC1FA>[Esc]</color> \u5173\u95ed";
+                    break;
+                case FocusMode.Content:
+                    if (focusedRowIndex >= 0 && focusedRowIndex < rows.Count)
+                    {
+                        var row = rows[focusedRowIndex];
+                        switch (row.type)
+                        {
+                            case RowType.Slider:
+                                helpBarText.text =
+                                    "<color=#5BC1FA>[A/\u2190][D/\u2192]</color> \u8c03\u6574  " +
+                                    "<color=#5BC1FA>[Shift]</color> \u7cbe\u7ec6  " +
+                                    "<color=#5BC1FA>[Enter]</color> \u8f93\u5165\u6570\u503c  " +
+                                    "<color=#5BC1FA>[R]</color> \u91cd\u7f6e  " +
+                                    "<color=#5BC1FA>[Tab]</color> \u8fd4\u56de  " +
+                                    "<color=#5BC1FA>[Esc]</color> \u8fd4\u56de\u4fa7\u8fb9\u680f";
+                                break;
+                            case RowType.Toggle:
+                                helpBarText.text =
+                                    "<color=#5BC1FA>[Space/Enter]</color> \u5207\u6362  " +
+                                    "<color=#5BC1FA>[Tab]</color> \u8fd4\u56de  " +
+                                    "<color=#5BC1FA>[Esc]</color> \u8fd4\u56de\u4fa7\u8fb9\u680f";
+                                break;
+                            case RowType.IntInput:
+                                helpBarText.text =
+                                    "<color=#5BC1FA>[A/\u2190][D/\u2192]</color> \u00b1\u8c03\u6574  " +
+                                    "<color=#5BC1FA>[Shift]</color> \u7cbe\u7ec6(\u00b11)  " +
+                                    "<color=#5BC1FA>[Enter]</color> \u8f93\u5165  " +
+                                    "<color=#5BC1FA>[R]</color> \u91cd\u7f6e  " +
+                                    "<color=#5BC1FA>[Tab]</color> \u8fd4\u56de";
+                                break;
+                            case RowType.TextInput:
+                                helpBarText.text =
+                                    "<color=#5BC1FA>[Enter]</color> \u7f16\u8f91  " +
+                                    "<color=#5BC1FA>[Tab]</color> \u8fd4\u56de  " +
+                                    "<color=#5BC1FA>[Esc]</color> \u8fd4\u56de\u4fa7\u8fb9\u680f";
+                                break;
+                            case RowType.KeyBinding:
+                                helpBarText.text =
+                                    "<color=#5BC1FA>[Enter/Space]</color> \u6539\u952e  " +
+                                    "<color=#5BC1FA>[R]</color> \u91cd\u7f6e  " +
+                                    "<color=#5BC1FA>[Tab]</color> \u8fd4\u56de  " +
+                                    "<color=#5BC1FA>[Esc]</color> \u8fd4\u56de\u4fa7\u8fb9\u680f";
+                                break;
+                            default:
+                                helpBarText.text =
+                                    "<color=#5BC1FA>[Enter/Space]</color> \u6267\u884c  " +
+                                    "<color=#5BC1FA>[Tab]</color> \u8fd4\u56de  " +
+                                    "<color=#5BC1FA>[Esc]</color> \u8fd4\u56de\u4fa7\u8fb9\u680f";
+                                break;
+                        }
+                    }
+                    else
+                    {
+                        helpBarText.text =
+                            "<color=#5BC1FA>[W/\u2191][S/\u2193]</color> \u9009\u884c  " +
+                            "<color=#5BC1FA>[Tab]</color> \u8fd4\u56de\u4fa7\u8fb9\u680f  " +
+                            "<color=#5BC1FA>[Esc]</color> \u8fd4\u56de\u4fa7\u8fb9\u680f";
+                    }
+                    break;
+                case FocusMode.TextEditing:
+                    helpBarText.text =
+                        "<color=#EFE580>\u6b63\u5728\u7f16\u8f91...</color>  " +
+                        "<color=#5BC1FA>[Enter]</color> \u786e\u8ba4  " +
+                        "<color=#5BC1FA>[Esc]</color> \u53d6\u6d88  " +
+                        "<color=#5BC1FA>[Backspace]</color> \u5220\u9664  " +
+                        "<color=#5BC1FA>[Delete]</color> \u6e05\u7a7a";
+                    break;
+            }
+        }
+
+        // ═══════════════════ 布局页面键盘 ═══════════════════
+
+        private void HandleLayoutInput(Keyboard kb)
+        {
+            if (layoutHandles.Count == 0) return;
+
+            bool up = kb.wKey.wasPressedThisFrame || kb.upArrowKey.wasPressedThisFrame;
+            bool down = kb.sKey.wasPressedThisFrame || kb.downArrowKey.wasPressedThisFrame;
+
+            if (up || down)
+            {
+                int delta = up ? -1 : 1;
+                int newIdx = layoutFocusIndex + delta;
+                if (newIdx < 0) newIdx = layoutHandles.Count - 1;
+                if (newIdx >= layoutHandles.Count) newIdx = 0;
+                SetLayoutFocus(newIdx);
+                return;
+            }
+
+            if (layoutFocusIndex < 0 || layoutFocusIndex >= layoutHandles.Count) return;
+            var handle = layoutHandles[layoutFocusIndex];
+
+            float moveStep = 0.02f;
+            if (kb.leftShiftKey.isPressed || kb.rightShiftKey.isPressed) moveStep = 0.005f;
+
+            bool moveL = CheckKeyWithRepeat(kb, Key.A, Key.LeftArrow);
+            bool moveR = CheckKeyWithRepeat(kb, Key.D, Key.RightArrow);
+            bool moveU = kb.eKey.wasPressedThisFrame;
+            bool moveD = kb.qKey.wasPressedThisFrame;
+
+            if (moveL || moveR || moveU || moveD)
+            {
+                float dx = moveL ? -moveStep : (moveR ? moveStep : 0);
+                float dy = moveD ? -moveStep : (moveU ? moveStep : 0);
+                handle.layout.anchorX = Mathf.Clamp01(handle.layout.anchorX + dx);
+                handle.layout.anchorY = Mathf.Clamp01(handle.layout.anchorY + dy);
+
+                float halfW = 0.06f, halfH = 0.04f;
+                handle.rt.anchorMin = new Vector2(handle.layout.anchorX - halfW, handle.layout.anchorY - halfH);
+                handle.rt.anchorMax = new Vector2(handle.layout.anchorX + halfW, handle.layout.anchorY + halfH);
+                handle.rt.offsetMin = Vector2.zero;
+                handle.rt.offsetMax = Vector2.zero;
+
+                UILayoutManager.Save();
+                if (BattleHUD.Instance != null)
+                    BattleHUD.Instance.RebuildHUD();
+            }
+
+            if (kb.rKey.wasPressedThisFrame)
+            {
+                handle.layout.anchorX = 0.5f;
+                handle.layout.anchorY = 0.5f;
+                float halfW = 0.06f, halfH = 0.04f;
+                handle.rt.anchorMin = new Vector2(0.5f - halfW, 0.5f - halfH);
+                handle.rt.anchorMax = new Vector2(0.5f + halfW, 0.5f + halfH);
+                handle.rt.offsetMin = Vector2.zero;
+                handle.rt.offsetMax = Vector2.zero;
+
+                UILayoutManager.Save();
+                if (BattleHUD.Instance != null)
+                    BattleHUD.Instance.RebuildHUD();
+            }
+        }
+
+        private void SetLayoutFocus(int index)
+        {
+            if (layoutFocusIndex >= 0 && layoutFocusIndex < layoutHandles.Count)
+            {
+                var old = layoutHandles[layoutFocusIndex];
+                if (old.bg) old.bg.color = UIColors.WithAlpha(Accent, 0.35f);
+            }
+
+            layoutFocusIndex = index;
+
+            if (layoutFocusIndex >= 0 && layoutFocusIndex < layoutHandles.Count)
+            {
+                var cur = layoutHandles[layoutFocusIndex];
+                if (cur.bg) cur.bg.color = LayoutSelected;
+            }
+
+            if (helpBarText != null)
+            {
+                helpBarText.text =
+                    "<color=#5BC1FA>[W/\u2191][S/\u2193]</color> \u9009\u62e9\u5143\u7d20  " +
+                    "<color=#5BC1FA>[A/\u2190][D/\u2192]</color> \u6c34\u5e73\u79fb\u52a8  " +
+                    "<color=#5BC1FA>[Q]</color> \u4e0b\u79fb <color=#5BC1FA>[E]</color> \u4e0a\u79fb  " +
+                    "<color=#5BC1FA>[Shift]</color> \u7cbe\u7ec6  " +
+                    "<color=#5BC1FA>[R]</color> \u5c45\u4e2d  " +
+                    "<color=#5BC1FA>[Tab]</color> \u8fd4\u56de\u4fa7\u8fb9\u680f";
+            }
         }
 
         // ═══════════════════ 齿轮按钮 ═══════════════════
 
         private void BuildGearButton()
         {
-            var c = UIFactory.CreateCanvas("GearBtnCanvas", 20000);
-            c.transform.SetParent(transform, false);
+            gearCanvas = UIFactory.CreateCanvas("SettingsGearCanvas", 31000);
+            DontDestroyOnLoad(gearCanvas.gameObject);
 
             var btnGo = new GameObject("GearBtn");
-            btnGo.transform.SetParent(c.transform, false);
+            btnGo.transform.SetParent(gearCanvas.transform, false);
             var btnRt = btnGo.AddComponent<RectTransform>();
-            btnRt.anchorMin = new Vector2(0, 1);
-            btnRt.anchorMax = new Vector2(0, 1);
-            btnRt.pivot = new Vector2(0, 1);
-            btnRt.anchoredPosition = new Vector2(16, -16);
-            btnRt.sizeDelta = new Vector2(56, 56);
+            btnRt.anchorMin = new Vector2(0f, 1f);
+            btnRt.anchorMax = new Vector2(0f, 1f);
+            btnRt.pivot = new Vector2(0f, 1f);
+            btnRt.anchoredPosition = new Vector2(15, -15);
+            btnRt.sizeDelta = new Vector2(120, 32);
 
             var btnBg = btnGo.AddComponent<Image>();
-            btnBg.color = UIColors.WithAlpha(UIColors.BrightBlue, 0.85f);
-            UIFactory.ApplyRoundedCorners(btnBg, 64, 16);
+            btnBg.color = GearNormal;
+            btnBg.raycastTarget = false;
 
-            var btnBorder = UIFactory.CreateImage(btnGo.transform, "Border",
-                UIColors.WithAlpha(UIColors.LightBlueBorder, 0.70f));
-            UIFactory.ApplyRoundedCorners(btnBorder, 64, 18);
-            UIFactory.SetFullStretch(btnBorder.rectTransform);
-            btnBorder.rectTransform.offsetMin = new Vector2(-2, -2);
-            btnBorder.rectTransform.offsetMax = new Vector2(2, 2);
-            btnBorder.raycastTarget = false;
-
-            gearButton = btnGo.AddComponent<Button>();
-            gearButton.targetGraphic = btnBg;
-            gearButton.transition = Selectable.Transition.ColorTint;
-            var gc = gearButton.colors;
-            gc.normalColor = UIColors.WithAlpha(UIColors.BrightBlue, 0.85f);
-            gc.highlightedColor = UIColors.WithAlpha(UIColors.BrightBlue, 1f);
-            gc.pressedColor = new Color(0.55f, 0.85f, 1f, 1f);
-            gc.fadeDuration = 0.10f;
-            gearButton.colors = gc;
-            gearButton.onClick.AddListener(ToggleSettings);
-
-            var iconSprite = IconManager.Get(IconManager.ICON_SETTING);
-            if (iconSprite != null)
-            {
-                var iconGo = new GameObject("Icon");
-                iconGo.transform.SetParent(btnGo.transform, false);
-                var iconImg = iconGo.AddComponent<Image>();
-                iconImg.sprite = iconSprite;
-                iconImg.color = UIColors.White;
-                iconImg.raycastTarget = false;
-                iconImg.preserveAspect = true;
-                var iconRt = iconGo.GetComponent<RectTransform>();
-                iconRt.anchorMin = new Vector2(0.15f, 0.15f);
-                iconRt.anchorMax = new Vector2(0.85f, 0.85f);
-                iconRt.offsetMin = Vector2.zero;
-                iconRt.offsetMax = Vector2.zero;
-            }
-            else
-            {
-                var txt = UIFactory.CreateText(btnGo.transform, "Label", "⚙", 28,
-                    TextAlignmentOptions.Center, AccentBlue, FontStyles.Bold);
-                UIFactory.SetFullStretch(txt.rectTransform);
-            }
+            var iconTxt = UIFactory.CreateText(btnGo.transform, "Icon",
+                "\u2699 \u8bbe\u7f6e [F10]", 18,
+                TextAlignmentOptions.Center, UIColors.White, FontStyles.Bold);
+            UIFactory.SetFullStretch(iconTxt.rectTransform);
         }
 
-        private void ToggleSettings()
+        // ═══════════════════ 开关面板 ═══════════════════
+
+        public void ToggleSettings()
         {
-            isOpen = !isOpen;
-            if (isOpen) ShowPanel(); else HidePanel();
+            if (isOpen)
+                HidePanel();
+            else
+                ShowPanel();
+            wmj.Log.I("[SettingsPanel] ToggleSettings -> isOpen=" + isOpen, wmj.Log.Tag.UI);
         }
-
-        // ═══════════════════ 主面板（侧边栏 + 内容区） ═══════════════════
 
         private void ShowPanel()
         {
-            if (panelRoot != null) { panelRoot.SetActive(true); return; }
+            if (panelRoot != null)
+            {
+                panelRoot.SetActive(true);
+                isOpen = true;
+                focusMode = FocusMode.Sidebar;
+                UpdateHelpBar();
+                return;
+            }
 
-            sliderBindings.Clear();
-            sidebarItems.Clear();
-            layoutHandles.Clear();
-            rowIndex = 0;
-            activeSidebarIndex = -1;
-
-            settingsCanvas = UIFactory.CreateCanvas("SettingsCanvas", 25000);
-            settingsCanvas.transform.SetParent(transform, false);
+            settingsCanvas = UIFactory.CreateCanvas("SettingsCanvas", 31100);
+            DontDestroyOnLoad(settingsCanvas.gameObject);
             panelRoot = settingsCanvas.gameObject;
-            var root = settingsCanvas.transform;
 
-            // 半透明遮罩
-            var overlay = UIFactory.CreateFullScreenImage(root, "Overlay",
-                new Color(0.0f, 0.0f, 0.02f, 0.55f));
-            overlay.raycastTarget = true;
-            var ob = overlay.gameObject.AddComponent<Button>();
-            ob.transition = Selectable.Transition.None;
-            ob.onClick.AddListener(ToggleSettings);
+            var overlay = UIFactory.CreateFullScreenImage(panelRoot.transform, "Overlay",
+                new Color(0f, 0f, 0f, 0.50f));
+            overlay.raycastTarget = false;
 
-            // 整体面板容器
-            var panel = new GameObject("Panel").AddComponent<RectTransform>();
-            panel.SetParent(root, false);
-            panel.anchorMin = new Vector2(0.08f, 0.04f);
-            panel.anchorMax = new Vector2(0.92f, 0.96f);
-            panel.offsetMin = Vector2.zero;
-            panel.offsetMax = Vector2.zero;
+            var panelGo = new GameObject("Panel");
+            panelGo.transform.SetParent(panelRoot.transform, false);
+            var panelRt = panelGo.AddComponent<RectTransform>();
+            panelRt.anchorMin = new Vector2(0.075f, 0.06f);
+            panelRt.anchorMax = new Vector2(0.925f, 0.94f);
+            panelRt.offsetMin = Vector2.zero;
+            panelRt.offsetMax = Vector2.zero;
 
-            var bg = panel.gameObject.AddComponent<Image>();
-            bg.color = PanelBgColor;
-            UIFactory.ApplyRoundedCorners(bg, 64, 16);
-            bg.raycastTarget = true;
+            var panelBgImg = panelGo.AddComponent<Image>();
+            panelBgImg.color = PanelBg;
+            panelBgImg.raycastTarget = false;
 
-            // 外发光
-            var glow = UIFactory.CreateImage(panel, "Glow",
-                UIColors.WithAlpha(AccentBlue, 0.10f));
-            UIFactory.ApplyRoundedCorners(glow, 64, 18);
-            UIFactory.SetFullStretch(glow.rectTransform);
-            glow.rectTransform.offsetMin = new Vector2(-2, -2);
-            glow.rectTransform.offsetMax = new Vector2(2, 2);
+            BuildTitleBar(panelRt);
+            BuildSidebar(panelRt);
+            BuildContentArea(panelRt);
+            BuildHelpBar(panelRt);
 
-            // ── 标题栏 ──
-            BuildTitleBar(panel);
+            isOpen = true;
+            focusMode = FocusMode.Sidebar;
 
-            // ── 左侧边栏 ──
-            BuildSidebar(panel);
+            if (sidebarItems.Count > 0)
+                SelectSidebarByIndex(0);
 
-            // ── 右侧内容区 ──
-            BuildContentArea(panel);
+            UpdateHelpBar();
+        }
 
-            // ── 底部操作栏 ──
-            BuildBottomBar(panel);
-
-            // 默认选中第一项
-            SelectSidebarItem(0);
+        private void HidePanel()
+        {
+            if (panelRoot != null) panelRoot.SetActive(false);
+            isOpen = false;
+            isListeningForKey = false;
+            focusMode = FocusMode.Sidebar;
         }
 
         // ═══════════════════ 标题栏 ═══════════════════
 
         private void BuildTitleBar(RectTransform panel)
         {
-            var titleBar = new GameObject("TitleBar").AddComponent<RectTransform>();
-            titleBar.SetParent(panel, false);
-            titleBar.anchorMin = new Vector2(0, 0.93f);
-            titleBar.anchorMax = new Vector2(1, 1);
-            titleBar.offsetMin = Vector2.zero;
-            titleBar.offsetMax = Vector2.zero;
+            var barGo = new GameObject("TitleBar");
+            barGo.transform.SetParent(panel, false);
+            var barRt = barGo.AddComponent<RectTransform>();
+            barRt.anchorMin = new Vector2(0, 0.93f);
+            barRt.anchorMax = new Vector2(1, 1f);
+            barRt.offsetMin = Vector2.zero;
+            barRt.offsetMax = Vector2.zero;
 
-            var titleBg = titleBar.gameObject.AddComponent<Image>();
-            titleBg.color = SectionBgColor;
-            UIFactory.ApplyRoundedCorners(titleBg, 64, 16);
-            titleBg.raycastTarget = false;
+            var barBg = barGo.AddComponent<Image>();
+            barBg.color = TitleBarBg;
+            barBg.raycastTarget = false;
 
-            // 图标
-            var iconSprite = IconManager.Get(IconManager.ICON_SETTING);
-            if (iconSprite != null)
-            {
-                var iconImg = UIFactory.CreateImage(titleBar, "TitleIcon", AccentBlue);
-                iconImg.sprite = iconSprite;
-                iconImg.preserveAspect = true;
-                iconImg.rectTransform.anchorMin = new Vector2(0.015f, 0.15f);
-                iconImg.rectTransform.anchorMax = new Vector2(0.04f, 0.85f);
-                iconImg.rectTransform.offsetMin = Vector2.zero;
-                iconImg.rectTransform.offsetMax = Vector2.zero;
-            }
+            var div = UIFactory.CreateImage(barRt, "TitleDiv",
+                UIColors.WithAlpha(Accent, 0.30f));
+            div.rectTransform.anchorMin = new Vector2(0.01f, 0f);
+            div.rectTransform.anchorMax = new Vector2(0.99f, 0.03f);
+            div.rectTransform.offsetMin = Vector2.zero;
+            div.rectTransform.offsetMax = Vector2.zero;
 
-            var title = UIFactory.CreateText(titleBar, "Title", "系 统 设 置", 34,
-                TextAlignmentOptions.Left, AccentBlue, FontStyles.Bold);
-            title.rectTransform.anchorMin = new Vector2(0.05f, 0f);
-            title.rectTransform.anchorMax = new Vector2(0.5f, 1f);
+            var title = UIFactory.CreateText(barGo.transform, "Title",
+                "\u2699  \u7cfb\u7edf\u8bbe\u7f6e  \u2014  \u5168\u952e\u76d8\u64cd\u4f5c", 26,
+                TextAlignmentOptions.Left, Accent, FontStyles.Bold);
+            title.rectTransform.anchorMin = new Vector2(0.02f, 0f);
+            title.rectTransform.anchorMax = new Vector2(0.65f, 1f);
             title.rectTransform.offsetMin = Vector2.zero;
             title.rectTransform.offsetMax = Vector2.zero;
 
-            // 关闭按钮
-            var closeGo = new GameObject("CloseBtn");
-            closeGo.transform.SetParent(titleBar, false);
-            var closeRt = closeGo.AddComponent<RectTransform>();
-            closeRt.anchorMin = new Vector2(0.955f, 0.15f);
-            closeRt.anchorMax = new Vector2(0.99f, 0.85f);
-            closeRt.offsetMin = Vector2.zero;
-            closeRt.offsetMax = Vector2.zero;
-
-            var closeBg = closeGo.AddComponent<Image>();
-            closeBg.color = UIColors.WithAlpha(BtnResetColor, 0.45f);
-            UIFactory.ApplyRoundedCorners(closeBg, 32, 10);
-
-            var closeBtn = closeGo.AddComponent<Button>();
-            closeBtn.targetGraphic = closeBg;
-            closeBtn.transition = Selectable.Transition.ColorTint;
-            var ccb = closeBtn.colors;
-            ccb.normalColor = UIColors.WithAlpha(BtnResetColor, 0.45f);
-            ccb.highlightedColor = UIColors.WithAlpha(BtnResetColor, 0.75f);
-            ccb.pressedColor = UIColors.WithAlpha(BtnResetColor, 1f);
-            ccb.fadeDuration = 0.10f;
-            closeBtn.colors = ccb;
-            closeBtn.onClick.AddListener(ToggleSettings);
-
-            var cancelIcon = IconManager.Get(IconManager.ICON_CANCEL);
-            if (cancelIcon != null)
-            {
-                var ci = UIFactory.CreateImage(closeGo.transform, "X", UIColors.White);
-                ci.sprite = cancelIcon;
-                ci.preserveAspect = true;
-                ci.raycastTarget = false;
-                ci.rectTransform.anchorMin = new Vector2(0.2f, 0.2f);
-                ci.rectTransform.anchorMax = new Vector2(0.8f, 0.8f);
-                ci.rectTransform.offsetMin = Vector2.zero;
-                ci.rectTransform.offsetMax = Vector2.zero;
-            }
-            else
-            {
-                var xt = UIFactory.CreateText(closeGo.transform, "X", "✕", 24,
-                    TextAlignmentOptions.Center, UIColors.White, FontStyles.Bold);
-                UIFactory.SetFullStretch(xt.rectTransform);
-            }
-
-            // 分隔线
-            var div = UIFactory.CreateImage(panel, "TitleDiv",
-                UIColors.WithAlpha(AccentBlue, 0.30f));
-            div.rectTransform.anchorMin = new Vector2(0.01f, 0.925f);
-            div.rectTransform.anchorMax = new Vector2(0.99f, 0.928f);
-            div.rectTransform.offsetMin = Vector2.zero;
-            div.rectTransform.offsetMax = Vector2.zero;
+            var shortcuts = UIFactory.CreateText(barGo.transform, "Shortcuts",
+                "<color=#EFE580>[Esc]</color> \u5173\u95ed    <color=#EFE580>[Ctrl+S]</color> \u4fdd\u5b58    <color=#EFE580>[F1]</color> \u91cd\u9009\u5175\u79cd",
+                16, TextAlignmentOptions.Right, HintColor);
+            shortcuts.rectTransform.anchorMin = new Vector2(0.50f, 0f);
+            shortcuts.rectTransform.anchorMax = new Vector2(0.98f, 1f);
+            shortcuts.rectTransform.offsetMin = Vector2.zero;
+            shortcuts.rectTransform.offsetMax = Vector2.zero;
+            shortcuts.richText = true;
         }
 
-        // ═══════════════════ 左侧侧边栏 ═══════════════════
+        // ═══════════════════ 侧边栏 ═══════════════════
 
         private void BuildSidebar(RectTransform panel)
         {
-            // 侧边栏容器
             var sidebarGo = new GameObject("Sidebar");
             sidebarGo.transform.SetParent(panel, false);
             var sidebarRt = sidebarGo.AddComponent<RectTransform>();
-            sidebarRt.anchorMin = new Vector2(0.005f, 0.085f);
-            sidebarRt.anchorMax = new Vector2(0.18f, 0.920f);
+            sidebarRt.anchorMin = new Vector2(0, 0.06f);
+            sidebarRt.anchorMax = new Vector2(0.18f, 0.93f);
             sidebarRt.offsetMin = Vector2.zero;
             sidebarRt.offsetMax = Vector2.zero;
 
-            var sidebarBg = sidebarGo.AddComponent<Image>();
-            sidebarBg.color = SidebarBgColor;
-            UIFactory.ApplyRoundedCorners(sidebarBg, 48, 12);
-            sidebarBg.raycastTarget = false;
+            var sidebarBgImg = sidebarGo.AddComponent<Image>();
+            sidebarBgImg.color = SidebarBg;
+            sidebarBgImg.raycastTarget = false;
 
-            // 菜单项
-            float itemH = 1f / MenuIds.Length;
+            sidebarItems.Clear();
+            activeSidebarIndex = -1;
+
+            float itemHeight = 1f / MenuIds.Length;
+
             for (int i = 0; i < MenuIds.Length; i++)
             {
-                var item = CreateSidebarItem(sidebarRt, i, MenuLabels[i], MenuIcons[i],
-                    itemH * (MenuIds.Length - 1 - i), itemH * (MenuIds.Length - i));
-                item.pageId = MenuIds[i];
-                sidebarItems.Add(item);
-            }
+                var itemGo = new GameObject("MenuItem_" + MenuIds[i]);
+                itemGo.transform.SetParent(sidebarRt, false);
+                var itemRt = itemGo.AddComponent<RectTransform>();
+                itemRt.anchorMin = new Vector2(0, 1f - (i + 1) * itemHeight);
+                itemRt.anchorMax = new Vector2(1, 1f - i * itemHeight);
+                itemRt.offsetMin = new Vector2(2, 1);
+                itemRt.offsetMax = new Vector2(-2, -1);
 
-            // 垂直分隔线
-            var vdiv = UIFactory.CreateImage(panel, "SidebarDiv",
-                UIColors.WithAlpha(AccentBlue, 0.20f));
-            vdiv.rectTransform.anchorMin = new Vector2(0.185f, 0.09f);
-            vdiv.rectTransform.anchorMax = new Vector2(0.188f, 0.92f);
-            vdiv.rectTransform.offsetMin = Vector2.zero;
-            vdiv.rectTransform.offsetMax = Vector2.zero;
+                var itemBg = itemGo.AddComponent<Image>();
+                itemBg.color = Color.clear;
+                itemBg.raycastTarget = false;
+
+                var accentGo = new GameObject("Accent");
+                accentGo.transform.SetParent(itemRt, false);
+                var accentRt = accentGo.AddComponent<RectTransform>();
+                accentRt.anchorMin = new Vector2(0, 0.10f);
+                accentRt.anchorMax = new Vector2(0.025f, 0.90f);
+                accentRt.offsetMin = Vector2.zero;
+                accentRt.offsetMax = Vector2.zero;
+                var accentImg = accentGo.AddComponent<Image>();
+                accentImg.color = Color.clear;
+                accentImg.raycastTarget = false;
+
+                var keyHint = UIFactory.CreateText(itemRt, "KeyHint", MenuKeyHints[i], 16,
+                    TextAlignmentOptions.Center, HintColor, FontStyles.Bold);
+                keyHint.rectTransform.anchorMin = new Vector2(0.02f, 0.15f);
+                keyHint.rectTransform.anchorMax = new Vector2(0.16f, 0.85f);
+                keyHint.rectTransform.offsetMin = Vector2.zero;
+                keyHint.rectTransform.offsetMax = Vector2.zero;
+
+                var lbl = UIFactory.CreateText(itemRt, "Label", MenuLabels[i], 18,
+                    TextAlignmentOptions.Left, UIColors.Silver);
+                lbl.rectTransform.anchorMin = new Vector2(0.18f, 0f);
+                lbl.rectTransform.anchorMax = new Vector2(0.95f, 1f);
+                lbl.rectTransform.offsetMin = Vector2.zero;
+                lbl.rectTransform.offsetMax = Vector2.zero;
+
+                sidebarItems.Add(new SidebarItem
+                {
+                    bg = itemBg,
+                    accent = accentImg,
+                    label = lbl,
+                    keyHint = keyHint,
+                    pageId = MenuIds[i]
+                });
+            }
         }
 
-        private SidebarItem CreateSidebarItem(RectTransform parent, int index,
-            string label, string iconName, float yMin, float yMax)
+        // ═══════════════════ 内容区 ═══════════════════
+
+        private void BuildContentArea(RectTransform panel)
         {
-            var go = new GameObject($"Menu_{index}");
-            go.transform.SetParent(parent, false);
-            var rt = go.AddComponent<RectTransform>();
-            rt.anchorMin = new Vector2(0.04f, yMin + 0.005f);
-            rt.anchorMax = new Vector2(0.96f, yMax - 0.005f);
-            rt.offsetMin = Vector2.zero;
-            rt.offsetMax = Vector2.zero;
+            var areaGo = new GameObject("ContentArea");
+            areaGo.transform.SetParent(panel, false);
+            var areaRt = areaGo.AddComponent<RectTransform>();
+            areaRt.anchorMin = new Vector2(0.19f, 0.06f);
+            areaRt.anchorMax = new Vector2(1f, 0.93f);
+            areaRt.offsetMin = new Vector2(4, 0);
+            areaRt.offsetMax = new Vector2(-4, 0);
 
-            var itemBg = go.AddComponent<Image>();
-            itemBg.color = new Color(0, 0, 0, 0);
-            UIFactory.ApplyRoundedCorners(itemBg, 32, 8);
-            itemBg.raycastTarget = true;
+            var areaBg = areaGo.AddComponent<Image>();
+            areaBg.color = ContentBg;
+            areaBg.raycastTarget = false;
 
-            // 左侧选中指示条
-            var accent = UIFactory.CreateImage(rt, "Accent", AccentBlue);
-            accent.rectTransform.anchorMin = new Vector2(0, 0.1f);
-            accent.rectTransform.anchorMax = new Vector2(0.025f, 0.9f);
-            accent.rectTransform.offsetMin = Vector2.zero;
-            accent.rectTransform.offsetMax = Vector2.zero;
-            accent.gameObject.SetActive(false);
+            contentArea = areaRt;
+        }
 
-            // 图标
-            float textStart = 0.06f;
-            var iconSprite = IconManager.Get(iconName);
-            if (iconSprite != null)
+        // ═══════════════════ 帮助栏 ═══════════════════
+
+        private void BuildHelpBar(RectTransform panel)
+        {
+            var barGo = new GameObject("HelpBar");
+            barGo.transform.SetParent(panel, false);
+            var barRt = barGo.AddComponent<RectTransform>();
+            barRt.anchorMin = new Vector2(0, 0);
+            barRt.anchorMax = new Vector2(1, 0.055f);
+            barRt.offsetMin = Vector2.zero;
+            barRt.offsetMax = Vector2.zero;
+
+            var barBg = barGo.AddComponent<Image>();
+            barBg.color = new Color(0.03f, 0.04f, 0.08f, 0.90f);
+            barBg.raycastTarget = false;
+
+            var div = UIFactory.CreateImage(panel, "HelpDiv",
+                UIColors.WithAlpha(Accent, 0.20f));
+            div.rectTransform.anchorMin = new Vector2(0.01f, 0.055f);
+            div.rectTransform.anchorMax = new Vector2(0.99f, 0.058f);
+            div.rectTransform.offsetMin = Vector2.zero;
+            div.rectTransform.offsetMax = Vector2.zero;
+
+            helpBarText = UIFactory.CreateText(barGo.transform, "HelpText", "", 16,
+                TextAlignmentOptions.Center, UIColors.Silver);
+            helpBarText.richText = true;
+            UIFactory.SetFullStretch(helpBarText.rectTransform);
+            helpBarText.rectTransform.offsetMin = new Vector2(8, 0);
+            helpBarText.rectTransform.offsetMax = new Vector2(-8, 0);
+        }
+
+        // ═══════════════════ 侧边栏选择 ═══════════════════
+
+        private void SelectSidebarByIndex(int index)
+        {
+            if (index < 0 || index >= sidebarItems.Count) return;
+
+            if (activeSidebarIndex >= 0 && activeSidebarIndex < sidebarItems.Count)
             {
-                var iconImg = UIFactory.CreateImage(rt, "Icon",
-                    UIColors.WithAlpha(UIColors.Silver, 0.7f));
-                iconImg.sprite = iconSprite;
-                iconImg.preserveAspect = true;
-                iconImg.rectTransform.anchorMin = new Vector2(0.05f, 0.18f);
-                iconImg.rectTransform.anchorMax = new Vector2(0.22f, 0.82f);
-                iconImg.rectTransform.offsetMin = Vector2.zero;
-                iconImg.rectTransform.offsetMax = Vector2.zero;
-                textStart = 0.26f;
+                var old = sidebarItems[activeSidebarIndex];
+                if (old.bg) old.bg.color = Color.clear;
+                if (old.accent) old.accent.color = Color.clear;
+                if (old.label) old.label.color = UIColors.Silver;
+                if (old.keyHint) old.keyHint.color = HintColor;
             }
 
-            // 文字
-            var lbl = UIFactory.CreateText(rt, "Label", label, 22,
-                TextAlignmentOptions.Left, UIColors.Silver);
-            lbl.rectTransform.anchorMin = new Vector2(textStart, 0f);
-            lbl.rectTransform.anchorMax = new Vector2(1f, 1f);
-            lbl.rectTransform.offsetMin = Vector2.zero;
-            lbl.rectTransform.offsetMax = Vector2.zero;
-
-            var btn = go.AddComponent<Button>();
-            btn.targetGraphic = itemBg;
-            btn.transition = Selectable.Transition.ColorTint;
-            var sbc = btn.colors;
-            sbc.normalColor = new Color(0, 0, 0, 0);
-            sbc.highlightedColor = SidebarItemHover;
-            sbc.pressedColor = SidebarItemActive;
-            sbc.selectedColor = new Color(0, 0, 0, 0);
-            sbc.fadeDuration = 0.12f;
-            btn.colors = sbc;
-            int idx = index;
-            btn.onClick.AddListener(() => SelectSidebarItem(idx));
-
-            return new SidebarItem { button = btn, bg = itemBg, accent = accent, label = lbl };
-        }
-
-        private void SelectSidebarItem(int index)
-        {
-            if (index == activeSidebarIndex) return;
             activeSidebarIndex = index;
+            var item = sidebarItems[index];
+            if (item.bg) item.bg.color = SidebarActive;
+            if (item.accent) item.accent.color = Accent;
+            if (item.label) item.label.color = UIColors.White;
+            if (item.keyHint) item.keyHint.color = Accent;
 
-            // 更新侧边栏视觉
-            for (int i = 0; i < sidebarItems.Count; i++)
-            {
-                bool active = i == index;
-                sidebarItems[i].bg.color = active ? SidebarItemActive : new Color(0, 0, 0, 0);
-                sidebarItems[i].accent.gameObject.SetActive(active);
-                sidebarItems[i].label.color = active ? AccentBlue : UIColors.Silver;
-            }
-
-            // 清理旧内容
             if (contentArea != null)
             {
                 for (int i = contentArea.childCount - 1; i >= 0; i--)
                     Destroy(contentArea.GetChild(i).gameObject);
             }
 
-            sliderBindings.Clear();
+            rows.Clear();
+            focusedRowIndex = -1;
+            rowBuildIndex = 0;
+            isListeningForKey = false;
+            currentScrollRect = null;
             layoutHandles.Clear();
-            rowIndex = 0;
+            layoutFocusIndex = -1;
 
-            // 构建对应页面
-            string pageId = sidebarItems[index].pageId;
+            BuildPage(item.pageId);
+            UpdateHelpBar();
+        }
+
+        private void BuildPage(string pageId)
+        {
             switch (pageId)
             {
                 case "matchinfo": BuildMatchInfoPage(); break;
-                case "notify": BuildNotifyPage(); break;
-                case "aim": BuildAimPage(); break;
-                case "hit": BuildHitPage(); break;
+                case "notify":    BuildNotifyPage(); break;
+                case "aim":       BuildAimPage(); break;
+                case "hit":       BuildHitPage(); break;
                 case "crosshair": BuildCrosshairPage(); break;
-                case "health": BuildHealthPage(); break;
-                case "buff": BuildBuffPage(); break;
-                case "font": BuildFontPage(); break;
-                case "shortcut": BuildShortcutPage(); break;
-                case "economy": BuildEconomyPage(); break;
-                case "layout": BuildLayoutPage(); break;
+                case "health":    BuildHealthPage(); break;
+                case "buff":      BuildBuffPage(); break;
+                case "font":      BuildFontPage(); break;
+                case "shortcut":  BuildShortcutPage(); break;
+                case "economy":   BuildEconomyPage(); break;
+                case "network":   BuildNetworkPage(); break;
+                case "layout":    BuildLayoutPage(); break;
             }
         }
 
-        // ═══════════════════ 右侧内容区框架 ═══════════════════
+        // ═══════════════════ 滚动内容容器 ═══════════════════
 
-        private void BuildContentArea(RectTransform panel)
+        private Transform CreateScrollContent(string pageName)
         {
-            var areaGo = new GameObject("ContentArea");
-            areaGo.transform.SetParent(panel, false);
-            contentArea = areaGo.AddComponent<RectTransform>();
-            contentArea.anchorMin = new Vector2(0.192f, 0.085f);
-            contentArea.anchorMax = new Vector2(0.995f, 0.920f);
-            contentArea.offsetMin = Vector2.zero;
-            contentArea.offsetMax = Vector2.zero;
-
-            // 裁剪遮罩确保内容不会溢出
-            var clipMask = areaGo.AddComponent<Image>();
-            clipMask.color = new Color(0, 0, 0, 0.01f);
-            areaGo.AddComponent<Mask>().showMaskGraphic = false;
-        }
-
-        // ─── 创建带滚动的参数页面容器 ───
-        private Transform CreateParamScrollContent(string pageName)
-        {
-            var scrollGo = new GameObject($"Scroll_{pageName}");
+            var scrollGo = new GameObject("Scroll_" + pageName);
             scrollGo.transform.SetParent(contentArea, false);
             var scrollRt = scrollGo.AddComponent<RectTransform>();
-            // 填满整个内容区
-            scrollRt.anchorMin = Vector2.zero;
-            scrollRt.anchorMax = Vector2.one;
-            scrollRt.offsetMin = Vector2.zero;
-            scrollRt.offsetMax = Vector2.zero;
+            UIFactory.SetFullStretch(scrollRt);
 
-            // 不再重复添加 Mask（contentArea 已有）
+            var scrollImg = scrollGo.AddComponent<Image>();
+            scrollImg.color = Color.clear;
+            scrollImg.raycastTarget = false;
+
+            var viewportGo = new GameObject("Viewport");
+            viewportGo.transform.SetParent(scrollGo.transform, false);
+            var viewportRt = viewportGo.AddComponent<RectTransform>();
+            UIFactory.SetFullStretch(viewportRt);
+            var viewportImg = viewportGo.AddComponent<Image>();
+            viewportImg.color = Color.white;
+            viewportImg.raycastTarget = false;
+            viewportGo.AddComponent<Mask>().showMaskGraphic = false;
 
             var contentGo = new GameObject("Content");
-            contentGo.transform.SetParent(scrollGo.transform, false);
+            contentGo.transform.SetParent(viewportGo.transform, false);
             var contentRt = contentGo.AddComponent<RectTransform>();
             contentRt.anchorMin = new Vector2(0, 1);
             contentRt.anchorMax = new Vector2(1, 1);
             contentRt.pivot = new Vector2(0.5f, 1);
-            contentRt.anchoredPosition = Vector2.zero;
-            // 设置初始宽度跟随父级
-            contentRt.sizeDelta = new Vector2(0, 0);
+            contentRt.offsetMin = Vector2.zero;
+            contentRt.offsetMax = Vector2.zero;
 
             var vlg = contentGo.AddComponent<VerticalLayoutGroup>();
-            vlg.childAlignment = TextAnchor.UpperCenter;
+            vlg.padding = new RectOffset(8, 8, 6, 6);
             vlg.spacing = 3;
-            vlg.padding = new RectOffset(4, 4, 4, 20);
-            vlg.childControlWidth = true;
-            vlg.childControlHeight = false;
             vlg.childForceExpandWidth = true;
             vlg.childForceExpandHeight = false;
+            vlg.childControlWidth = true;
+            vlg.childControlHeight = true;
 
-            var csf = contentGo.AddComponent<ContentSizeFitter>();
-            csf.verticalFit = ContentSizeFitter.FitMode.PreferredSize;
+            contentGo.AddComponent<ContentSizeFitter>().verticalFit =
+                ContentSizeFitter.FitMode.PreferredSize;
 
             var scroll = scrollGo.AddComponent<ScrollRect>();
+            scroll.viewport = viewportRt;
             scroll.content = contentRt;
             scroll.horizontal = false;
             scroll.vertical = true;
-            scroll.movementType = ScrollRect.MovementType.Elastic;
-            scroll.scrollSensitivity = 45f;
-            scroll.viewport = scrollRt;
+            scroll.scrollSensitivity = 40;
+            scroll.movementType = ScrollRect.MovementType.Clamped;
+
+            currentScrollRect = scroll;
 
             return contentGo.transform;
         }
 
-        // ═══════════════════ 参数页面 ═══════════════════
+        // ═══════════════════ 各设置页面 ═══════════════════
 
         private void BuildMatchInfoPage()
         {
-            var c = CreateParamScrollContent("matchinfo");
+            var c = CreateScrollContent("MatchInfo");
             var s = UILayoutManager.Settings;
-
-            AddSectionHeader(c, "对 局 信 息 显 示", IconManager.ICON_INFORM);
-            AddToggleRow(c, "显示比赛阶段", s.showMatchStage,
-                v => { s.showMatchStage = v; ScheduleLivePreview(); });
-            AddToggleRow(c, "显示倒计时", s.showMatchTimer,
-                v => { s.showMatchTimer = v; ScheduleLivePreview(); });
-            AddToggleRow(c, "显示轮次", s.showMatchRound,
-                v => { s.showMatchRound = v; ScheduleLivePreview(); });
-            AddToggleRow(c, "显示比分", s.showMatchScore,
-                v => { s.showMatchScore = v; ScheduleLivePreview(); });
-            AddToggleRow(c, "显示经济", s.showMatchEconomy,
-                v => { s.showMatchEconomy = v; ScheduleLivePreview(); });
-
-            AddSectionHeader(c, "运 行 模 式", IconManager.ICON_FATAL_WARNING);
-            var gp = GameParamsConfig.Get;
-            AddToggleRow(c, "比赛模式 (官方协议)", gp.isCompetitionMode,
-                v => { gp.isCompetitionMode = v; GameParamsConfig.Save(); });
+            AddSectionHeader(c, "\u5bf9\u5c40\u4fe1\u606f\u663e\u793a");
+            AddToggleRow(c, "\u663e\u793a\u9636\u6bb5", s.showMatchStage, v => s.showMatchStage = v);
+            AddToggleRow(c, "\u663e\u793a\u5012\u8ba1\u65f6", s.showMatchTimer, v => s.showMatchTimer = v);
+            AddToggleRow(c, "\u663e\u793a\u8f6e\u6b21", s.showMatchRound, v => s.showMatchRound = v);
+            AddToggleRow(c, "\u663e\u793a\u6bd4\u5206", s.showMatchScore, v => s.showMatchScore = v);
+            AddToggleRow(c, "\u663e\u793a\u7ecf\u6d4e", s.showMatchEconomy, v => s.showMatchEconomy = v);
         }
 
         private void BuildNotifyPage()
         {
-            var c = CreateParamScrollContent("notify");
+            var c = CreateScrollContent("Notify");
             var s = UILayoutManager.Settings;
             var d = HUDSettings.Defaults();
-
-            AddSectionHeader(c, "通 知 设 置", IconManager.ICON_INFORM);
-            AddSliderRow(c, "通知显示时长", "s",
-                s.notificationDuration, d.notificationDuration, 0.5f, 10f,
-                v => s.notificationDuration = v);
-            AddSliderRow(c, "最大通知数", "",
-                s.maxNotifications, d.maxNotifications, 1f, 10f,
-                v => s.maxNotifications = Mathf.RoundToInt(v));
-
-            AddSectionHeader(c, "事 件 过 滤", IconManager.ICON_INFORM);
-            AddToggleRow(c, "显示击杀事件", s.showKillFeedEvents,
-                v => { s.showKillFeedEvents = v; });
-            AddToggleRow(c, "显示队友阵亡", s.showTeammateDeathEvents,
-                v => { s.showTeammateDeathEvents = v; });
-            AddToggleRow(c, "显示队友复活", s.showTeammateRespawnEvents,
-                v => { s.showTeammateRespawnEvents = v; });
-            AddToggleRow(c, "显示弹药兑换事件", s.showIndividualAmmoEvents,
-                v => { s.showIndividualAmmoEvents = v; });
-            AddToggleRow(c, "显示等级提升事件", s.showIndividualLevelEvents,
-                v => { s.showIndividualLevelEvents = v; });
+            AddSectionHeader(c, "\u901a\u77e5\u53c2\u6570");
+            AddSliderRow(c, "\u901a\u77e5\u65f6\u957f", "\u79d2", s.notificationDuration, d.notificationDuration,
+                0.5f, 8f, v => s.notificationDuration = v);
+            AddSliderRow(c, "\u6700\u5927\u901a\u77e5\u6570", "", s.maxNotifications, d.maxNotifications,
+                1, 10, v => s.maxNotifications = Mathf.RoundToInt(v));
+            AddSectionHeader(c, "\u4e8b\u4ef6\u8fc7\u6ee4");
+            AddToggleRow(c, "\u961f\u53cb\u9635\u4ea1\u4e8b\u4ef6", s.showTeammateDeathEvents,
+                v => s.showTeammateDeathEvents = v);
+            AddToggleRow(c, "\u961f\u53cb\u590d\u6d3b\u4e8b\u4ef6", s.showTeammateRespawnEvents,
+                v => s.showTeammateRespawnEvents = v);
+            AddToggleRow(c, "\u5f39\u836f\u5151\u6362\u4e8b\u4ef6", s.showIndividualAmmoEvents,
+                v => s.showIndividualAmmoEvents = v);
+            AddToggleRow(c, "\u4e2a\u4f53\u5347\u7ea7\u4e8b\u4ef6", s.showIndividualLevelEvents,
+                v => s.showIndividualLevelEvents = v);
+            AddToggleRow(c, "\u51fb\u6740\u4e8b\u4ef6", s.showKillFeedEvents,
+                v => s.showKillFeedEvents = v);
         }
 
         private void BuildAimPage()
         {
-            var c = CreateParamScrollContent("aim");
+            var c = CreateScrollContent("Aim");
             var s = UILayoutManager.Settings;
             var d = HUDSettings.Defaults();
-
-            AddSectionHeader(c, "开 镜 设 置", IconManager.ICON_PILL);
-            AddToggleRow(c, "启用射击自动开镜", s.aimZoomEnabled,
-                v => { s.aimZoomEnabled = v; ScheduleLivePreview(); });
-            AddSliderRow(c, "开镜倍率", "x",
-                s.aimZoomFactor, d.aimZoomFactor, 1f, 4f,
-                v => s.aimZoomFactor = v);
-            AddSliderRow(c, "聚焦速度", "",
-                s.aimZoomSpeed, d.aimZoomSpeed, 2f, 20f,
-                v => s.aimZoomSpeed = v);
-            AddSliderRow(c, "关镜延迟", "s",
-                s.aimZoomCloseDelay, d.aimZoomCloseDelay, 0.5f, 8f,
-                v => s.aimZoomCloseDelay = v);
-
+            AddSectionHeader(c, "\u5f00\u955c\u53c2\u6570");
+            AddToggleRow(c, "\u542f\u7528\u81ea\u52a8\u5f00\u955c", s.aimZoomEnabled, v => s.aimZoomEnabled = v);
+            AddSliderRow(c, "\u805a\u7126\u500d\u7387", "x", s.aimZoomFactor, d.aimZoomFactor,
+                1f, 4f, v => s.aimZoomFactor = v);
+            AddSliderRow(c, "\u805a\u7126\u901f\u5ea6", "", s.aimZoomSpeed, d.aimZoomSpeed,
+                1f, 20f, v => s.aimZoomSpeed = v);
+            AddSliderRow(c, "\u81ea\u52a8\u5173\u955c\u5ef6\u8fdf", "\u79d2", s.aimZoomCloseDelay, d.aimZoomCloseDelay,
+                0.5f, 10f, v => s.aimZoomCloseDelay = v);
         }
 
         private void BuildHitPage()
         {
-            var c = CreateParamScrollContent("hit");
+            var c = CreateScrollContent("Hit");
             var s = UILayoutManager.Settings;
             var d = HUDSettings.Defaults();
-
-            AddSectionHeader(c, "受 击 提 示", IconManager.ICON_FATAL_WARNING);
-            AddSliderRow(c, "闪烁持续时间", "s",
-                s.hitFlashDuration, d.hitFlashDuration, 0.1f, 1f,
-                v => s.hitFlashDuration = v);
-            AddSliderRow(c, "低血量阈值", "%",
-                s.lowHealthThreshold * 100f, d.lowHealthThreshold * 100f, 10f, 90f,
+            AddSectionHeader(c, "\u53d7\u51fb\u63d0\u793a");
+            AddSliderRow(c, "\u95ea\u70c1\u65f6\u957f", "\u79d2", s.hitFlashDuration, d.hitFlashDuration,
+                0.1f, 1f, v => s.hitFlashDuration = v);
+            AddSliderRow(c, "\u4f4e\u8840\u91cf\u9608\u503c", "%", s.lowHealthThreshold * 100f,
+                d.lowHealthThreshold * 100f, 10f, 90f,
                 v => s.lowHealthThreshold = v / 100f);
         }
 
         private void BuildCrosshairPage()
         {
-            var c = CreateParamScrollContent("crosshair");
+            var c = CreateScrollContent("Crosshair");
             var s = UILayoutManager.Settings;
             var d = HUDSettings.Defaults();
-
-            AddSectionHeader(c, "准 星 设 置", IconManager.ICON_PILL);
-            AddSliderRow(c, "准星环半径", "px",
-                s.crosshairRingRadius, d.crosshairRingRadius, 40f, 200f,
-                v => s.crosshairRingRadius = v);
-            AddSliderRow(c, "环线宽度", "px",
-                s.crosshairRingThickness, d.crosshairRingThickness, 3f, 16f,
-                v => s.crosshairRingThickness = v);
-            AddSliderRow(c, "环间距", "px",
-                s.crosshairHeatRingGap, d.crosshairHeatRingGap, 2f, 20f,
-                v => s.crosshairHeatRingGap = v);
-            AddSliderRow(c, "准星点大小", "px",
-                s.crosshairDotSize, d.crosshairDotSize, 4f, 20f,
-                v => s.crosshairDotSize = v);
-            AddSliderRow(c, "准星线长度", "px",
-                s.crosshairLineLength, d.crosshairLineLength, 20f, 80f,
-                v => s.crosshairLineLength = v);
-            AddSliderRow(c, "吊射模式准星透明度", "%",
-                s.deployModeRingOpacity, d.deployModeRingOpacity, 0.1f, 1.0f,
-                v => s.deployModeRingOpacity = v);
+            AddSectionHeader(c, "\u51c6\u661f\u53c2\u6570");
+            AddSliderRow(c, "\u51c6\u661f\u73af\u534a\u5f84", "px", s.crosshairRingRadius, d.crosshairRingRadius,
+                20f, 200f, v => s.crosshairRingRadius = v);
+            AddSliderRow(c, "\u51c6\u661f\u73af\u7ebf\u5bbd", "px", s.crosshairRingThickness, d.crosshairRingThickness,
+                1f, 30f, v => s.crosshairRingThickness = v);
+            AddSliderRow(c, "\u4e2d\u5fc3\u70b9\u5927\u5c0f", "px", s.crosshairDotSize, d.crosshairDotSize,
+                2f, 20f, v => s.crosshairDotSize = v);
+            AddSliderRow(c, "\u5341\u5b57\u7ebf\u957f\u5ea6", "px", s.crosshairLineLength, d.crosshairLineLength,
+                10f, 100f, v => s.crosshairLineLength = v);
+            AddSliderRow(c, "\u70ed\u91cf\u73af\u95f4\u8ddd", "px", s.crosshairHeatRingGap, d.crosshairHeatRingGap,
+                0f, 30f, v => s.crosshairHeatRingGap = v);
+            AddSliderRow(c, "\u540a\u5c04\u6a21\u5f0f\u900f\u660e\u5ea6", "", s.deployModeRingOpacity, d.deployModeRingOpacity,
+                0.1f, 1f, v => s.deployModeRingOpacity = v);
         }
 
         private void BuildHealthPage()
         {
-            var c = CreateParamScrollContent("health");
+            var c = CreateScrollContent("Health");
             var s = UILayoutManager.Settings;
             var d = HUDSettings.Defaults();
-
-            AddSectionHeader(c, "血 条 设 置", IconManager.ICON_WARNING);
-            AddSliderRow(c, "血条宽度", "px",
-                s.healthBarWidth, d.healthBarWidth, 400f, 1400f,
-                v => s.healthBarWidth = v);
-            AddSliderRow(c, "血条高度", "px",
-                s.healthBarHeight, d.healthBarHeight, 20f, 60f,
-                v => s.healthBarHeight = v);
+            AddSectionHeader(c, "\u8840\u6761\u53c2\u6570");
+            AddSliderRow(c, "\u8840\u6761\u5bbd\u5ea6", "px", s.healthBarWidth, d.healthBarWidth,
+                200f, 1600f, v => s.healthBarWidth = v);
+            AddSliderRow(c, "\u8840\u6761\u9ad8\u5ea6", "px", s.healthBarHeight, d.healthBarHeight,
+                12f, 80f, v => s.healthBarHeight = v);
         }
 
         private void BuildBuffPage()
         {
-            var c = CreateParamScrollContent("buff");
+            var c = CreateScrollContent("Buff");
             var s = UILayoutManager.Settings;
             var d = HUDSettings.Defaults();
-
-            AddSectionHeader(c, "BUFF 设 置", IconManager.ICON_PILL);
-            AddSliderRow(c, "单列可见数", "",
-                s.buffMaxVisible, d.buffMaxVisible, 2f, 8f,
-                v => s.buffMaxVisible = Mathf.RoundToInt(v));
-            AddSliderRow(c, "列宽度", "px",
-                s.buffColumnWidth, d.buffColumnWidth, 150f, 350f,
-                v => s.buffColumnWidth = v);
+            AddSectionHeader(c, "BUFF \u72b6\u6001\u680f");
+            AddSliderRow(c, "\u5355\u5217\u6700\u5927\u53ef\u89c1\u6570", "", s.buffMaxVisible, d.buffMaxVisible,
+                1, 12, v => s.buffMaxVisible = Mathf.RoundToInt(v));
+            AddSliderRow(c, "\u680f\u5bbd\u5ea6", "px", s.buffColumnWidth, d.buffColumnWidth,
+                100f, 400f, v => s.buffColumnWidth = v);
         }
 
         private void BuildFontPage()
         {
-            var c = CreateParamScrollContent("font");
+            var c = CreateScrollContent("Font");
             var s = UILayoutManager.Settings;
             var d = HUDSettings.Defaults();
-
-            AddSectionHeader(c, "字 体 大 小", IconManager.ICON_SETTING);
-            AddSliderRow(c, "准星区域字体", "pt",
-                s.crosshairFontSize, d.crosshairFontSize, 20f, 60f,
-                v => s.crosshairFontSize = Mathf.RoundToInt(v));
-            AddSliderRow(c, "血条字体", "pt",
-                s.healthBarFontSize, d.healthBarFontSize, 16f, 48f,
-                v => s.healthBarFontSize = Mathf.RoundToInt(v));
-            AddSliderRow(c, "通知字体", "pt",
-                s.notificationFontSize, d.notificationFontSize, 20f, 48f,
-                v => s.notificationFontSize = Mathf.RoundToInt(v));
-            AddSliderRow(c, "BUFF字体", "pt",
-                s.buffFontSize, d.buffFontSize, 18f, 42f,
-                v => s.buffFontSize = Mathf.RoundToInt(v));
-            AddSliderRow(c, "文字透明度", "%",
-                s.textOpacity * 100f, d.textOpacity * 100f, 30f, 100f,
-                v => s.textOpacity = v / 100f);
+            AddSectionHeader(c, "\u5b57\u4f53\u5927\u5c0f");
+            AddSliderRow(c, "\u51c6\u661f\u5b57\u4f53", "px", s.crosshairFontSize, d.crosshairFontSize,
+                16, 60, v => s.crosshairFontSize = Mathf.RoundToInt(v));
+            AddSliderRow(c, "\u8840\u6761\u5b57\u4f53", "px", s.healthBarFontSize, d.healthBarFontSize,
+                16, 60, v => s.healthBarFontSize = Mathf.RoundToInt(v));
+            AddSliderRow(c, "\u901a\u77e5\u5b57\u4f53", "px", s.notificationFontSize, d.notificationFontSize,
+                16, 60, v => s.notificationFontSize = Mathf.RoundToInt(v));
+            AddSliderRow(c, "BUFF\u5b57\u4f53", "px", s.buffFontSize, d.buffFontSize,
+                12, 48, v => s.buffFontSize = Mathf.RoundToInt(v));
+            AddSliderRow(c, "\u5168\u5c40\u6587\u5b57\u900f\u660e\u5ea6", "", s.textOpacity, d.textOpacity,
+                0.2f, 1f, v => s.textOpacity = v);
         }
-
-        // ═══════════════════ 快捷键设置页面 ═══════════════════
-
-        // 正在监听按键绑定的行索引，-1 = 未监听
-        private int listeningBindIndex = -1;
-        private TextMeshProUGUI listeningLabel;
-        private List<TextMeshProUGUI> bindingLabels = new List<TextMeshProUGUI>();
 
         private void BuildShortcutPage()
         {
-            var c = CreateParamScrollContent("shortcut");
+            var c = CreateScrollContent("Shortcut");
             var s = UILayoutManager.Settings;
-            var d = HUDSettings.Defaults();
-            listeningBindIndex = -1;
-            listeningLabel = null;
-            bindingLabels.Clear();
-
-            AddSectionHeader(c, "弹 药 购 买 提 示", IconManager.ICON_SETTING);
-            AddSliderRow(c, "提示显示时长", "s",
-                s.ammoPurchasePopupDuration, d.ammoPurchasePopupDuration, 0.2f, 3f,
+            AddSectionHeader(c, "\u5f39\u836f\u8d2d\u4e70\u5feb\u6377\u952e");
+            AddSliderRow(c, "\u8d2d\u4e70\u63d0\u793a\u65f6\u957f", "\u79d2", s.ammoPurchasePopupDuration,
+                HUDSettings.Defaults().ammoPurchasePopupDuration, 0.1f, 3f,
                 v => s.ammoPurchasePopupDuration = v);
 
-            AddSectionHeader(c, "弹 药 购 买 快 捷 键", IconManager.ICON_SETTING);
-
-            // 说明文字
-            AddInfoRow(c, "非英雄: 数字 × 10 发 17mm | 英雄: 数字 × 1 发 42mm");
-            AddInfoRow(c, "点击按键栏后按下新键位完成绑定，冲突时自动拒绝");
-
-            // 初始化绑定列表
-            if (s.ammoKeyBindings == null || s.ammoKeyBindings.Count == 0)
+            if (s.ammoKeyBindings == null)
                 s.ammoKeyBindings = HUDSettings.DefaultAmmoKeyBindings();
 
             for (int i = 0; i < s.ammoKeyBindings.Count; i++)
             {
-                AddKeyBindingRow(c, s, i);
+                int idx = i;
+                var binding = s.ammoKeyBindings[i];
+                AddKeyBindingRow(c, "\u8d2d\u4e70 x" + binding.purchaseDigit.ToString(), binding, idx);
             }
 
-            // 重置所有快捷键按钮
-            AddShortcutResetButton(c, s);
-        }
-
-        private void AddInfoRow(Transform content, string text)
-        {
-            var go = new GameObject($"Info_{rowIndex}");
-            go.transform.SetParent(content, false);
-            var le = go.AddComponent<LayoutElement>();
-            le.preferredHeight = 36;
-            le.flexibleWidth = 1;
-
-            var bg = go.AddComponent<Image>();
-            bg.color = new Color(0, 0, 0, 0);
-            bg.raycastTarget = false;
-
-            var rowRt = go.GetComponent<RectTransform>();
-            var lbl = UIFactory.CreateText(rowRt, "Info", text, 18,
-                TextAlignmentOptions.Left, UIColors.WithAlpha(UIColors.Silver, 0.55f));
-            lbl.rectTransform.anchorMin = new Vector2(0.03f, 0f);
-            lbl.rectTransform.anchorMax = new Vector2(0.97f, 1f);
-            lbl.rectTransform.offsetMin = Vector2.zero;
-            lbl.rectTransform.offsetMax = Vector2.zero;
-        }
-
-        private void AddKeyBindingRow(Transform content, HUDSettings s, int bindIndex)
-        {
-            var binding = s.ammoKeyBindings[bindIndex];
-            string keyName = ((KeyCode)binding.keyCode).ToString();
-            int digit = binding.purchaseDigit;
-            bool is42mm = BattleHUD.Instance != null && !BattleHUD.Instance.CanShoot ? false
-                : (RobotSelectionBootstrap.CurrentSelection != null
-                   && RobotSelectionBootstrap.CurrentSelection.Robot == RobotType.Hero);
-            int ammoAmount = is42mm ? digit : digit * 10;
-            string ammoLabel = is42mm ? "42mm" : "17mm";
-
-            var go = new GameObject($"Bind_{bindIndex}");
-            go.transform.SetParent(content, false);
-            var le = go.AddComponent<LayoutElement>();
-            le.preferredHeight = 50;
-            le.flexibleWidth = 1;
-
-            var rowBg = go.AddComponent<Image>();
-            Color rowColor = (rowIndex % 2 == 0) ? RowBgEven : RowBgOdd;
-            rowBg.color = rowColor;
-            UIFactory.ApplyRoundedCorners(rowBg, 32, 6);
-            rowBg.raycastTarget = true;
-            rowIndex++;
-
-            var rowRt = go.GetComponent<RectTransform>();
-
-            // 购买描述标签
-            var descLabel = UIFactory.CreateText(rowRt, "Desc",
-                $"购买 {ammoAmount} 发 {ammoLabel}", 20,
-                TextAlignmentOptions.Left, UIColors.Silver);
-            descLabel.rectTransform.anchorMin = new Vector2(0.02f, 0f);
-            descLabel.rectTransform.anchorMax = new Vector2(0.35f, 1f);
-            descLabel.rectTransform.offsetMin = Vector2.zero;
-            descLabel.rectTransform.offsetMax = Vector2.zero;
-
-            // 按键绑定按钮
-            var keyBtnGo = new GameObject("KeyBtn");
-            keyBtnGo.transform.SetParent(rowRt, false);
-            var keyBtnRt = keyBtnGo.AddComponent<RectTransform>();
-            keyBtnRt.anchorMin = new Vector2(0.40f, 0.15f);
-            keyBtnRt.anchorMax = new Vector2(0.70f, 0.85f);
-            keyBtnRt.offsetMin = Vector2.zero;
-            keyBtnRt.offsetMax = Vector2.zero;
-
-            var keyBtnBg = keyBtnGo.AddComponent<Image>();
-            keyBtnBg.color = new Color(0.10f, 0.12f, 0.22f, 0.75f);
-            UIFactory.ApplyRoundedCorners(keyBtnBg, 32, 8);
-            keyBtnBg.raycastTarget = true;
-
-            var keyLabel = UIFactory.CreateText(keyBtnGo.transform, "KeyName",
-                FormatKeyName(keyName), 22,
-                TextAlignmentOptions.Center, AccentBlue, FontStyles.Bold);
-            UIFactory.SetFullStretch(keyLabel.rectTransform);
-            keyLabel.raycastTarget = false;
-
-            bindingLabels.Add(keyLabel);
-
-            var keyBtn = keyBtnGo.AddComponent<Button>();
-            keyBtn.targetGraphic = keyBtnBg;
-            keyBtn.transition = Selectable.Transition.ColorTint;
-            var kbc = keyBtn.colors;
-            kbc.normalColor = new Color(0.10f, 0.12f, 0.22f, 0.75f);
-            kbc.highlightedColor = new Color(0.15f, 0.20f, 0.35f, 0.85f);
-            kbc.pressedColor = new Color(0.20f, 0.28f, 0.45f, 0.95f);
-            kbc.fadeDuration = 0.10f;
-            keyBtn.colors = kbc;
-
-            int localIndex = bindIndex;
-            Image localBg = keyBtnBg;
-            keyBtn.onClick.AddListener(() =>
+            AddButtonRow(c, "\u21ba \u91cd\u7f6e\u6240\u6709\u5feb\u6377\u952e", () =>
             {
-                StartKeyListening(localIndex, keyLabel, localBg);
-            });
-
-            // 数字标签
-            var digitLabel = UIFactory.CreateText(rowRt, "Digit",
-                $"数字={digit}", 18,
-                TextAlignmentOptions.Center, UIColors.WithAlpha(UIColors.Silver, 0.6f));
-            digitLabel.rectTransform.anchorMin = new Vector2(0.74f, 0f);
-            digitLabel.rectTransform.anchorMax = new Vector2(0.98f, 1f);
-            digitLabel.rectTransform.offsetMin = Vector2.zero;
-            digitLabel.rectTransform.offsetMax = Vector2.zero;
-        }
-
-        private void StartKeyListening(int bindIndex, TextMeshProUGUI label, Image btnBg)
-        {
-            // 取消之前的监听
-            if (listeningBindIndex >= 0 && listeningLabel != null)
-            {
-                var s = UILayoutManager.Settings;
-                if (listeningBindIndex < s.ammoKeyBindings.Count)
-                {
-                    string prevKeyName = ((KeyCode)s.ammoKeyBindings[listeningBindIndex].keyCode).ToString();
-                    listeningLabel.text = FormatKeyName(prevKeyName);
-                    listeningLabel.color = AccentBlue;
-                }
-            }
-
-            listeningBindIndex = bindIndex;
-            listeningLabel = label;
-            label.text = "按下键位...";
-            label.color = UIColors.HeatYellow;
-            btnBg.color = new Color(0.25f, 0.22f, 0.08f, 0.75f);
-
-            // 使用协程监听按键
-            StartCoroutine(ListenForKeyCoroutine(bindIndex, label, btnBg));
-        }
-
-        private System.Collections.IEnumerator ListenForKeyCoroutine(
-            int bindIndex, TextMeshProUGUI label, Image btnBg)
-        {
-            // 等一帧，避免当前帧按键被捕获
-            yield return null;
-
-            float timeout = 5f;
-            float timer = 0f;
-            bool captured = false;
-
-            while (timer < timeout && listeningBindIndex == bindIndex)
-            {
-                timer += Time.deltaTime;
-
-                // 扫描所有按键
-                foreach (KeyCode kc in System.Enum.GetValues(typeof(KeyCode)))
-                {
-                    if (kc == KeyCode.None) continue;
-                    if (kc == KeyCode.Escape)
-                    {
-                        // ESC 取消
-                        if (Input.GetKeyDown(kc))
-                        {
-                            captured = true;
-                            break;
-                        }
-                        continue;
-                    }
-                    // 忽略鼠标按键
-                    if (kc == KeyCode.Mouse0 || kc == KeyCode.Mouse1 || kc == KeyCode.Mouse2) continue;
-
-                    if (Input.GetKeyDown(kc))
-                    {
-                        // 检测冲突
-                        if (IsKeyConflict(kc, bindIndex))
-                        {
-                            label.text = $"冲突: {FormatKeyName(kc.ToString())}";
-                            label.color = UIColors.Red;
-                            yield return new WaitForSeconds(0.8f);
-                            // 恢复原值
-                            var s2 = UILayoutManager.Settings;
-                            if (bindIndex < s2.ammoKeyBindings.Count)
-                            {
-                                string origName = ((KeyCode)s2.ammoKeyBindings[bindIndex].keyCode).ToString();
-                                label.text = FormatKeyName(origName);
-                            }
-                            label.color = AccentBlue;
-                            btnBg.color = new Color(0.10f, 0.12f, 0.22f, 0.75f);
-                            listeningBindIndex = -1;
-                            listeningLabel = null;
-                            yield break;
-                        }
-
-                        // 应用新绑定
-                        var s = UILayoutManager.Settings;
-                        if (bindIndex < s.ammoKeyBindings.Count)
-                        {
-                            s.ammoKeyBindings[bindIndex].keyCode = (int)kc;
-                            label.text = FormatKeyName(kc.ToString());
-                            label.color = UIColors.HealthGreen;
-                            btnBg.color = new Color(0.08f, 0.20f, 0.10f, 0.75f);
-                            yield return new WaitForSeconds(0.4f);
-                            label.color = AccentBlue;
-                            btnBg.color = new Color(0.10f, 0.12f, 0.22f, 0.75f);
-                            ScheduleLivePreview();
-                        }
-                        captured = true;
-                        break;
-                    }
-                }
-
-                if (captured) break;
-                yield return null;
-            }
-
-            // 超时或取消 — 恢复原值
-            if (!captured || listeningBindIndex != bindIndex)
-            {
-                var s = UILayoutManager.Settings;
-                if (bindIndex < s.ammoKeyBindings.Count)
-                {
-                    string origName = ((KeyCode)s.ammoKeyBindings[bindIndex].keyCode).ToString();
-                    label.text = FormatKeyName(origName);
-                }
-                label.color = AccentBlue;
-            }
-
-            btnBg.color = new Color(0.10f, 0.12f, 0.22f, 0.75f);
-            listeningBindIndex = -1;
-            listeningLabel = null;
-        }
-
-        /// <summary>
-        /// 检测按键冲突：与其他弹药绑定、Enter（射击）、Space（买活）、Tab（BUFF面板）冲突
-        /// </summary>
-        private bool IsKeyConflict(KeyCode newKey, int excludeIndex)
-        {
-            // 系统保留按键
-            if (newKey == KeyCode.Return || newKey == KeyCode.KeypadEnter
-                || newKey == KeyCode.Space || newKey == KeyCode.Tab
-                || newKey == KeyCode.Escape)
-                return true;
-
-            // 与其他弹药购买绑定冲突
-            var bindings = UILayoutManager.Settings.ammoKeyBindings;
-            for (int i = 0; i < bindings.Count; i++)
-            {
-                if (i == excludeIndex) continue;
-                if (bindings[i].keyCode == (int)newKey)
-                    return true;
-            }
-
-            return false;
-        }
-
-        private void AddShortcutResetButton(Transform content, HUDSettings s)
-        {
-            var go = new GameObject("ResetShortcuts");
-            go.transform.SetParent(content, false);
-            var le = go.AddComponent<LayoutElement>();
-            le.preferredHeight = 50;
-            le.flexibleWidth = 1;
-
-            var rowBg = go.AddComponent<Image>();
-            rowBg.color = new Color(0, 0, 0, 0);
-            rowBg.raycastTarget = false;
-
-            var rowRt = go.GetComponent<RectTransform>();
-
-            var resetBtnGo = new GameObject("ResetBtn");
-            resetBtnGo.transform.SetParent(rowRt, false);
-            var resetRt = resetBtnGo.AddComponent<RectTransform>();
-            resetRt.anchorMin = new Vector2(0.30f, 0.10f);
-            resetRt.anchorMax = new Vector2(0.70f, 0.90f);
-            resetRt.offsetMin = Vector2.zero;
-            resetRt.offsetMax = Vector2.zero;
-
-            var resetBg = resetBtnGo.AddComponent<Image>();
-            resetBg.color = UIColors.WithAlpha(BtnResetColor, 0.50f);
-            UIFactory.ApplyRoundedCorners(resetBg, 32, 10);
-
-            var resetBtn = resetBtnGo.AddComponent<Button>();
-            resetBtn.targetGraphic = resetBg;
-            resetBtn.transition = Selectable.Transition.ColorTint;
-            var rbc = resetBtn.colors;
-            rbc.normalColor = UIColors.WithAlpha(BtnResetColor, 0.50f);
-            rbc.highlightedColor = UIColors.WithAlpha(BtnResetColor, 0.75f);
-            rbc.pressedColor = UIColors.WithAlpha(BtnResetColor, 1f);
-            rbc.fadeDuration = 0.10f;
-            resetBtn.colors = rbc;
-
-            var resetLabel = UIFactory.CreateText(resetBtnGo.transform, "Label",
-                "↺ 重置所有快捷键", 22,
-                TextAlignmentOptions.Center, UIColors.White, FontStyles.Bold);
-            UIFactory.SetFullStretch(resetLabel.rectTransform);
-
-            resetBtn.onClick.AddListener(() =>
-            {
-                s.ammoKeyBindings = HUDSettings.DefaultAmmoKeyBindings();
-                s.ammoPurchasePopupDuration = HUDSettings.Defaults().ammoPurchasePopupDuration;
-                // 重建页面
-                SelectSidebarItem(-1); // 强制重建
-                activeSidebarIndex = -1;
-                for (int i = 0; i < sidebarItems.Count; i++)
-                {
-                    if (sidebarItems[i].pageId == "shortcut")
-                    {
-                        SelectSidebarItem(i);
-                        break;
-                    }
-                }
-                ScheduleLivePreview();
+                var ss = UILayoutManager.Settings;
+                ss.ammoKeyBindings = HUDSettings.DefaultAmmoKeyBindings();
+                ss.ammoPurchasePopupDuration = HUDSettings.Defaults().ammoPurchasePopupDuration;
+                SelectSidebarByIndex(activeSidebarIndex);
             });
         }
-
-        /// <summary>格式化按键名称为更友好的显示</summary>
-        private string FormatKeyName(string rawName)
-        {
-            if (rawName.StartsWith("Alpha"))
-                return rawName.Substring(5); // "Alpha1" → "1"
-            if (rawName.StartsWith("Keypad"))
-                return "Num" + rawName.Substring(6); // "Keypad1" → "Num1"
-            return rawName;
-        }
-
-        // ═══════════════════ 经济管控页面 ═══════════════════
 
         private void BuildEconomyPage()
         {
-            var c = CreateParamScrollContent("economy");
+            var c = CreateScrollContent("Economy");
             var s = UILayoutManager.Settings;
             var d = HUDSettings.Defaults();
-
-            AddSectionHeader(c, "自 动 补 给", IconManager.ICON_PILL);
-            AddToggleRow(c, "启用自动补给", s.autoResupplyEnabled,
-                v => { s.autoResupplyEnabled = v; });
-            AddSliderRow(c, "补给触发阈值", "发",
-                s.autoResupplyThreshold, (float)d.autoResupplyThreshold, 20f, 500f,
-                v => s.autoResupplyThreshold = (uint)Mathf.RoundToInt(v));
-            AddSliderRow(c, "每次购买批数", "批",
-                s.autoResupplyBatchCount, (float)d.autoResupplyBatchCount, 1f, 20f,
-                v => s.autoResupplyBatchCount = (uint)Mathf.RoundToInt(v));
-
-            AddSectionHeader(c, "智 能 补 给", IconManager.ICON_PILL);
-            AddToggleRow(c, "启用智能模式", s.smartResupplyEnabled,
-                v => { s.smartResupplyEnabled = v; });
-            AddSliderRow(c, "紧急补给阈值", "发",
-                s.emergencyAmmoThreshold, (float)d.emergencyAmmoThreshold, 5f, 100f,
-                v => s.emergencyAmmoThreshold = (uint)Mathf.RoundToInt(v));
-            AddSliderRow(c, "战斗强度补给权重", "x",
+            AddSectionHeader(c, "\u81ea\u52a8\u8865\u7ed9");
+            AddToggleRow(c, "\u542f\u7528\u81ea\u52a8\u8865\u7ed9", s.autoResupplyEnabled,
+                v => s.autoResupplyEnabled = v);
+            AddIntInputRow(c, "\u8865\u7ed9\u89e6\u53d1\u9608\u503c", (int)s.autoResupplyThreshold, 20, 500, (int)d.autoResupplyThreshold,
+                v => s.autoResupplyThreshold = (uint)v, "\u53d1");
+            AddIntInputRow(c, "\u6bcf\u6b21\u8d2d\u4e70\u6279\u6570", (int)s.autoResupplyBatchCount, 1, 20, (int)d.autoResupplyBatchCount,
+                v => s.autoResupplyBatchCount = (uint)v, "\u6279");
+            AddSectionHeader(c, "\u667a\u80fd\u8865\u7ed9");
+            AddToggleRow(c, "\u542f\u7528\u667a\u80fd\u6a21\u5f0f", s.smartResupplyEnabled,
+                v => s.smartResupplyEnabled = v);
+            AddIntInputRow(c, "\u7d27\u6025\u8865\u7ed9\u9608\u503c", (int)s.emergencyAmmoThreshold, 5, 100, (int)d.emergencyAmmoThreshold,
+                v => s.emergencyAmmoThreshold = (uint)v, "\u53d1");
+            AddSliderRow(c, "\u6218\u6597\u5f3a\u5ea6\u6743\u91cd", "x",
                 s.combatIntensityWeight, d.combatIntensityWeight, 1.0f, 3.0f,
                 v => s.combatIntensityWeight = v);
-
-            AddSectionHeader(c, "金 币 预 留", IconManager.ICON_SETTING);
-            AddSliderRow(c, "买活金币预留", "金",
-                s.goldReserveForBuyback, (float)d.goldReserveForBuyback, 0f, 500f,
-                v => s.goldReserveForBuyback = (uint)Mathf.RoundToInt(v));
+            AddSectionHeader(c, "\u91d1\u5e01\u9884\u7559");
+            AddIntInputRow(c, "\u4e70\u6d3b\u91d1\u5e01\u9884\u7559", (int)s.goldReserveForBuyback, 0, 500, (int)d.goldReserveForBuyback,
+                v => s.goldReserveForBuyback = (uint)v, "\u91d1");
         }
 
-        // ═══════════════════ UI 布局编辑器页面 ═══════════════════
+        private void BuildNetworkPage()
+        {
+            var c = CreateScrollContent("Network");
+            var cfg = ConfigLoader.config;
+            if (cfg == null)
+            {
+                AddSectionHeader(c, "\u26a0 \u914d\u7f6e\u672a\u52a0\u8f7d");
+                return;
+            }
+            AddSectionHeader(c, "\u670d\u52a1\u5668\u8fde\u63a5");
+            AddTextInputRow(c, "\u670d\u52a1\u5668 IP \u5730\u5740", cfg.ip ?? "192.168.12.1",
+                v => cfg.ip = v);
+            AddIntInputRow(c, "\u6570\u636e\u7aef\u53e3 (MQTT)", cfg.dataPort, 1, 65535, cfg.dataPort,
+                v => cfg.dataPort = v, "");
+            AddIntInputRow(c, "\u89c6\u9891\u7aef\u53e3 (UDP)", cfg.videoPort, 1, 65535, cfg.videoPort,
+                v => cfg.videoPort = v, "");
+            AddSectionHeader(c, "\u673a\u5668\u4eba\u53c2\u6570");
+            AddIntInputRow(c, "\u673a\u5668\u4eba ID", cfg.RobotID, 1, 20, cfg.RobotID,
+                v => cfg.RobotID = v, "");
+            AddIntInputRow(c, "\u573a\u4e0a\u673a\u5668\u4eba\u6570\u91cf", cfg.RobotNum, 1, 20, cfg.RobotNum,
+                v => cfg.RobotNum = v, "");
+            AddSectionHeader(c, "\u6027\u80fd\u53c2\u6570");
+            AddIntInputRow(c, "\u76ee\u6807\u5e27\u7387 (0=\u4e0d\u9650)", cfg.targetFrameRate, 0, 360, cfg.targetFrameRate,
+                v => { cfg.targetFrameRate = v; Application.targetFrameRate = v > 0 ? v : -1; }, "fps");
+            AddIntInputRow(c, "\u89e3\u7801\u5bbd\u5ea6", cfg.decoderOutputWidth, 480, 3840, cfg.decoderOutputWidth,
+                v => cfg.decoderOutputWidth = v, "px");
+            AddIntInputRow(c, "\u89e3\u7801\u9ad8\u5ea6", cfg.decoderOutputHeight, 240, 2160, cfg.decoderOutputHeight,
+                v => cfg.decoderOutputHeight = v, "px");
+            AddIntInputRow(c, "\u89e3\u7801\u961f\u5217\u5927\u5c0f", cfg.decoderQueueSize, 1, 32, cfg.decoderQueueSize,
+                v => cfg.decoderQueueSize = v, "");
+            AddIntInputRow(c, "\u6bcf\u5e27\u6700\u5927\u89e3\u7801\u6570", cfg.maxDrainPerUpdate, 1, 16, cfg.maxDrainPerUpdate,
+                v => cfg.maxDrainPerUpdate = v, "");
+            AddSectionHeader(c, "\u9ad8\u7ea7\u53c2\u6570");
+            AddSliderRow(c, "MQTT \u91cd\u8fde\u95f4\u9694", "s",
+                cfg.mqttReconnectInterval, 2f, 0.5f, 30f,
+                v => cfg.mqttReconnectInterval = v);
+            AddIntInputRow(c, "\u65e5\u5fd7\u7f13\u51b2\u533a\u5927\u5c0f", cfg.logBufferSize, 1, 256, cfg.logBufferSize,
+                v => cfg.logBufferSize = v, "");
+            AddButtonRow(c, "\ud83d\udcbe \u4fdd\u5b58\u7f51\u7edc\u914d\u7f6e", () =>
+            {
+                ConfigLoader.SaveConfig();
+                wmj.Log.I("[Settings] \u7f51\u7edc\u914d\u7f6e\u5df2\u4fdd\u5b58", wmj.Log.Tag.UI);
+            });
+        }
 
         private void BuildLayoutPage()
         {
-            // 缩略图预览区
-            var minimapGo = new GameObject("Minimap");
-            minimapGo.transform.SetParent(contentArea, false);
-            minimapRoot = minimapGo.AddComponent<RectTransform>();
-            UIFactory.SetFullStretch(minimapRoot);
+            layoutHandles.Clear();
+            layoutFocusIndex = -1;
+            minimapRoot = null;
 
-            // 缩略图背景
-            var mmBg = minimapGo.AddComponent<Image>();
-            mmBg.color = MinimapBg;
-            UIFactory.ApplyRoundedCorners(mmBg, 48, 12);
-            mmBg.raycastTarget = true;
+            var layoutGo = new GameObject("LayoutEditor");
+            layoutGo.transform.SetParent(contentArea, false);
+            var layoutRt = layoutGo.AddComponent<RectTransform>();
+            UIFactory.SetFullStretch(layoutRt);
 
-            // 16:9 边框参考线
-            var refBorder = UIFactory.CreateImage(minimapRoot, "RefBorder",
-                UIColors.WithAlpha(AccentBlue, 0.20f));
-            UIFactory.ApplyRoundedCorners(refBorder, 48, 8);
-            UIFactory.SetFullStretch(refBorder.rectTransform);
-            refBorder.rectTransform.offsetMin = new Vector2(4, 4);
-            refBorder.rectTransform.offsetMax = new Vector2(-4, -4);
-
-            // 提示文字
-            var hint = UIFactory.CreateText(minimapRoot, "Hint",
-                "拖拽方块可调整 HUD 元素位置  ·  位置实时同步", 20,
-                TextAlignmentOptions.Center, UIColors.WithAlpha(UIColors.Silver, 0.5f));
+            var hint = UIFactory.CreateText(layoutRt, "Hint",
+                "\u4f7f\u7528\u952e\u76d8\u64cd\u63a7 HUD \u5143\u7d20\u4f4d\u7f6e  [W/S] \u9009\u5143\u7d20  [A/D] \u6c34\u5e73\u79fb  [Q/E] \u5782\u76f4\u79fb  [R] \u5c45\u4e2d",
+                18, TextAlignmentOptions.Center, UIColors.WithAlpha(Accent, 0.7f));
             hint.rectTransform.anchorMin = new Vector2(0, 0.92f);
             hint.rectTransform.anchorMax = new Vector2(1, 1f);
             hint.rectTransform.offsetMin = Vector2.zero;
             hint.rectTransform.offsetMax = Vector2.zero;
 
-            // 添加可拖拽的 HUD 元素方块
-            AddLayoutElement("HealthBar", "血条", UIColors.HealthGreen, 0.5f, 0.06f, 0.25f, 0.04f);
-            AddLayoutElement("CrosshairRing", "准星", UIColors.BrightBlue, 0.5f, 0.5f, 0.12f, 0.12f);
-            AddLayoutElement("BuffStatus", "BUFF", new Color(0.22f, 0.55f, 0.95f, 1f), 0.08f, 0.5f, 0.10f, 0.15f);
-            AddLayoutElement("Notifications", "通知", UIColors.Orange, 0.5f, 0.88f, 0.18f, 0.06f);
-            AddLayoutElement("MatchInfo", "对局信息", AccentBlue, 0.5f, 0.97f, 0.45f, 0.05f);
-        }
+            var minimapGo = new GameObject("Minimap");
+            minimapGo.transform.SetParent(layoutRt, false);
+            minimapRoot = minimapGo.AddComponent<RectTransform>();
+            minimapRoot.anchorMin = new Vector2(0.05f, 0.05f);
+            minimapRoot.anchorMax = new Vector2(0.95f, 0.90f);
+            minimapRoot.offsetMin = Vector2.zero;
+            minimapRoot.offsetMax = Vector2.zero;
 
-        private void AddLayoutElement(string id, string label, Color color,
-            float defX, float defY, float defW, float defH)
-        {
-            var layout = UILayoutManager.GetElement(id, defX, defY, defW * 1920, defH * 1080);
+            var mmBg = minimapGo.AddComponent<Image>();
+            mmBg.color = MinimapBg;
+            mmBg.raycastTarget = false;
 
-            var go = new GameObject($"LE_{id}");
-            go.transform.SetParent(minimapRoot, false);
-            var rt = go.AddComponent<RectTransform>();
-
-            // 使用归一化坐标在缩略图中定位
-            float nx = layout.anchorX;
-            float ny = layout.anchorY;
-            rt.anchorMin = new Vector2(nx - defW / 2, ny - defH / 2);
-            rt.anchorMax = new Vector2(nx + defW / 2, ny + defH / 2);
-            rt.offsetMin = Vector2.zero;
-            rt.offsetMax = Vector2.zero;
-
-            // 背景色块
-            var bg = go.AddComponent<Image>();
-            bg.color = UIColors.WithAlpha(color, 0.40f);
-            UIFactory.ApplyRoundedCorners(bg, 32, 8);
-            bg.raycastTarget = true;
-
-            // 边框
-            var border = UIFactory.CreateImage(rt, "Border",
-                UIColors.WithAlpha(color, 0.70f));
-            UIFactory.ApplyRoundedCorners(border, 32, 8);
+            var border = UIFactory.CreateImage(minimapRoot, "Border",
+                UIColors.WithAlpha(Accent, 0.25f));
             UIFactory.SetFullStretch(border.rectTransform);
             border.raycastTarget = false;
 
-            // 标签
-            var lbl = UIFactory.CreateText(rt, "Label", label, 18,
-                TextAlignmentOptions.Center, UIColors.White, FontStyles.Bold);
-            UIFactory.SetFullStretch(lbl.rectTransform);
-
-            // 拖拽功能
-            var dragger = go.AddComponent<LayoutElementDragger>();
-            dragger.Initialize(id, layout, minimapRoot);
-
-            layoutHandles.Add(new LayoutHandle { id = id, rt = rt, layout = layout });
-        }
-
-        // ═══════════════════ 分组标题（复用） ═══════════════════
-
-        private void AddSectionHeader(Transform content, string text, string iconName)
-        {
-            var go = new GameObject($"Section_{text}");
-            go.transform.SetParent(content, false);
-            var le = go.AddComponent<LayoutElement>();
-            le.preferredHeight = 44;
-            le.flexibleWidth = 1;
-
-            var rt = go.AddComponent<RectTransform>();
-
-            var bg = go.AddComponent<Image>();
-            bg.color = SectionBgColor;
-            UIFactory.ApplyRoundedCorners(bg, 32, 8);
-            bg.raycastTarget = false;
-
-            var accent = UIFactory.CreateImage(rt, "Accent", AccentBlue);
-            accent.rectTransform.anchorMin = new Vector2(0.005f, 0.12f);
-            accent.rectTransform.anchorMax = new Vector2(0.012f, 0.88f);
-            accent.rectTransform.offsetMin = Vector2.zero;
-            accent.rectTransform.offsetMax = Vector2.zero;
-
-            var iconSprite = IconManager.Get(iconName);
-            float textStart = 0.025f;
-            if (iconSprite != null)
+            var data = UILayoutManager.Data;
+            if (data.elements != null && data.elements.Count > 0)
             {
-                var iconImg = UIFactory.CreateImage(rt, "Icon",
-                    UIColors.WithAlpha(AccentBlue, 0.85f));
-                iconImg.sprite = iconSprite;
-                iconImg.preserveAspect = true;
-                iconImg.rectTransform.anchorMin = new Vector2(0.020f, 0.15f);
-                iconImg.rectTransform.anchorMax = new Vector2(0.065f, 0.85f);
-                iconImg.rectTransform.offsetMin = Vector2.zero;
-                iconImg.rectTransform.offsetMax = Vector2.zero;
-                textStart = 0.075f;
+                foreach (var el in data.elements)
+                    AddLayoutElement(el);
+            }
+            else
+            {
+                string[] defaultIds = { "HealthBar", "CrosshairRing", "BuffPanel", "Notification", "MatchInfo" };
+                foreach (var id in defaultIds)
+                {
+                    var el = UILayoutManager.GetElement(id);
+                    AddLayoutElement(el);
+                }
             }
 
-            var label = UIFactory.CreateText(rt, "Label", text, 26,
-                TextAlignmentOptions.Left, AccentBlue, FontStyles.Bold);
-            label.rectTransform.anchorMin = new Vector2(textStart, 0f);
+            if (layoutHandles.Count > 0)
+                SetLayoutFocus(0);
+        }
+
+        private void AddLayoutElement(UIElementLayout el)
+        {
+            if (el == null || minimapRoot == null) return;
+
+            float halfW = 0.06f, halfH = 0.04f;
+
+            var elemGo = new GameObject("LE_" + el.id);
+            elemGo.transform.SetParent(minimapRoot, false);
+            var elemRt = elemGo.AddComponent<RectTransform>();
+            elemRt.anchorMin = new Vector2(el.anchorX - halfW, el.anchorY - halfH);
+            elemRt.anchorMax = new Vector2(el.anchorX + halfW, el.anchorY + halfH);
+            elemRt.offsetMin = Vector2.zero;
+            elemRt.offsetMax = Vector2.zero;
+
+            var elemBg = elemGo.AddComponent<Image>();
+            elemBg.color = UIColors.WithAlpha(Accent, 0.35f);
+            elemBg.raycastTarget = false;
+
+            UIFactory.CreateText(elemRt, "Label", el.id, 14,
+                TextAlignmentOptions.Center, UIColors.White);
+
+            layoutHandles.Add(new LayoutHandle { id = el.id, rt = elemRt, layout = el, bg = elemBg });
+        }
+
+        // ═══════════════════ 行组件构建器 ═══════════════════
+
+        private void AddSectionHeader(Transform content, string text)
+        {
+            var go = new GameObject("Section_" + text);
+            go.transform.SetParent(content, false);
+            var le = go.AddComponent<LayoutElement>();
+            le.preferredHeight = 40;
+            le.flexibleWidth = 1;
+
+            var rt = go.GetComponent<RectTransform>();
+
+            var bg = go.AddComponent<Image>();
+            bg.color = new Color(0.06f, 0.08f, 0.16f, 0.70f);
+            bg.raycastTarget = false;
+
+            var div = UIFactory.CreateImage(rt, "Div", UIColors.WithAlpha(Accent, 0.30f));
+            div.rectTransform.anchorMin = new Vector2(0.02f, 0f);
+            div.rectTransform.anchorMax = new Vector2(0.98f, 0.04f);
+            div.rectTransform.offsetMin = Vector2.zero;
+            div.rectTransform.offsetMax = Vector2.zero;
+
+            var label = UIFactory.CreateText(rt, "Label", text, 24,
+                TextAlignmentOptions.Left, Accent, FontStyles.Bold);
+            label.rectTransform.anchorMin = new Vector2(0.025f, 0f);
             label.rectTransform.anchorMax = new Vector2(0.95f, 1f);
             label.rectTransform.offsetMin = Vector2.zero;
             label.rectTransform.offsetMax = Vector2.zero;
 
-            rowIndex = 0;
+            rowBuildIndex = 0;
         }
-
-        // ═══════════════════ 滑块行 ═══════════════════
 
         private void AddSliderRow(Transform content, string label, string unit,
             float value, float defaultVal, float min, float max,
@@ -1241,78 +1754,54 @@ namespace UI.HUD
         {
             string fmt = (max - min) > 50 ? "F0" : "F1";
 
-            var go = new GameObject($"Row_{label}");
+            var go = new GameObject("Slider_" + label);
             go.transform.SetParent(content, false);
             var le = go.AddComponent<LayoutElement>();
-            le.preferredHeight = 50;
+            le.preferredHeight = 48;
             le.flexibleWidth = 1;
 
             var rowBg = go.AddComponent<Image>();
-            Color rowColor = (rowIndex % 2 == 0) ? RowBgEven : RowBgOdd;
-            rowBg.color = rowColor;
-            UIFactory.ApplyRoundedCorners(rowBg, 32, 6);
-            rowBg.raycastTarget = true;
-            rowIndex++;
-
-            // 悬停高亮
-            var rowTrigger = go.AddComponent<EventTrigger>();
-            var enterEntry = new EventTrigger.Entry { eventID = EventTriggerType.PointerEnter };
-            enterEntry.callback.AddListener(_ =>
-            {
-                if (rowBg) rowBg.color = new Color(
-                Mathf.Min(rowColor.r + 0.06f, 1f), Mathf.Min(rowColor.g + 0.06f, 1f),
-                Mathf.Min(rowColor.b + 0.10f, 1f), Mathf.Min(rowColor.a + 0.20f, 1f));
-            });
-            rowTrigger.triggers.Add(enterEntry);
-            var exitEntry = new EventTrigger.Entry { eventID = EventTriggerType.PointerExit };
-            exitEntry.callback.AddListener(_ => { if (rowBg) rowBg.color = rowColor; });
-            rowTrigger.triggers.Add(exitEntry);
+            rowBg.color = (rowBuildIndex % 2 == 0) ? RowEven : RowOdd;
+            rowBg.raycastTarget = false;
+            rowBuildIndex++;
 
             var rowRt = go.GetComponent<RectTransform>();
 
-            // 标签
-            var lbl = UIFactory.CreateText(rowRt, "Label", label, 22,
+            var lbl = UIFactory.CreateText(rowRt, "Label", label, 19,
                 TextAlignmentOptions.Left, UIColors.Silver);
             lbl.rectTransform.anchorMin = new Vector2(0.02f, 0f);
-            lbl.rectTransform.anchorMax = new Vector2(0.30f, 1f);
+            lbl.rectTransform.anchorMax = new Vector2(0.25f, 1f);
             lbl.rectTransform.offsetMin = Vector2.zero;
             lbl.rectTransform.offsetMax = Vector2.zero;
 
-            // Slider
             var sliderGo = new GameObject("Slider");
             sliderGo.transform.SetParent(rowRt, false);
             var sliderRt = sliderGo.AddComponent<RectTransform>();
-            sliderRt.anchorMin = new Vector2(0.32f, 0.22f);
-            sliderRt.anchorMax = new Vector2(0.74f, 0.78f);
+            sliderRt.anchorMin = new Vector2(0.27f, 0.20f);
+            sliderRt.anchorMax = new Vector2(0.62f, 0.80f);
             sliderRt.offsetMin = Vector2.zero;
             sliderRt.offsetMax = Vector2.zero;
 
             var sliderBg = sliderGo.AddComponent<Image>();
-            sliderBg.color = SliderTrackColor;
-            UIFactory.ApplyRoundedCorners(sliderBg, 32, 10);
-            sliderBg.raycastTarget = true;
+            sliderBg.color = SliderTrack;
+            sliderBg.raycastTarget = false;
 
-            // Fill
             var fillAreaGo = new GameObject("FillArea");
             fillAreaGo.transform.SetParent(sliderGo.transform, false);
             var fillAreaRt = fillAreaGo.AddComponent<RectTransform>();
-            fillAreaRt.anchorMin = new Vector2(0f, 0.10f);
-            fillAreaRt.anchorMax = new Vector2(1f, 0.90f);
+            fillAreaRt.anchorMin = new Vector2(0f, 0.15f);
+            fillAreaRt.anchorMax = new Vector2(1f, 0.85f);
             fillAreaRt.offsetMin = new Vector2(4, 0);
             fillAreaRt.offsetMax = new Vector2(-4, 0);
 
             var fillGo = new GameObject("Fill");
             fillGo.transform.SetParent(fillAreaGo.transform, false);
             var fillRt = fillGo.AddComponent<RectTransform>();
-            fillRt.anchorMin = Vector2.zero;
-            fillRt.anchorMax = Vector2.one;
-            fillRt.offsetMin = Vector2.zero;
-            fillRt.offsetMax = Vector2.zero;
+            UIFactory.SetFullStretch(fillRt);
             var fillImg = fillGo.AddComponent<Image>();
-            fillImg.color = SliderFillColor;
-            UIFactory.ApplyRoundedCorners(fillImg, 32, 8);
+            fillImg.color = SliderFill;
+            fillImg.raycastTarget = false;
 
-            // Handle
             var handleAreaGo = new GameObject("HandleArea");
             handleAreaGo.transform.SetParent(sliderGo.transform, false);
             var handleAreaRt = handleAreaGo.AddComponent<RectTransform>();
@@ -1327,9 +1816,8 @@ namespace UI.HUD
             handleRt.anchorMin = new Vector2(0, 0.05f);
             handleRt.anchorMax = new Vector2(0, 0.95f);
             var handleImg = handleGo.AddComponent<Image>();
-            handleImg.color = SliderHandleColor;
-            UIFactory.ApplyRoundedCorners(handleImg, 24, 8);
-            handleImg.raycastTarget = true;
+            handleImg.color = SliderHandle;
+            handleImg.raycastTarget = false;
 
             var slider = sliderGo.AddComponent<Slider>();
             slider.fillRect = fillRt;
@@ -1339,283 +1827,322 @@ namespace UI.HUD
             slider.minValue = min;
             slider.maxValue = max;
             slider.value = value;
+            slider.interactable = false;
 
-            // 数值
             var valText = UIFactory.CreateText(rowRt, "Value",
-                $"{value.ToString(fmt)}{unit}", 22,
+                value.ToString(fmt) + unit, 19,
                 TextAlignmentOptions.Center, UIColors.White, FontStyles.Bold);
-            valText.rectTransform.anchorMin = new Vector2(0.76f, 0f);
-            valText.rectTransform.anchorMax = new Vector2(0.89f, 1f);
+            valText.rectTransform.anchorMin = new Vector2(0.64f, 0f);
+            valText.rectTransform.anchorMax = new Vector2(0.76f, 1f);
             valText.rectTransform.offsetMin = Vector2.zero;
             valText.rectTransform.offsetMax = Vector2.zero;
 
-            // 重置
-            var resetGo = new GameObject("ResetBtn");
-            resetGo.transform.SetParent(rowRt, false);
-            var resetRt = resetGo.AddComponent<RectTransform>();
-            resetRt.anchorMin = new Vector2(0.91f, 0.15f);
-            resetRt.anchorMax = new Vector2(0.98f, 0.85f);
-            resetRt.offsetMin = Vector2.zero;
-            resetRt.offsetMax = Vector2.zero;
+            var hint = UIFactory.CreateText(rowRt, "Hint", "[\u2190\u2192] [R]\u91cd\u7f6e [Enter]\u8f93\u5165",
+                13, TextAlignmentOptions.Right, HintColor);
+            hint.rectTransform.anchorMin = new Vector2(0.77f, 0f);
+            hint.rectTransform.anchorMax = new Vector2(0.99f, 1f);
+            hint.rectTransform.offsetMin = Vector2.zero;
+            hint.rectTransform.offsetMax = Vector2.zero;
 
-            var resetBg = resetGo.AddComponent<Image>();
-            resetBg.color = UIColors.WithAlpha(UIColors.Orange, 0.25f);
-            UIFactory.ApplyRoundedCorners(resetBg, 32, 8);
-
-            var resetBtn = resetGo.AddComponent<Button>();
-            resetBtn.targetGraphic = resetBg;
-            resetBtn.transition = Selectable.Transition.ColorTint;
-            var rbc = resetBtn.colors;
-            rbc.normalColor = UIColors.WithAlpha(UIColors.Orange, 0.25f);
-            rbc.highlightedColor = UIColors.WithAlpha(UIColors.Orange, 0.55f);
-            rbc.pressedColor = UIColors.WithAlpha(UIColors.Orange, 0.85f);
-            rbc.fadeDuration = 0.10f;
-            resetBtn.colors = rbc;
-
-            var resetLabel = UIFactory.CreateText(resetGo.transform, "Lbl", "↺", 20,
-                TextAlignmentOptions.Center, UIColors.Orange, FontStyles.Bold);
-            UIFactory.SetFullStretch(resetLabel.rectTransform);
-
-            // 事件
-            string localFmt = fmt, localUnit = unit;
-            slider.onValueChanged.AddListener(v =>
+            var row = new RowData
             {
-                onChange?.Invoke(v);
-                if (valText) valText.text = $"{v.ToString(localFmt)}{localUnit}";
-                ScheduleLivePreview();
-            });
-
-            float localDefault = defaultVal;
-            resetBtn.onClick.AddListener(() =>
-            {
-                slider.value = localDefault;
-                onChange?.Invoke(localDefault);
-                if (valText) valText.text = $"{localDefault.ToString(localFmt)}{localUnit}";
-                if (resetBg) StartCoroutine(FlashColor(resetBg,
-                    UIColors.WithAlpha(UIColors.HealthGreen, 0.55f)));
-            });
-
-            sliderBindings.Add(new SliderBinding
-            {
-                slider = slider,
-                defaultValue = defaultVal,
-                onChange = onChange,
-                valueText = valText,
-                fmt = localFmt,
-                unit = localUnit
-            });
+                type = RowType.Slider,
+                go = go, rowBg = rowBg, hintText = hint,
+                slider = slider, defaultValue = defaultVal,
+                sliderMin = min, sliderMax = max,
+                onSliderChange = onChange, valueText = valText,
+                fmt = fmt, unit = unit
+            };
+            rows.Add(row);
         }
-
-        // ═══════════════════ 开关行（Toggle） ═══════════════════
 
         private void AddToggleRow(Transform content, string label, bool value,
             System.Action<bool> onChange)
         {
-            var go = new GameObject($"Toggle_{label}");
+            var go = new GameObject("Toggle_" + label);
             go.transform.SetParent(content, false);
             var le = go.AddComponent<LayoutElement>();
-            le.preferredHeight = 50;
+            le.preferredHeight = 48;
             le.flexibleWidth = 1;
 
             var rowBg = go.AddComponent<Image>();
-            Color rowColor = (rowIndex % 2 == 0) ? RowBgEven : RowBgOdd;
-            rowBg.color = rowColor;
-            UIFactory.ApplyRoundedCorners(rowBg, 32, 6);
-            rowBg.raycastTarget = true;
-            rowIndex++;
-
-            // 悬停高亮
-            var rowTrigger = go.AddComponent<EventTrigger>();
-            var enterEntry = new EventTrigger.Entry { eventID = EventTriggerType.PointerEnter };
-            enterEntry.callback.AddListener(_ =>
-            {
-                if (rowBg) rowBg.color = new Color(
-                    Mathf.Min(rowColor.r + 0.06f, 1f), Mathf.Min(rowColor.g + 0.06f, 1f),
-                    Mathf.Min(rowColor.b + 0.10f, 1f), Mathf.Min(rowColor.a + 0.20f, 1f));
-            });
-            rowTrigger.triggers.Add(enterEntry);
-            var exitEntry = new EventTrigger.Entry { eventID = EventTriggerType.PointerExit };
-            exitEntry.callback.AddListener(_ => { if (rowBg) rowBg.color = rowColor; });
-            rowTrigger.triggers.Add(exitEntry);
+            rowBg.color = (rowBuildIndex % 2 == 0) ? RowEven : RowOdd;
+            rowBg.raycastTarget = false;
+            rowBuildIndex++;
 
             var rowRt = go.GetComponent<RectTransform>();
 
-            // 标签
-            var lbl = UIFactory.CreateText(rowRt, "Label", label, 22,
+            var lbl = UIFactory.CreateText(rowRt, "Label", label, 19,
                 TextAlignmentOptions.Left, UIColors.Silver);
             lbl.rectTransform.anchorMin = new Vector2(0.02f, 0f);
-            lbl.rectTransform.anchorMax = new Vector2(0.60f, 1f);
+            lbl.rectTransform.anchorMax = new Vector2(0.50f, 1f);
             lbl.rectTransform.offsetMin = Vector2.zero;
             lbl.rectTransform.offsetMax = Vector2.zero;
 
-            // 开关按钮
-            var toggleGo = new GameObject("ToggleBtn");
+            var toggleGo = new GameObject("ToggleDisplay");
             toggleGo.transform.SetParent(rowRt, false);
             var toggleRt = toggleGo.AddComponent<RectTransform>();
-            toggleRt.anchorMin = new Vector2(0.72f, 0.18f);
-            toggleRt.anchorMax = new Vector2(0.88f, 0.82f);
+            toggleRt.anchorMin = new Vector2(0.55f, 0.18f);
+            toggleRt.anchorMax = new Vector2(0.72f, 0.82f);
             toggleRt.offsetMin = Vector2.zero;
             toggleRt.offsetMax = Vector2.zero;
 
             var toggleBg = toggleGo.AddComponent<Image>();
-            UIFactory.ApplyRoundedCorners(toggleBg, 32, 10);
-            toggleBg.raycastTarget = true;
+            toggleBg.raycastTarget = false;
 
-            var statusLabel = UIFactory.CreateText(toggleGo.transform, "Status", "", 20,
+            var statusLabel = UIFactory.CreateText(toggleGo.transform, "Status", "", 18,
                 TextAlignmentOptions.Center, UIColors.White, FontStyles.Bold);
             UIFactory.SetFullStretch(statusLabel.rectTransform);
 
-            // 设置初始状态
-            bool currentVal = value;
-            UpdateToggleVisual(toggleBg, statusLabel, currentVal);
+            UpdateToggleVisual(toggleBg, statusLabel, value);
 
-            var toggleBtn = toggleGo.AddComponent<Button>();
-            toggleBtn.targetGraphic = toggleBg;
-            toggleBtn.transition = Selectable.Transition.ColorTint;
-            var tbc = toggleBtn.colors;
-            tbc.fadeDuration = 0.10f;
-            toggleBtn.colors = tbc;
-            toggleBtn.onClick.AddListener(() =>
+            var hint = UIFactory.CreateText(rowRt, "Hint", "[Space/Enter] \u5207\u6362",
+                13, TextAlignmentOptions.Right, HintColor);
+            hint.rectTransform.anchorMin = new Vector2(0.77f, 0f);
+            hint.rectTransform.anchorMax = new Vector2(0.99f, 1f);
+            hint.rectTransform.offsetMin = Vector2.zero;
+            hint.rectTransform.offsetMax = Vector2.zero;
+
+            var row = new RowData
             {
-                currentVal = !currentVal;
-                UpdateToggleVisual(toggleBg, statusLabel, currentVal);
-                onChange?.Invoke(currentVal);
-            });
+                type = RowType.Toggle,
+                go = go, rowBg = rowBg, hintText = hint,
+                toggleValue = value, onToggleChange = onChange,
+                toggleBg = toggleBg, toggleLabel = statusLabel
+            };
+            rows.Add(row);
         }
 
-        private void UpdateToggleVisual(Image bg, TextMeshProUGUI label, bool isOn)
+        private void AddIntInputRow(Transform content, string label, int value,
+            int min, int max, int defaultVal, System.Action<int> onChange, string unit)
+        {
+            var go = new GameObject("IntInput_" + label);
+            go.transform.SetParent(content, false);
+            var le = go.AddComponent<LayoutElement>();
+            le.preferredHeight = 48;
+            le.flexibleWidth = 1;
+
+            var rowBg = go.AddComponent<Image>();
+            rowBg.color = (rowBuildIndex % 2 == 0) ? RowEven : RowOdd;
+            rowBg.raycastTarget = false;
+            rowBuildIndex++;
+
+            var rowRt = go.GetComponent<RectTransform>();
+
+            var lbl = UIFactory.CreateText(rowRt, "Label", label, 19,
+                TextAlignmentOptions.Left, UIColors.Silver);
+            lbl.rectTransform.anchorMin = new Vector2(0.02f, 0f);
+            lbl.rectTransform.anchorMax = new Vector2(0.30f, 1f);
+            lbl.rectTransform.offsetMin = Vector2.zero;
+            lbl.rectTransform.offsetMax = Vector2.zero;
+
+            string displayStr = string.IsNullOrEmpty(unit) ? value.ToString() : value.ToString() + " " + unit;
+            var intDisplay = UIFactory.CreateText(rowRt, "Value", displayStr, 19,
+                TextAlignmentOptions.Center, UIColors.White, FontStyles.Bold);
+            intDisplay.rectTransform.anchorMin = new Vector2(0.32f, 0f);
+            intDisplay.rectTransform.anchorMax = new Vector2(0.50f, 1f);
+            intDisplay.rectTransform.offsetMin = Vector2.zero;
+            intDisplay.rectTransform.offsetMax = Vector2.zero;
+
+            var rangeText = UIFactory.CreateText(rowRt, "Range", "(" + min + "~" + max + ")", 14,
+                TextAlignmentOptions.Left, UIColors.WithAlpha(UIColors.Silver, 0.5f));
+            rangeText.rectTransform.anchorMin = new Vector2(0.52f, 0f);
+            rangeText.rectTransform.anchorMax = new Vector2(0.66f, 1f);
+            rangeText.rectTransform.offsetMin = Vector2.zero;
+            rangeText.rectTransform.offsetMax = Vector2.zero;
+
+            var hint = UIFactory.CreateText(rowRt, "Hint", "[\u2190\u2192] [R]\u91cd\u7f6e [Enter]\u8f93\u5165",
+                13, TextAlignmentOptions.Right, HintColor);
+            hint.rectTransform.anchorMin = new Vector2(0.67f, 0f);
+            hint.rectTransform.anchorMax = new Vector2(0.99f, 1f);
+            hint.rectTransform.offsetMin = Vector2.zero;
+            hint.rectTransform.offsetMax = Vector2.zero;
+
+            var row = new RowData
+            {
+                type = RowType.IntInput,
+                go = go, rowBg = rowBg, hintText = hint,
+                intValue = value, intMin = min, intMax = max,
+                intDefault = defaultVal, onIntChange = onChange,
+                intDisplay = intDisplay, rangeText = rangeText,
+                unit = unit
+            };
+            rows.Add(row);
+        }
+
+        private void AddTextInputRow(Transform content, string label, string value,
+            System.Action<string> onChange)
+        {
+            var go = new GameObject("TextInput_" + label);
+            go.transform.SetParent(content, false);
+            var le = go.AddComponent<LayoutElement>();
+            le.preferredHeight = 48;
+            le.flexibleWidth = 1;
+
+            var rowBg = go.AddComponent<Image>();
+            rowBg.color = (rowBuildIndex % 2 == 0) ? RowEven : RowOdd;
+            rowBg.raycastTarget = false;
+            rowBuildIndex++;
+
+            var rowRt = go.GetComponent<RectTransform>();
+
+            var lbl = UIFactory.CreateText(rowRt, "Label", label, 19,
+                TextAlignmentOptions.Left, UIColors.Silver);
+            lbl.rectTransform.anchorMin = new Vector2(0.02f, 0f);
+            lbl.rectTransform.anchorMax = new Vector2(0.28f, 1f);
+            lbl.rectTransform.offsetMin = Vector2.zero;
+            lbl.rectTransform.offsetMax = Vector2.zero;
+
+            var textBoxGo = new GameObject("TextBox");
+            textBoxGo.transform.SetParent(rowRt, false);
+            var textBoxRt = textBoxGo.AddComponent<RectTransform>();
+            textBoxRt.anchorMin = new Vector2(0.30f, 0.12f);
+            textBoxRt.anchorMax = new Vector2(0.72f, 0.88f);
+            textBoxRt.offsetMin = Vector2.zero;
+            textBoxRt.offsetMax = Vector2.zero;
+            var textBoxBg = textBoxGo.AddComponent<Image>();
+            textBoxBg.color = new Color(0.06f, 0.07f, 0.14f, 0.90f);
+            textBoxBg.raycastTarget = false;
+
+            var textDisplay = UIFactory.CreateText(textBoxGo.transform, "Text", value ?? "", 18,
+                TextAlignmentOptions.Left, UIColors.White);
+            textDisplay.rectTransform.anchorMin = new Vector2(0.03f, 0f);
+            textDisplay.rectTransform.anchorMax = new Vector2(0.97f, 1f);
+            textDisplay.rectTransform.offsetMin = Vector2.zero;
+            textDisplay.rectTransform.offsetMax = Vector2.zero;
+
+            var hint = UIFactory.CreateText(rowRt, "Hint", "[Enter] \u7f16\u8f91",
+                13, TextAlignmentOptions.Right, HintColor);
+            hint.rectTransform.anchorMin = new Vector2(0.77f, 0f);
+            hint.rectTransform.anchorMax = new Vector2(0.99f, 1f);
+            hint.rectTransform.offsetMin = Vector2.zero;
+            hint.rectTransform.offsetMax = Vector2.zero;
+
+            var row = new RowData
+            {
+                type = RowType.TextInput,
+                go = go, rowBg = rowBg, hintText = hint,
+                textValue = value ?? "", onTextChange = onChange,
+                textDisplay = textDisplay
+            };
+            rows.Add(row);
+        }
+
+        private void AddKeyBindingRow(Transform content, string label,
+            AmmoKeyBinding binding, int index)
+        {
+            var go = new GameObject("Key_" + label);
+            go.transform.SetParent(content, false);
+            var le = go.AddComponent<LayoutElement>();
+            le.preferredHeight = 48;
+            le.flexibleWidth = 1;
+
+            var rowBg = go.AddComponent<Image>();
+            rowBg.color = (rowBuildIndex % 2 == 0) ? RowEven : RowOdd;
+            rowBg.raycastTarget = false;
+            rowBuildIndex++;
+
+            var rowRt = go.GetComponent<RectTransform>();
+
+            var lbl = UIFactory.CreateText(rowRt, "Label", label, 19,
+                TextAlignmentOptions.Left, UIColors.Silver);
+            lbl.rectTransform.anchorMin = new Vector2(0.02f, 0f);
+            lbl.rectTransform.anchorMax = new Vector2(0.35f, 1f);
+            lbl.rectTransform.offsetMin = Vector2.zero;
+            lbl.rectTransform.offsetMax = Vector2.zero;
+
+            string keyName = FormatKeyName(((KeyCode)binding.keyCode).ToString());
+            var keyDisplay = UIFactory.CreateText(rowRt, "Key", keyName, 20,
+                TextAlignmentOptions.Center, UIColors.White, FontStyles.Bold);
+            keyDisplay.rectTransform.anchorMin = new Vector2(0.38f, 0f);
+            keyDisplay.rectTransform.anchorMax = new Vector2(0.58f, 1f);
+            keyDisplay.rectTransform.offsetMin = Vector2.zero;
+            keyDisplay.rectTransform.offsetMax = Vector2.zero;
+
+            var hint = UIFactory.CreateText(rowRt, "Hint", "[Enter] \u6539\u952e  [R] \u91cd\u7f6e",
+                13, TextAlignmentOptions.Right, HintColor);
+            hint.rectTransform.anchorMin = new Vector2(0.60f, 0f);
+            hint.rectTransform.anchorMax = new Vector2(0.99f, 1f);
+            hint.rectTransform.offsetMin = Vector2.zero;
+            hint.rectTransform.offsetMax = Vector2.zero;
+
+            var row = new RowData
+            {
+                type = RowType.KeyBinding,
+                go = go, rowBg = rowBg, hintText = hint,
+                binding = binding, bindingIndex = index,
+                keyDisplay = keyDisplay
+            };
+            rows.Add(row);
+        }
+
+        private void AddButtonRow(Transform content, string label, System.Action onClick)
+        {
+            var go = new GameObject("Button_" + label);
+            go.transform.SetParent(content, false);
+            var le = go.AddComponent<LayoutElement>();
+            le.preferredHeight = 55;
+            le.flexibleWidth = 1;
+
+            var rowBg = go.AddComponent<Image>();
+            rowBg.color = (rowBuildIndex % 2 == 0) ? RowEven : RowOdd;
+            rowBg.raycastTarget = false;
+            rowBuildIndex++;
+
+            var rowRt = go.GetComponent<RectTransform>();
+
+            var lbl = UIFactory.CreateText(rowRt, "Label", label, 20,
+                TextAlignmentOptions.Center, UIColors.White, FontStyles.Bold);
+            lbl.rectTransform.anchorMin = new Vector2(0.15f, 0.10f);
+            lbl.rectTransform.anchorMax = new Vector2(0.70f, 0.90f);
+            lbl.rectTransform.offsetMin = Vector2.zero;
+            lbl.rectTransform.offsetMax = Vector2.zero;
+
+            var hint = UIFactory.CreateText(rowRt, "Hint", "[Enter/Space] \u6267\u884c",
+                13, TextAlignmentOptions.Right, HintColor);
+            hint.rectTransform.anchorMin = new Vector2(0.72f, 0f);
+            hint.rectTransform.anchorMax = new Vector2(0.99f, 1f);
+            hint.rectTransform.offsetMin = Vector2.zero;
+            hint.rectTransform.offsetMax = Vector2.zero;
+
+            var row = new RowData
+            {
+                type = RowType.Button,
+                go = go, rowBg = rowBg, hintText = hint,
+                onButtonClick = onClick
+            };
+            rows.Add(row);
+        }
+
+        // ═══════════════════ 视觉辅助 ═══════════════════
+
+        private static void UpdateToggleVisual(Image bg, TextMeshProUGUI label, bool isOn)
         {
             if (isOn)
             {
-                bg.color = UIColors.WithAlpha(AccentBlue, 0.65f);
-                label.text = "显示";
-                label.color = UIColors.White;
+                if (bg) bg.color = UIColors.WithAlpha(new Color(0.2f, 0.6f, 0.9f), 0.65f);
+                if (label) { label.text = "\u25cf \u542f\u7528"; label.color = UIColors.White; }
             }
             else
             {
-                bg.color = new Color(0.15f, 0.15f, 0.20f, 0.50f);
-                label.text = "隐藏";
-                label.color = UIColors.WithAlpha(UIColors.Silver, 0.6f);
+                if (bg) bg.color = new Color(0.15f, 0.15f, 0.20f, 0.50f);
+                if (label) { label.text = "\u25cb \u5173\u95ed"; label.color = UIColors.WithAlpha(UIColors.Silver, 0.6f); }
             }
         }
 
-        // ═══════════════════ 底部操作栏 ═══════════════════
-
-        private void BuildBottomBar(RectTransform panel)
+        private void UpdateSliderValueText(RowData row)
         {
-            var barGo = new GameObject("BottomBar");
-            barGo.transform.SetParent(panel, false);
-            var barRt = barGo.AddComponent<RectTransform>();
-            barRt.anchorMin = new Vector2(0, 0);
-            barRt.anchorMax = new Vector2(1, 0.080f);
-            barRt.offsetMin = Vector2.zero;
-            barRt.offsetMax = Vector2.zero;
-
-            var barBg = barGo.AddComponent<Image>();
-            barBg.color = new Color(0.03f, 0.04f, 0.08f, 0.80f);
-            UIFactory.ApplyRoundedCorners(barBg, 64, 16);
-            barBg.raycastTarget = false;
-
-            var div = UIFactory.CreateImage(panel, "BottomDiv",
-                UIColors.WithAlpha(AccentBlue, 0.20f));
-            div.rectTransform.anchorMin = new Vector2(0.01f, 0.080f);
-            div.rectTransform.anchorMax = new Vector2(0.99f, 0.083f);
-            div.rectTransform.offsetMin = Vector2.zero;
-            div.rectTransform.offsetMax = Vector2.zero;
-
-            CreateBottomButton(barRt, "Reselect", "重新选择兵种",
-                BtnReselectColor, 0.01f, 0.12f, 0.22f, 0.88f, OnReselectClicked);
-
-            CreateBottomButton(barRt, "Save", "保存并预览",
-                BtnSaveColor, 0.26f, 0.12f, 0.58f, 0.88f, () =>
-                {
-                    UILayoutManager.Save();
-                    // 实时预览：重建 HUD 使修改即时生效
-                    if (BattleHUD.Instance != null)
-                    {
-                        BattleHUD.Instance.RebuildHUD();
-                    }
-                    wmj.Log.I("[Settings] 设置已保存并应用", wmj.Log.Tag.UI);
-                });
-
-            CreateBottomButton(barRt, "ResetAll", "全部重置",
-                BtnResetColor, 0.62f, 0.12f, 0.80f, 0.88f, OnResetAllClicked);
-
-            CreateBottomButton(barRt, "Close", "关  闭",
-                new Color(0.35f, 0.35f, 0.40f, 0.60f), 0.84f, 0.12f, 0.99f, 0.88f,
-                ToggleSettings);
+            if (row.valueText && row.slider)
+                row.valueText.text = row.slider.value.ToString(row.fmt) + row.unit;
         }
 
-        private Button CreateBottomButton(RectTransform parent, string name, string label,
-            Color bgColor, float x0, float y0, float x1, float y1,
-            UnityEngine.Events.UnityAction onClick)
+        // ═══════════════════ 操作回调 ═══════════════════
+
+        private void OnSaveClicked()
         {
-            var go = new GameObject(name);
-            go.transform.SetParent(parent, false);
-            var rt = go.AddComponent<RectTransform>();
-            rt.anchorMin = new Vector2(x0, y0);
-            rt.anchorMax = new Vector2(x1, y1);
-            rt.offsetMin = Vector2.zero;
-            rt.offsetMax = Vector2.zero;
-
-            var bg = go.AddComponent<Image>();
-            bg.color = bgColor;
-            UIFactory.ApplyRoundedCorners(bg, 32, 10);
-
-            var btn = go.AddComponent<Button>();
-            btn.targetGraphic = bg;
-            btn.transition = Selectable.Transition.ColorTint;
-            var bc = btn.colors;
-            bc.normalColor = bgColor;
-            bc.highlightedColor = new Color(
-                Mathf.Min(bgColor.r + 0.12f, 1f),
-                Mathf.Min(bgColor.g + 0.12f, 1f),
-                Mathf.Min(bgColor.b + 0.12f, 1f),
-                Mathf.Min(bgColor.a + 0.10f, 1f));
-            bc.pressedColor = new Color(
-                Mathf.Min(bgColor.r + 0.22f, 1f),
-                Mathf.Min(bgColor.g + 0.22f, 1f),
-                Mathf.Min(bgColor.b + 0.22f, 1f), 1f);
-            bc.selectedColor = bgColor;
-            bc.fadeDuration = 0.10f;
-            btn.colors = bc;
-            btn.onClick.AddListener(onClick);
-
-            var txt = UIFactory.CreateText(go.transform, "Label", label, 22,
-                TextAlignmentOptions.Center, UIColors.White, FontStyles.Bold);
-            UIFactory.SetFullStretch(txt.rectTransform);
-
-            return btn;
-        }
-
-        // ═══════════════════ 实时预览 ═══════════════════
-
-        /// <summary>
-        /// 防抖触发 HUD 实时预览：滑块停止拖动 PREVIEW_DELAY 秒后自动重建 HUD
-        /// </summary>
-        private void ScheduleLivePreview()
-        {
-            if (previewCoroutine != null) StopCoroutine(previewCoroutine);
-            previewCoroutine = StartCoroutine(DebouncedPreview());
-        }
-
-        private IEnumerator DebouncedPreview()
-        {
-            yield return new WaitForSeconds(PREVIEW_DELAY);
-            previewCoroutine = null;
             UILayoutManager.Save();
-            if (BattleHUD.Instance != null)
-                BattleHUD.Instance.RebuildHUD();
-        }
-
-        // ═══════════════════ 辅助 ═══════════════════
-
-        private IEnumerator FlashColor(Image img, Color flashColor)
-        {
-            var original = img.color;
-            img.color = flashColor;
-            yield return new WaitForSeconds(0.35f);
-            if (img) img.color = original;
+            if (BattleHUD.Instance != null) BattleHUD.Instance.RebuildHUD();
+            wmj.Log.I("[Settings] \u8bbe\u7f6e\u5df2\u4fdd\u5b58\u5e76\u5e94\u7528", wmj.Log.Tag.UI);
         }
 
         private void OnResetAllClicked()
@@ -1633,86 +2160,48 @@ namespace UI.HUD
 
         private void OnReselectClicked()
         {
-            ToggleSettings();
+            HidePanel();
             if (BattleHUD.Instance != null) BattleHUD.Instance.Shutdown();
             RobotSelectionBootstrap.ResetSelection();
             RobotSelectionPanel.Show(result =>
             {
                 RobotSelectionBootstrap.ApplySelection(result);
-                wmj.Log.I($"[Settings] 重新选择完成: {result}", wmj.Log.Tag.UI);
+                wmj.Log.I("[Settings] \u91cd\u65b0\u9009\u62e9\u5b8c\u6210: " + result, wmj.Log.Tag.UI);
             });
         }
 
-        private void HidePanel()
+        // ═══════════════════ 辅助方法 ═══════════════════
+
+        private static string FormatKeyName(string rawName)
         {
-            if (panelRoot != null) panelRoot.SetActive(false);
-        }
-    }
-
-    // ═══════════════════ 布局拖拽组件 ═══════════════════
-
-    /// <summary>
-    /// 缩略图中可拖拽的 HUD 元素方块
-    /// </summary>
-    public class LayoutElementDragger : MonoBehaviour, IDragHandler, IBeginDragHandler, IEndDragHandler
-    {
-        private string elementId;
-        private UIElementLayout layout;
-        private RectTransform parentRt;
-        private RectTransform myRt;
-        private Image myBg;
-        private Color normalColor;
-
-        public void Initialize(string id, UIElementLayout layoutData, RectTransform parent)
-        {
-            elementId = id;
-            layout = layoutData;
-            parentRt = parent;
-            myRt = GetComponent<RectTransform>();
-            myBg = GetComponent<Image>();
-            if (myBg) normalColor = myBg.color;
+            if (rawName.StartsWith("Alpha")) return rawName.Substring(5);
+            if (rawName.StartsWith("Keypad")) return "Num" + rawName.Substring(6);
+            return rawName;
         }
 
-        public void OnBeginDrag(PointerEventData eventData)
+        private void ScheduleLivePreview()
         {
-            if (myBg) myBg.color = UIColors.WithAlpha(normalColor, normalColor.a + 0.25f);
+            if (previewCoroutine != null) StopCoroutine(previewCoroutine);
+            previewCoroutine = StartCoroutine(DebouncedPreview());
         }
 
-        public void OnDrag(PointerEventData eventData)
+        private IEnumerator DebouncedPreview()
         {
-            if (parentRt == null) return;
-
-            // 将屏幕位置转换为缩略图归一化坐标
-            RectTransformUtility.ScreenPointToLocalPointInRectangle(
-                parentRt, eventData.position, eventData.pressEventCamera, out var localPos);
-
-            float w = parentRt.rect.width;
-            float h = parentRt.rect.height;
-            float nx = Mathf.Clamp01((localPos.x + w * 0.5f) / w);
-            float ny = Mathf.Clamp01((localPos.y + h * 0.5f) / h);
-
-            // 更新锚点位置
-            float halfW = (myRt.anchorMax.x - myRt.anchorMin.x) * 0.5f;
-            float halfH = (myRt.anchorMax.y - myRt.anchorMin.y) * 0.5f;
-            myRt.anchorMin = new Vector2(nx - halfW, ny - halfH);
-            myRt.anchorMax = new Vector2(nx + halfW, ny + halfH);
-            myRt.offsetMin = Vector2.zero;
-            myRt.offsetMax = Vector2.zero;
-
-            // 同步到布局数据
-            layout.anchorX = nx;
-            layout.anchorY = ny;
-        }
-
-        public void OnEndDrag(PointerEventData eventData)
-        {
-            if (myBg) myBg.color = normalColor;
-            // 自动保存并实时重建 HUD
+            yield return new WaitForSeconds(PREVIEW_DELAY);
+            previewCoroutine = null;
             UILayoutManager.Save();
             if (BattleHUD.Instance != null)
                 BattleHUD.Instance.RebuildHUD();
-            wmj.Log.I($"[Layout] {elementId} 位置已更新并同步: ({layout.anchorX:F2}, {layout.anchorY:F2})",
-                wmj.Log.Tag.UI);
+        }
+
+        private IEnumerator ResetKeyLabelAfterDelay(RowData row)
+        {
+            yield return new WaitForSeconds(1.5f);
+            if (row.keyDisplay)
+            {
+                row.keyDisplay.text = FormatKeyName(((KeyCode)row.binding.keyCode).ToString());
+                row.keyDisplay.color = UIColors.White;
+            }
         }
     }
 }
