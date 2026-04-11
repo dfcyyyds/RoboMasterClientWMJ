@@ -59,6 +59,10 @@ namespace Framework.Video
         private int pushedFrames = 0;
         private int idrsSeen = 0;
 
+        // CUDA 连续崩溃计数：超过阈值后自动回退到软件解码
+        private volatile int consecutiveCrashesWithoutFrame = 0;
+        private const int MAX_CRASHES_BEFORE_SOFTWARE_FALLBACK = 1; // 快速回退，避免启动延迟
+
         public FfmpegPipeDecoder(string inputCodec = "hevc", bool useRawVideo = false, int outputWidth = 0, int outputHeight = 0, bool verboseFrameLogs = false, bool enableStderrLog = false, bool useHardwareDecode = true, bool forceHevc = false)
         {
             this.inputCodec = (inputCodec == "h264") ? "h264" : "hevc";
@@ -186,6 +190,7 @@ namespace Framework.Video
                     watchdogTask = Task.Run(() => WatchdogLoop(cts.Token));
                 // 重置参数集发送状态，确保新进程能同步
                 parameterSetsSent = false;
+                detectedCodec = null; // 重置编解码器检测，避免误检结果被永久保留
                 lastFrameTime = DateTime.UtcNow;
                 hasReceivedIdr = false;
                 needsIdrSync = true; // 重启后等待 IDR 再输出帧
@@ -205,11 +210,23 @@ namespace Framework.Video
         private void RestartProcess(string reason, bool fallbackToSoftware = false)
         {
             // 简单的节流，避免频繁重启
-            if ((DateTime.UtcNow - lastRestartTime).TotalSeconds < 1.0)
+            if ((DateTime.UtcNow - lastRestartTime).TotalSeconds < 0.3)
             {
                 return;
             }
             lastRestartTime = DateTime.UtcNow;
+
+            // 连续崩溃检测：硬件模式下累计崩溃次数，达阈值自动回退软解
+            if (!fallbackToSoftware && accelMode != AccelMode.Software)
+            {
+                consecutiveCrashesWithoutFrame++;
+                if (consecutiveCrashesWithoutFrame >= MAX_CRASHES_BEFORE_SOFTWARE_FALLBACK)
+                {
+                    wmj.Log.W($"[FfmpegPipeDecoder] 硬件解码连续 {consecutiveCrashesWithoutFrame} 次崩溃无帧输出，自动回退到软件解码", wmj.Log.Tag.Decoder);
+                    fallbackToSoftware = true;
+                }
+            }
+
             wmj.Log.W("[FfmpegPipeDecoder] 重启ffmpeg进程: " + reason, wmj.Log.Tag.Decoder);
             try
             {
@@ -516,8 +533,9 @@ namespace Framework.Video
         private string DetectCodec(byte[] annexBBytes)
         {
             // 强证据策略，避免误判：
-            // - HEVC：VPS(32) 或 (SPS(33) & PPS(34))，或 IDR(19/20) → hevc
-            // - H264：IDR(5) 或 (SPS(7) & PPS(8)) → h264
+            // - H264：SPS(7) 或 PPS(8) 或 IDR(5) → 任一即可判定 h264（H.264 解析不会对 HEVC 产生假阳性）
+            // - HEVC：需要更强证据 —— (VPS(32) + SPS(33)) 或 (SPS(33) + PPS(34)) 或 IDR(19/20)
+            //   （单独的 VPS 可能是 H.264 字节的假阳性，如 P-slice 0x41 → hevcType=32）
             bool h264Sps = false, h264Pps = false, h264Idr = false;
             bool hevcVps = false, hevcSps = false, hevcPps = false, hevcIdr = false;
 
@@ -543,8 +561,13 @@ namespace Framework.Video
                 else if (hevcType == 19 || hevcType == 20) hevcIdr = true;
             }
 
-            if (hevcIdr || hevcVps || (hevcSps && hevcPps)) return "hevc";
-            if (h264Idr || (h264Sps && h264Pps)) return "h264";
+            // H.264 优先且门槛更低：SPS/PPS/IDR 任一即可判定
+            // （H.264 NAL type 从低 5 位提取，不会对 HEVC 字节产生假阳性）
+            if (h264Idr || h264Sps || h264Pps) return "h264";
+
+            // HEVC 需要更强证据：避免 H.264 字节的假阳性（如 0x41 → hevcType=32=VPS）
+            // 要求：(VPS+SPS) 或 (SPS+PPS) 或 真正的 HEVC IDR
+            if (hevcIdr || (hevcVps && hevcSps) || (hevcSps && hevcPps)) return "hevc";
             return null;
         }
 
@@ -616,6 +639,7 @@ namespace Framework.Video
                         frameQueue.Enqueue(new DecodedFrame { Width = width, Height = height, Pixels = pixels });
                         int q = Interlocked.Increment(ref queueCount);
                         lastFrameTime = DateTime.UtcNow;
+                        consecutiveCrashesWithoutFrame = 0; // 成功解码帧，重置崩溃计数
                         wmj.Log.D($"[FfmpegPipeDecoder] 解码帧: {width}x{height}, queue={q}", wmj.Log.Tag.Decoder);
                     }
                     if (dropped && verboseFrameLogs)
@@ -669,6 +693,7 @@ namespace Framework.Video
                         frameQueue.Enqueue(new DecodedFrame { Width = width, Height = height, Pixels = framePixels, PixelArraySize = dataSize, IsPooled = true });
                         int q = Interlocked.Increment(ref queueCount);
                         lastFrameTime = DateTime.UtcNow;
+                        consecutiveCrashesWithoutFrame = 0; // 成功解码帧，重置崩溃计数
                         wmj.Log.D($"[FfmpegPipeDecoder] 解码帧: {width}x{height}, queue={q}", wmj.Log.Tag.Decoder);
                     }
                     if (dropped && verboseFrameLogs)
