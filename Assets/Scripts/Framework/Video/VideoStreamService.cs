@@ -1,9 +1,11 @@
 using System;
 using System.Collections.Concurrent;
+using System.Diagnostics;
 using UnityEngine;
 using UnityEngine.Scripting;
 using Framework.Video;
 using Framework.Boot;
+using Stopwatch = System.Diagnostics.Stopwatch;
 
 /// 视频流服务：订阅UDP帧，后台组装/解码，在主线程分发纹理
 public class VideoStreamService : MonoBehaviour
@@ -93,6 +95,32 @@ public class VideoStreamService : MonoBehaviour
     private float lastFullGcTime;
     private const float FULL_GC_INTERVAL_SEC = 10f; // 每10秒尝试一次低优先级完整GC
 
+    // ─── 主线程性能诊断 ───
+    private readonly Stopwatch mainUpdateSW = new Stopwatch();
+    private float mainWorstUpdateMs;
+    private string mainWorstPhase;
+    private int mainFreezeFrames;
+    private float mainLastTimingLog;
+
+    // ─── 吊射模式纹理上传暂停 ───
+    private volatile bool textureUploadPaused;
+    private int pausedFramesDrained; // 暂停期间排空的帧数（诊断用）
+
+    /// <summary>暂停主图传纹理上传（吊射模式进入时调用）— 解码器继续运行但跳过 GPU 上传</summary>
+    public void PauseTextureUpload()
+    {
+        textureUploadPaused = true;
+        pausedFramesDrained = 0;
+        wmj.Log.I("[VideoStreamService] 📵 主图传纹理上传已暂停（吊射模式激活，释放 GPU 上传带宽）", wmj.Log.Tag.Video);
+    }
+
+    /// <summary>恢复主图传纹理上传（吊射模式退出时调用）</summary>
+    public void ResumeTextureUpload()
+    {
+        textureUploadPaused = false;
+        wmj.Log.I($"[VideoStreamService] ✅ 主图传纹理上传已恢复（暂停期间排空 {pausedFramesDrained} 帧）", wmj.Log.Tag.Video);
+    }
+
     void Awake()
     {
         if (Instance != null)
@@ -162,7 +190,9 @@ public class VideoStreamService : MonoBehaviour
 
         if (decodeBackend == DecodeBackend.FfmpegPipe)
         {
-            decoder = new FfmpegPipeDecoder(decoderCodec, useRawVideo: true, outputWidth: decoderOutW, outputHeight: decoderOutH, verboseFrameLogs: false, enableStderrLog: false, useHardwareDecode: true, forceHevc: true);
+            // 强制软件解码：此机 CUDA/NVDEC会返回 "Hardware is lacking required capabilities".
+            // 软件解码 CPU 开销对于 1280x720 极低，不影响实际帧率。
+            decoder = new FfmpegPipeDecoder(decoderCodec, useRawVideo: true, outputWidth: decoderOutW, outputHeight: decoderOutH, verboseFrameLogs: false, enableStderrLog: false, useHardwareDecode: false, forceHevc: true);
             if (decoder is FfmpegPipeDecoder ff)
                 ff.MaxQueueSize = decoderQueueLimit;
         }
@@ -271,6 +301,7 @@ public class VideoStreamService : MonoBehaviour
 
     void Update()
     {
+        mainUpdateSW.Restart();
         if (decodeBackend == DecodeBackend.NativeNvdec && NativeVideoBridge.Available)
         {
             // 确保延迟初始化已完成
@@ -446,6 +477,17 @@ public class VideoStreamService : MonoBehaviour
             bool needCreateBack = useDoubleBuffer && (backBuffer == null || backBuffer.width != latest.Width || backBuffer.height != latest.Height || backBuffer.format != UnityEngine.TextureFormat.RGB24);
             float now = Time.realtimeSinceStartup;
 
+            // ─── 吊射模式：完全暂停纹理上传（不再仅限频，而是完全跳过 GPU 上传） ───
+            // 主图传 2560×1440 RGB24 = 11MB/帧，Apply 会触发 GPU 上传通道占用
+            // 吊射模式下完全跳过以将全部 GPU 带宽留给吊射解码+SR
+            if (textureUploadPaused)
+            {
+                pausedFramesDrained++;
+                latest.ReturnToPool();
+                // 主线程仍然排空解码队列（防止内存积压），但不上传纹理
+                return;
+            }
+
             // 双缓冲逻辑：写入后台纹理，然后交换
             if (useDoubleBuffer)
             {
@@ -469,8 +511,21 @@ public class VideoStreamService : MonoBehaviour
                     wmj.Log.I($"[VideoStreamService] 新建/调整纹理(双缓冲): {latest.Width}x{latest.Height}", wmj.Log.Tag.Video);
                 }
                 // 写入后台缓冲
+                float tBeforeDb = mainUpdateSW.ElapsedMilliseconds;
                 backBuffer.LoadRawTextureData(latest.Pixels);
                 backBuffer.Apply(false, false);
+                float tAfterDb = mainUpdateSW.ElapsedMilliseconds;
+                float dbApplyMs = tAfterDb - tBeforeDb;
+                if (dbApplyMs > 8f)
+                {
+                    if (dbApplyMs > mainWorstUpdateMs)
+                    {
+                        mainWorstUpdateMs = dbApplyMs;
+                        mainWorstPhase = $"TexApply_DB({latest.Width}x{latest.Height},{dbApplyMs:F1}ms)";
+                    }
+                    if (dbApplyMs > 50f)
+                        wmj.Log.W($"[VideoStreamService] ⚠️ Texture.Apply(双缓冲) 卡顿: {dbApplyMs:F1}ms", wmj.Log.Tag.Video);
+                }
                 // 交换前后台缓冲
                 var temp = CurrentTexture;
                 CurrentTexture = backBuffer;
@@ -488,8 +543,21 @@ public class VideoStreamService : MonoBehaviour
                     CurrentTexture = new UnityEngine.Texture2D(latest.Width, latest.Height, UnityEngine.TextureFormat.RGB24, false);
                     wmj.Log.I($"[VideoStreamService] 新建/调整纹理: {latest.Width}x{latest.Height}", wmj.Log.Tag.Video);
                 }
+                float tBefore = mainUpdateSW.ElapsedMilliseconds;
                 CurrentTexture.LoadRawTextureData(latest.Pixels);
                 CurrentTexture.Apply(false, false);
+                float tAfter = mainUpdateSW.ElapsedMilliseconds;
+                float texApplyMs = tAfter - tBefore;
+                if (texApplyMs > 8f)
+                {
+                    if (texApplyMs > mainWorstUpdateMs)
+                    {
+                        mainWorstUpdateMs = texApplyMs;
+                        mainWorstPhase = $"TexApply({latest.Width}x{latest.Height},{texApplyMs:F1}ms)";
+                    }
+                    if (texApplyMs > 50f)
+                        wmj.Log.W($"[VideoStreamService] ⚠️ Texture.Apply 卡顿: {texApplyMs:F1}ms ({latest.Width}x{latest.Height} = {latest.Width * latest.Height * 3 / 1024}KB)", wmj.Log.Tag.Video);
+                }
             }
             lastApplyTime = now;
             statTexturesApplied++;
@@ -584,6 +652,33 @@ public class VideoStreamService : MonoBehaviour
                 System.GC.Collect(0, System.GCCollectionMode.Optimized, false);
             }
         }
+
+        // ─── 主线程 Update 总耗时监测 ───
+        mainUpdateSW.Stop();
+        float mainTotalMs = (float)mainUpdateSW.Elapsed.TotalMilliseconds;
+        if (mainTotalMs > 100f)
+        {
+            mainFreezeFrames++;
+            wmj.Log.E($"[VideoStreamService] 🔴 Update 严重卡顿: {mainTotalMs:F1}ms (帧#{Time.frameCount}), 最慢={mainWorstPhase}", wmj.Log.Tag.Video);
+        }
+        else if (mainTotalMs > 30f)
+        {
+            wmj.Log.W($"[VideoStreamService] ⚠️ Update 过慢: {mainTotalMs:F1}ms, 最慢={mainWorstPhase}", wmj.Log.Tag.Video);
+        }
+
+        // 定期输出主线程性能诊断
+        if (Time.realtimeSinceStartup - mainLastTimingLog >= 5f)
+        {
+            mainLastTimingLog = Time.realtimeSinceStartup;
+            if (mainWorstUpdateMs > 5f || mainFreezeFrames > 0)
+            {
+                wmj.Log.I($"[VideoStreamService] 主线程性能: 最慢帧={mainWorstUpdateMs:F1}ms@{mainWorstPhase}, " +
+                    $"严重卡帧={mainFreezeFrames}次, GPU={SystemInfo.graphicsDeviceName}, " +
+                    $"VRAM={SystemInfo.graphicsMemorySize}MB", wmj.Log.Tag.Video);
+            }
+            mainWorstUpdateMs = 0;
+            mainWorstPhase = null;
+        }
     }
 
     private void SwitchToFfmpeg(string reason)
@@ -603,7 +698,9 @@ public class VideoStreamService : MonoBehaviour
             nativeTextureId = 0;
         }
 
-        decoder = new FfmpegPipeDecoder(decoderCodec, useRawVideo: true, outputWidth: decoderOutW, outputHeight: decoderOutH, verboseFrameLogs: false, enableStderrLog: false, useHardwareDecode: true, forceHevc: true);
+        // 强制软件解码：此机的 CUDA 会返回 "Hardware is lacking required capabilities"，
+        // 导致 FfmpegPipeDecoder 每 5 秒 watchdog 重启循环。软件解码即可。
+        decoder = new FfmpegPipeDecoder(decoderCodec, useRawVideo: true, outputWidth: decoderOutW, outputHeight: decoderOutH, verboseFrameLogs: false, enableStderrLog: false, useHardwareDecode: false, forceHevc: true);
         if (decoder is FfmpegPipeDecoder ff)
             ff.MaxQueueSize = decoderQueueLimit;
 

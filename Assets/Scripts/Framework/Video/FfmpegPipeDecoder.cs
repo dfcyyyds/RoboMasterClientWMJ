@@ -63,6 +63,28 @@ namespace Framework.Video
         private volatile int consecutiveCrashesWithoutFrame = 0;
         private const int MAX_CRASHES_BEFORE_SOFTWARE_FALLBACK = 1; // 快速回退，避免启动延迟
 
+        // ffmpeg 可用性缓存：IsFfmpegAvailable() 只在首次调用时执行同步检测，之后直接返回缓存值
+        private static bool? ffmpegAvailableCache = null;
+
+        // 异步重启请求：Push() 等主线程方法不再同步调用 RestartProcess，
+        // 而是设置此标志让后台 WatchdogLoop 执行重启，避免主线程阻塞
+        private volatile bool restartRequested = false;
+        private volatile string restartReason = null;
+
+        // 看门狗连续重启计数：超过上限后停止自动重启，避免无数据时的无限重启循环
+        private volatile int consecutiveWatchdogRestarts = 0;
+        private const int MAX_WATCHDOG_RESTARTS = 5; // 连续 5 次无帧重启后停止
+
+        // 释放标志
+        private volatile bool disposed = false;
+
+        // ─── 异步写入队列（避免主线程阻塞在管道写入上）───
+        // Push() 将数据入队，后台 WriteLoop 线程负责实际的 stdin 管道写入
+        private readonly ConcurrentQueue<byte[]> writeQueue = new ConcurrentQueue<byte[]>();
+        private volatile int writeQueueBytes = 0;
+        private const int MAX_WRITE_QUEUE_BYTES = 128 * 1024; // 128KB 背压上限
+        private Task writerTask;
+
         public FfmpegPipeDecoder(string inputCodec = "hevc", bool useRawVideo = false, int outputWidth = 0, int outputHeight = 0, bool verboseFrameLogs = false, bool enableStderrLog = false, bool useHardwareDecode = true, bool forceHevc = false)
         {
             this.inputCodec = (inputCodec == "h264") ? "h264" : "hevc";
@@ -96,9 +118,13 @@ namespace Framework.Video
             }
         }
 
-        /// <summary>检查系统是否安装了 ffmpeg</summary>
+        /// <summary>检查系统是否安装了 ffmpeg（结果缓存，只检测一次）</summary>
         public static bool IsFfmpegAvailable()
         {
+            // 缓存命中：直接返回，避免每次重启都同步启动进程等待 3 秒
+            if (ffmpegAvailableCache.HasValue)
+                return ffmpegAvailableCache.Value;
+
             try
             {
                 var checkProc = new Process();
@@ -115,10 +141,13 @@ namespace Framework.Video
                 string output = checkProc.StandardOutput.ReadLine() ?? "";
                 checkProc.WaitForExit(3000);
                 if (!checkProc.HasExited) checkProc.Kill();
-                return output.Contains("ffmpeg");
+                bool available = output.Contains("ffmpeg");
+                ffmpegAvailableCache = available;
+                return available;
             }
             catch
             {
+                ffmpegAvailableCache = false;
                 return false;
             }
         }
@@ -176,18 +205,33 @@ namespace Framework.Video
                 wmj.Log.I("[FfmpegPipeDecoder] 启动 ffmpeg 进程: " + proc.StartInfo.Arguments, wmj.Log.Tag.Decoder);
                 wmj.Log.I("[FfmpegPipeDecoder] 解码加速模式: " + accelMode, wmj.Log.Tag.Decoder);
                 // 异步读取stdout，根据输出格式解析帧
-                readerTask = Task.Run(() =>
+                readerTask = Task.Factory.StartNew(() =>
             {
+                // 降低线程优先级，避免解码线程抢占主线程 CPU
+                try { Thread.CurrentThread.Priority = ThreadPriority.BelowNormal; } catch { }
                 if (useRawVideo && outputWidth > 0 && outputHeight > 0)
                     ReadRawVideoLoop(cts.Token, outputWidth, outputHeight);
                 else
                     ReadPpmLoop(cts.Token);
-            });
+            }, cts.Token, TaskCreationOptions.LongRunning, TaskScheduler.Default);
                 // 异步读取stderr，收集错误信息
-                stderrTask = Task.Run(() => ReadStderrLoop(cts.Token));
+                stderrTask = Task.Factory.StartNew(() =>
+            {
+                try { Thread.CurrentThread.Priority = ThreadPriority.BelowNormal; } catch { }
+                ReadStderrLoop(cts.Token);
+            }, cts.Token, TaskCreationOptions.LongRunning, TaskScheduler.Default);
                 // 看门狗监测无输出/进程退出
                 if (watchdogTask == null || watchdogTask.IsCompleted)
                     watchdogTask = Task.Run(() => WatchdogLoop(cts.Token));
+                // 异步写入线程：负责管道写入，避免主线程阻塞
+                // 清空旧的写入队列（新进程需要从参数集重新开始）
+                while (writeQueue.TryDequeue(out _)) { }
+                Interlocked.Exchange(ref writeQueueBytes, 0);
+                writerTask = Task.Factory.StartNew(() =>
+            {
+                try { Thread.CurrentThread.Priority = ThreadPriority.BelowNormal; } catch { }
+                WriteLoop(cts.Token);
+            }, cts.Token, TaskCreationOptions.LongRunning, TaskScheduler.Default);
                 // 重置参数集发送状态，确保新进程能同步
                 parameterSetsSent = false;
                 detectedCodec = null; // 重置编解码器检测，避免误检结果被永久保留
@@ -282,8 +326,9 @@ namespace Framework.Video
                     }
                 }
                 vf = $"scale={outputWidth}:{outputHeight},format=rgb24";
-                // 软解路径
-                return $"-loglevel warning -nostdin -hide_banner -probesize 32 -analyzeduration 0 -fflags +nobuffer -flags low_delay -threads 4 -an -sn -vsync passthrough -f {inputCodec} -i - -vf {vf} -pix_fmt rgb24 -f rawvideo pipe:1";
+                // 软解路径：小分辨率（如 360×540 吊射）只用 2 线程，减少 CPU 争抢
+                int swThreads = (outputWidth <= 640 && outputHeight <= 640) ? 2 : 4;
+                return $"-loglevel warning -nostdin -hide_banner -probesize 32 -analyzeduration 0 -fflags +nobuffer -flags low_delay -threads {swThreads} -an -sn -vsync passthrough -f {inputCodec} -i - -vf {vf} -pix_fmt rgb24 -f rawvideo pipe:1";
             }
             else
             {
@@ -314,25 +359,53 @@ namespace Framework.Video
                     }
                 }
                 vf = "scale=1280:-2,format=rgb24";
-                return $"-loglevel warning -nostdin -hide_banner -probesize 32 -analyzeduration 0 -fflags +nobuffer -flags low_delay -threads 4 -an -sn -vsync passthrough -f {inputCodec} -i - -vf {vf} -f image2pipe -vcodec ppm -pix_fmt rgb24 pipe:1";
+                int swThreadsPpm = (outputWidth <= 640 && outputHeight <= 640) ? 2 : 4;
+                return $"-loglevel warning -nostdin -hide_banner -probesize 32 -analyzeduration 0 -fflags +nobuffer -flags low_delay -threads {swThreadsPpm} -an -sn -vsync passthrough -f {inputCodec} -i - -vf {vf} -f image2pipe -vcodec ppm -pix_fmt rgb24 pipe:1";
             }
         }
 
         public void Push(byte[] annexBBytes)
         {
+            Push(annexBBytes, annexBBytes?.Length ?? 0);
+        }
+
+        /// <summary>
+        /// 推送 H.264/HEVC AnnexB 数据（支持 ArrayPool 租借的大数组，仅使用前 length 字节）
+        /// 内部会在需要时复制到精确大小的数组，调用方可安全归还原数组到 ArrayPool
+        /// </summary>
+        public void Push(byte[] annexBBytes, int length)
+        {
             try
             {
-                if (annexBBytes == null || annexBBytes.Length == 0) return;
+                if (disposed || annexBBytes == null || length <= 0) return;
+
+                // 如果传入的数组大于实际数据长度（ArrayPool 场景），截取精确副本
+                byte[] data = annexBBytes;
+                if (annexBBytes.Length > length)
+                {
+                    data = new byte[length];
+                    System.Buffer.BlockCopy(annexBBytes, 0, data, 0, length);
+                }
                 firstPacketSeen = true;
-                // 进程健康检查
+                // 进程健康检查 — 不在调用线程（可能是主线程）执行重启，
+                // 而是设置标志让后台 WatchdogLoop 处理，避免阻塞主线程
                 if (proc == null || proc.HasExited || stdin == null)
                 {
-                    RestartProcess(proc == null ? "proc为空" : (proc.HasExited ? "进程已退出" : "stdin空"));
-                    if (proc == null || proc.HasExited || stdin == null) return; // 若重启失败，直接返回，等待下一帧
+                    restartReason = proc == null ? "proc为空" : (proc.HasExited ? "进程已退出" : "stdin空");
+                    restartRequested = true;
+                    consecutiveWatchdogRestarts = 0; // 有新数据到来，重置重启计数
+                    // 若看门狗已因达到重启上限而退出，需要启动新的看门狗来执行重启
+                    if (watchdogTask == null || watchdogTask.IsCompleted)
+                    {
+                        var ct = cts?.Token ?? CancellationToken.None;
+                        if (!ct.IsCancellationRequested)
+                            watchdogTask = Task.Run(() => WatchdogLoop(ct));
+                    }
+                    return;
                 }
 
                 // 自动检测编解码器（HEVC/H264），必要时切换 ffmpeg 输入格式
-                var detected = DetectCodec(annexBBytes);
+                var detected = DetectCodec(data);
                 if (forceHevc)
                 {
                     // 强制HEVC模式：只记录检测结果，不切换到H264，避免软解回退
@@ -353,17 +426,18 @@ namespace Framework.Video
                     if (detectedCodec != null && detectedCodec != inputCodec)
                     {
                         inputCodec = detectedCodec; // 更新输入格式
-                        RestartProcess("切换输入编解码器为: " + inputCodec);
+                        restartReason = "切换输入编解码器为: " + inputCodec;
+                        restartRequested = true;
                         wmj.Log.I("[FfmpegPipeDecoder] Codec=" + inputCodec, wmj.Log.Tag.Decoder);
-                        if (proc == null || proc.HasExited || stdin == null) return;
+                        return; // 等待后台重启
                     }
                 }
 
                 // 提取并缓存参数集（VPS/SPS/PPS），识别NAL类型：VPS=32, SPS=33, PPS=34
-                ExtractAndCacheParameterSets(annexBBytes);
+                ExtractAndCacheParameterSets(data);
 
                 // 侦测是否包含 HEVC IDR（IDR_W_RADL=19, IDR_N_LP=20）
-                bool containsIdr = inputCodec == "h264" ? ContainsH264Idr(annexBBytes) : ContainsHevcIdr(annexBBytes);
+                bool containsIdr = inputCodec == "h264" ? ContainsH264Idr(data) : ContainsHevcIdr(data);
                 if (containsIdr)
                 {
                     idrsSeen++;
@@ -374,41 +448,30 @@ namespace Framework.Video
                 // 若首次获得参数集，则先发送一次参数集，确保解码器同步
                 if (!parameterSetsSent && parameterSetCache != null && parameterSetCache.Length > 0)
                 {
-                    lock (sync)
-                    {
-                        // 管道写入无需每次 Flush，避免高频IO导致吞吐下降
-                        stdin.Write(parameterSetCache, 0, parameterSetCache.Length);
-                    }
+                    EnqueueWrite(parameterSetCache);
                     parameterSetsSent = true;
                     wmj.Log.D("[FfmpegPipeDecoder] 首次发送参数集: " + parameterSetCache.Length + " bytes", wmj.Log.Tag.Decoder);
                 }
 
                 // 若检测到IDR帧，且参数集尚未发送过，则发送参数集
-                // 注意：不再每次IDR都重发，避免重复数据导致解码器时间戳混乱
-                // 参数集通常在整个会话中不变，只需首次发送一次即可
                 if (containsIdr && !parameterSetsSent && parameterSetCache != null && parameterSetCache.Length > 0)
                 {
-                    lock (sync)
-                    {
-                        stdin.Write(parameterSetCache, 0, parameterSetCache.Length);
-                    }
+                    EnqueueWrite(parameterSetCache);
                     parameterSetsSent = true;
                     wmj.Log.D("[FfmpegPipeDecoder] IDR前发送参数集: " + parameterSetCache.Length + " bytes", wmj.Log.Tag.Decoder);
                 }
 
-                // 然后发送当前帧
-                lock (sync)
-                {
-                    stdin.Write(annexBBytes, 0, annexBBytes.Length);
-                }
+                // 帧数据入队（由后台 WriteLoop 异步写入 ffmpeg stdin）
+                EnqueueWrite(data);
                 if (verboseFrameLogs)
-                    wmj.Log.D("[FfmpegPipeDecoder] 写入帧: " + annexBBytes.Length + " bytes" + (containsIdr ? " (IDR)" : ""), wmj.Log.Tag.Decoder);
+                    wmj.Log.D("[FfmpegPipeDecoder] 写入帧: " + data.Length + " bytes" + (containsIdr ? " (IDR)" : ""), wmj.Log.Tag.Decoder);
                 pushedFrames++;
             }
             catch (Exception ex)
             {
                 wmj.Log.E("[FfmpegPipeDecoder] Push异常: " + ex.Message, wmj.Log.Tag.Decoder);
-                RestartProcess("Push写入异常: " + ex.Message);
+                restartReason = "Push异常: " + ex.Message;
+                restartRequested = true;
             }
         }
 
@@ -583,18 +646,23 @@ namespace Framework.Video
 
         public void Dispose()
         {
+            disposed = true;
             try
             {
                 cts?.Cancel();
-                stdin?.Dispose();
-                stdout?.Dispose();
+                // 先关闭流，让读写线程自然退出
+                try { stdin?.Dispose(); } catch { }
+                try { stdout?.Dispose(); } catch { }
                 if (proc != null && !proc.HasExited)
                 {
                     try { proc.Kill(); } catch { }
                 }
                 proc?.Dispose();
-                try { readerTask?.Wait(200); } catch { }
-                try { stderrTask?.Wait(200); } catch { }
+                // 非阻塞等待：每个 Task 最多等 50ms（原 200ms × 3 = 600ms 可能卡主线程）
+                // 如果超时也不阻塞，后台线程会自行结束
+                try { readerTask?.Wait(50); } catch { }
+                try { stderrTask?.Wait(50); } catch { }
+                try { writerTask?.Wait(50); } catch { }
             }
             catch { }
         }
@@ -640,6 +708,7 @@ namespace Framework.Video
                         int q = Interlocked.Increment(ref queueCount);
                         lastFrameTime = DateTime.UtcNow;
                         consecutiveCrashesWithoutFrame = 0; // 成功解码帧，重置崩溃计数
+                        consecutiveWatchdogRestarts = 0; // 成功解码，重置看门狗重启计数
                         wmj.Log.D($"[FfmpegPipeDecoder] 解码帧: {width}x{height}, queue={q}", wmj.Log.Tag.Decoder);
                     }
                     if (dropped && verboseFrameLogs)
@@ -694,6 +763,7 @@ namespace Framework.Video
                         int q = Interlocked.Increment(ref queueCount);
                         lastFrameTime = DateTime.UtcNow;
                         consecutiveCrashesWithoutFrame = 0; // 成功解码帧，重置崩溃计数
+                        consecutiveWatchdogRestarts = 0; // 成功解码，重置看门狗重启计数
                         wmj.Log.D($"[FfmpegPipeDecoder] 解码帧: {width}x{height}, queue={q}", wmj.Log.Tag.Decoder);
                     }
                     if (dropped && verboseFrameLogs)
@@ -714,9 +784,30 @@ namespace Framework.Video
                 using (var sr = proc.StandardError)
                 {
                     string line;
+                    int lineCount = 0;
+                    int suppressed = 0;
                     while (!token.IsCancellationRequested && (line = sr.ReadLine()) != null)
                     {
+                        lineCount++;
+
+                        // 默认不打印 stderr，避免日志洪泛导致主线程卡顿/磁盘 IO 激增
+                        if (!enableStderrLog)
+                            continue;
+
+                        // 仅打印前 20 行，之后每 100 行打印 1 行，控制日志量
+                        bool shouldLog = lineCount <= 20 || lineCount % 100 == 0;
+                        if (!shouldLog)
+                        {
+                            suppressed++;
+                            continue;
+                        }
+
                         wmj.Log.W("[FfmpegPipeDecoder][stderr] " + line, wmj.Log.Tag.Decoder);
+                        if (suppressed > 0)
+                        {
+                            wmj.Log.W($"[FfmpegPipeDecoder][stderr] 已抑制 {suppressed} 行重复日志", wmj.Log.Tag.Decoder);
+                            suppressed = 0;
+                        }
                     }
                 }
             }
@@ -732,6 +823,17 @@ namespace Framework.Video
             {
                 try
                 {
+                    // ─── 检查 Push() 等方法请求的异步重启 ───
+                    if (restartRequested)
+                    {
+                        restartRequested = false;
+                        string reason = restartReason ?? "异步重启请求";
+                        restartReason = null;
+                        wmj.Log.W("[FfmpegPipeDecoder] 看门狗执行异步重启: " + reason, wmj.Log.Tag.Decoder);
+                        RestartProcess(reason, fallbackToSoftware: false);
+                        return;
+                    }
+
                     if (proc == null || proc.HasExited)
                     {
                         wmj.Log.W("[FfmpegPipeDecoder] 看门狗检测到ffmpeg退出，硬解重启", wmj.Log.Tag.Decoder);
@@ -748,7 +850,15 @@ namespace Framework.Video
 
                     if ((DateTime.UtcNow - lastFrameTime) > noFrameTimeout)
                     {
-                        wmj.Log.W("[FfmpegPipeDecoder] 看门狗检测到超时无帧输出，保持硬解重启", wmj.Log.Tag.Decoder);
+                        consecutiveWatchdogRestarts++;
+                        if (consecutiveWatchdogRestarts > MAX_WATCHDOG_RESTARTS)
+                        {
+                            // 连续多次无帧重启，停止自动重启避免资源浪费
+                            // 下次有新数据 Push() 时会检测到进程退出并请求重启
+                            wmj.Log.W($"[FfmpegPipeDecoder] 连续 {consecutiveWatchdogRestarts} 次无帧重启，停止自动重启（等待新数据）", wmj.Log.Tag.Decoder);
+                            return;
+                        }
+                        wmj.Log.W($"[FfmpegPipeDecoder] 看门狗检测到超时无帧输出({consecutiveWatchdogRestarts}/{MAX_WATCHDOG_RESTARTS})，保持硬解重启", wmj.Log.Tag.Decoder);
                         // 重启但保持当前硬件模式，避免轻易回退软解
                         RestartProcess("无帧输出超时", fallbackToSoftware: false);
                         // 清空队列，等待下一 IDR 同步
@@ -820,21 +930,73 @@ namespace Framework.Video
 
         public void ResendParameterSets()
         {
-            try
+            if (parameterSetCache != null && parameterSetCache.Length > 0)
             {
-                if (parameterSetCache != null && parameterSetCache.Length > 0)
-                {
-                    lock (sync)
-                    {
-                        // 避免每次Flush，提高管道吞吐
-                        stdin.Write(parameterSetCache, 0, parameterSetCache.Length);
-                    }
-                    wmj.Log.W("[FfmpegPipeDecoder] 看门狗重发参数集: " + parameterSetCache.Length + " bytes", wmj.Log.Tag.Decoder);
-                }
+                EnqueueWrite(parameterSetCache);
+                wmj.Log.W("[FfmpegPipeDecoder] 看门狗重发参数集: " + parameterSetCache.Length + " bytes", wmj.Log.Tag.Decoder);
             }
-            catch (System.Exception ex)
+        }
+
+        // ═══════════════════════════════ 异步写入管道 ═══════════════════════════════
+
+        /// <summary>
+        /// 将数据入队等待后台写入（主线程安全，永不阻塞）
+        /// 超过 128KB 背压上限时自动丢弃最旧数据，防止内存无限增长
+        /// </summary>
+        private void EnqueueWrite(byte[] data)
+        {
+            if (data == null || data.Length == 0) return;
+            writeQueue.Enqueue(data);
+            int total = Interlocked.Add(ref writeQueueBytes, data.Length);
+            // 背压：队列超限时丢弃旧数据
+            while (total > MAX_WRITE_QUEUE_BYTES && writeQueue.TryDequeue(out var dropped))
             {
-                wmj.Log.W("[FfmpegPipeDecoder] 重发参数集异常: " + ex.Message, wmj.Log.Tag.Decoder);
+                total = Interlocked.Add(ref writeQueueBytes, -dropped.Length);
+            }
+        }
+
+        /// <summary>
+        /// 后台写入线程：从 writeQueue 取出数据写入 ffmpeg stdin 管道
+        /// 管道写入可能阻塞（ffmpeg 处理慢时），此线程承担阻塞代价，
+        /// 保证 Unity 主线程的 Push() 调用永远不会卡顿
+        /// </summary>
+        private void WriteLoop(CancellationToken token)
+        {
+            while (!token.IsCancellationRequested)
+            {
+                try
+                {
+                    if (writeQueue.TryDequeue(out var data))
+                    {
+                        Interlocked.Add(ref writeQueueBytes, -data.Length);
+                        var s = stdin;
+                        if (s != null)
+                        {
+                            // 使用异步写入 + 超时保护，避免管道满时永久阻塞
+                            var writeTask = s.WriteAsync(data, 0, data.Length, token);
+                            if (!writeTask.Wait(2000)) // 2 秒写入超时
+                            {
+                                wmj.Log.W("[FfmpegPipeDecoder] 管道写入超时(2s)，请求重启", wmj.Log.Tag.Decoder);
+                                restartReason = "管道写入超时";
+                                restartRequested = true;
+                                break;
+                            }
+                        }
+                    }
+                    else
+                    {
+                        Thread.Sleep(1); // 无数据时让出 CPU
+                    }
+                }
+                catch (ObjectDisposedException) { break; } // stdin 已关闭
+                catch (OperationCanceledException) { break; }
+                catch (AggregateException ae) when (ae.InnerException is ObjectDisposedException || ae.InnerException is OperationCanceledException) { break; }
+                catch (Exception ex)
+                {
+                    if (!token.IsCancellationRequested)
+                        wmj.Log.W("[FfmpegPipeDecoder] 写入线程异常: " + ex.Message, wmj.Log.Tag.Decoder);
+                    Thread.Sleep(10);
+                }
             }
         }
 

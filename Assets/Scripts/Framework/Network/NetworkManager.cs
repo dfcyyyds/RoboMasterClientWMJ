@@ -181,8 +181,20 @@ public class NetworkManager : MonoBehaviour
         // 订阅消息接收事件
         mqttService.OnMessageReceived += dispatcher.Dispatch;
         // UDP 图传数据分发：优先零拷贝段分发，回退到 byte[]
-        udpService.OnMessageReceivedSegment += (remoteEp, data) => dispatcher.DispatchSegment("VideoStream", data);
-        udpService.OnMessageReceived += (remoteEp, data) => dispatcher.Dispatch("VideoStream", data);
+        // 关键优化：吊射模式激活时，完全跳过主图传 VideoStream 分发，
+        // 避免 UdpVideoHandler/AnnexB 组帧/Ffmpeg 解码链路继续消耗 CPU/GPU。
+        udpService.OnMessageReceivedSegment += (remoteEp, data) =>
+        {
+            if (LobShotUdpReceiver.ActiveH264Transport != null)
+                return;
+            dispatcher.DispatchSegment("VideoStream", data);
+        };
+        udpService.OnMessageReceived += (remoteEp, data) =>
+        {
+            if (LobShotUdpReceiver.ActiveH264Transport != null)
+                return;
+            dispatcher.Dispatch("VideoStream", data);
+        };
 
         // 订阅网络状态事件
         mqttService.OnConnected += () => OnMqttConnected?.Invoke();

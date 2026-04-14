@@ -170,10 +170,16 @@ public class UdpClientService
 
     private System.Collections.IEnumerator DrainQueueLoop()
     {
+        // 每帧最多处理的包数上限。
+        // 正常 1440p 视频约 1442 包/s（30fps × 48包/帧），500 包/帧 × 30fps = 15000 包/s，远超正常需求。
+        // 此上限仅在积压突发时生效，防止单帧处理数万包导致主线程卡顿（如 SR 冻结后的队列洪峰）。
+        const int MAX_PACKETS_PER_FRAME = 500;
+
         while (true)
         {
             // 当服务停止后，仍允许把队列剩余消息耗尽再退出
-            while (recvQueue.TryDequeue(out var item))
+            int processedThisFrame = 0;
+            while (processedThisFrame < MAX_PACKETS_PER_FRAME && recvQueue.TryDequeue(out var item))
             {
                 try
                 {
@@ -195,6 +201,7 @@ public class UdpClientService
                         Buffer.BlockCopy(item.Buffer, 0, copy, 0, item.Length);
                         OnMessageReceived.Invoke(item.Remote, copy);
                     }
+                    processedThisFrame++;
                 }
                 catch (System.Exception ex)
                 {
