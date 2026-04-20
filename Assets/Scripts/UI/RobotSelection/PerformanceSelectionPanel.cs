@@ -70,6 +70,14 @@ namespace UI.RobotSelection
 
         private const float SKEW = 5f;
 
+        // ─── 设置面板同款色板 ───
+        private static readonly Color PanelBg    = new Color(0.04f, 0.05f, 0.10f, 0.96f);
+        private static readonly Color TitleBarBg = new Color(0.03f, 0.04f, 0.08f, 0.95f);
+        private static readonly Color ContentBg  = new Color(0.05f, 0.06f, 0.12f, 0.90f);
+        private static readonly Color Accent     = new Color(0.35f, 0.72f, 0.98f, 1f);
+        private static readonly Color BtnSave    = new Color(0.16f, 0.50f, 0.88f, 0.80f);
+        private static readonly Color RowBg      = new Color(0.07f, 0.08f, 0.14f, 0.85f);
+
         // 射手体系
         private Button shooterBurst, shooterCooldown;
         private Image shooterBurstBg, shooterCooldownBg;
@@ -161,9 +169,9 @@ namespace UI.RobotSelection
 
             var root = canvas.transform;
 
-            // 半透明背景遮罩
+            // 深色全屏遮罩
             var overlay = UIFactory.CreateFullScreenImage(root, "Overlay",
-                new Color(0.02f, 0.02f, 0.06f, 0.55f));
+                new Color(0.01f, 0.01f, 0.03f, 0.82f));
             overlay.raycastTarget = true;
 
             // 主面板
@@ -178,31 +186,56 @@ namespace UI.RobotSelection
             float panelH = 280 + sectionCount * 180;
             UIFactory.SetAnchoredSize(panel, new Vector2(0, 10), new Vector2(1200, panelH));
 
-            // 背景
-            var panelBg = UIFactory.CreateContainerBg(panel, "Bg", 0.14f);
-            UIFactory.SetFullStretch(panelBg.rectTransform);
+            // 面板背景（PanelBg）
+            var panelBgGo = new GameObject("Bg");
+            panelBgGo.transform.SetParent(panel, false);
+            var panelBgImg = panelBgGo.AddComponent<Image>();
+            panelBgImg.sprite = UIShapeHelper.RoundedRect;
+            panelBgImg.type = Image.Type.Sliced;
+            panelBgImg.color = PanelBg;
+            panelBgImg.raycastTarget = true;
+            UIFactory.SetFullStretch(panelBgImg.rectTransform);
 
-            // 边框
-            var panelBorder = UIFactory.CreateContainerBorder(panel, "Border", 0.25f);
-            UIFactory.SetFullStretch(panelBorder.rectTransform);
+            // 标题条（TitleBarBg）
+            float titleTopFrac = 1f - 90f / panelH;
+            var titleBarGo = new GameObject("TitleBar");
+            titleBarGo.transform.SetParent(panel, false);
+            var titleBarImg = titleBarGo.AddComponent<Image>();
+            titleBarImg.color = TitleBarBg;
+            titleBarImg.raycastTarget = false;
+            titleBarImg.rectTransform.anchorMin = new Vector2(0f, titleTopFrac);
+            titleBarImg.rectTransform.anchorMax = new Vector2(1f, 1f);
+            titleBarImg.rectTransform.offsetMin = Vector2.zero;
+            titleBarImg.rectTransform.offsetMax = Vector2.zero;
 
             // 标题
             string titleText = $"体 系 选 择  ·  {_profile.DisplayName}";
-            var title = UIFactory.CreateText(panel, "Title", titleText, 42,
-                TextAlignmentOptions.Center, UIColors.BrightBlue, FontStyles.Bold);
-            title.rectTransform.anchorMin = new Vector2(0.05f, 1f - 60f / panelH);
-            title.rectTransform.anchorMax = new Vector2(0.95f, 1f - 10f / panelH);
+            var title = UIFactory.CreateText(panel, "Title", titleText, 40,
+                TextAlignmentOptions.Center, Accent, FontStyles.Bold);
+            title.rectTransform.anchorMin = new Vector2(0.05f, titleTopFrac + 0.02f);
+            title.rectTransform.anchorMax = new Vector2(0.95f, 0.99f);
             title.rectTransform.offsetMin = Vector2.zero;
             title.rectTransform.offsetMax = Vector2.zero;
 
-            // 分隔线
-            float divY = 1f - 70f / panelH;
+            // 标题条下方细线
+            float divY = titleTopFrac;
             var divider = UIFactory.CreateImage(panel, "Divider",
-                UIColors.WithAlpha(UIColors.LightBlueBorder, 0.25f));
-            divider.rectTransform.anchorMin = new Vector2(0.04f, divY);
-            divider.rectTransform.anchorMax = new Vector2(0.96f, divY + 0.005f);
+                UIColors.WithAlpha(Accent, 0.35f));
+            divider.rectTransform.anchorMin = new Vector2(0f, divY - 0.003f);
+            divider.rectTransform.anchorMax = new Vector2(1f, divY + 0.003f);
             divider.rectTransform.offsetMin = Vector2.zero;
             divider.rectTransform.offsetMax = Vector2.zero;
+
+            // 内容区背景（ContentBg）
+            var contentBg = new GameObject("ContentBg");
+            contentBg.transform.SetParent(panel, false);
+            var contentBgImg = contentBg.AddComponent<Image>();
+            contentBgImg.color = ContentBg;
+            contentBgImg.raycastTarget = false;
+            contentBgImg.rectTransform.anchorMin = new Vector2(0.02f, 0.15f);
+            contentBgImg.rectTransform.anchorMax = new Vector2(0.98f, divY - 0.01f);
+            contentBgImg.rectTransform.offsetMin = Vector2.zero;
+            contentBgImg.rectTransform.offsetMax = Vector2.zero;
 
             // 选项区域
             float sectionTop = divY - 0.03f;
@@ -237,7 +270,7 @@ namespace UI.RobotSelection
             float confirmY0 = 0.03f;
             float confirmY1 = 0.12f;
             confirmBtn = UIFactory.CreateSkewedButton(panel, "Confirm", "确  认  [Enter]",
-                UIColors.WithAlpha(UIColors.BrightBlue, 0.35f), SKEW, 30);
+                new Color(0.08f, 0.10f, 0.16f, 0.55f), SKEW, 30, UIColors.White);
             var cRt = confirmBtn.GetComponent<RectTransform>();
             cRt.anchorMin = new Vector2(0.30f, confirmY0);
             cRt.anchorMax = new Vector2(0.70f, confirmY1);
@@ -285,7 +318,7 @@ namespace UI.RobotSelection
         {
             // 区块标题
             var label = UIFactory.CreateText(panel, "ShooterLabel", "射 手 体 系", 28,
-                TextAlignmentOptions.Left, UIColors.BrightBlue, FontStyles.Bold);
+                TextAlignmentOptions.Left, Accent, FontStyles.Bold);
             label.rectTransform.anchorMin = new Vector2(0.06f, y1 - 0.06f);
             label.rectTransform.anchorMax = new Vector2(0.50f, y1);
             label.rectTransform.offsetMin = Vector2.zero;
@@ -296,7 +329,7 @@ namespace UI.RobotSelection
 
             // 爆发优先
             shooterBurst = UIFactory.CreateSkewedButton(panel, "ShooterBurst", "",
-                UIColors.WithAlpha(UIColors.BrightBlue, 0.15f), SKEW, 24);
+                RowBg, SKEW, 24);
             shooterBurstBg = shooterBurst.GetComponent<Image>();
             var sbrRt = shooterBurst.GetComponent<RectTransform>();
             sbrRt.anchorMin = new Vector2(0.06f, btnY0);
@@ -308,7 +341,7 @@ namespace UI.RobotSelection
 
             // 冷却优先
             shooterCooldown = UIFactory.CreateSkewedButton(panel, "ShooterCool", "",
-                UIColors.WithAlpha(UIColors.BrightBlue, 0.15f), SKEW, 24);
+                RowBg, SKEW, 24);
             shooterCooldownBg = shooterCooldown.GetComponent<Image>();
             var scrRt = shooterCooldown.GetComponent<RectTransform>();
             scrRt.anchorMin = new Vector2(0.52f, btnY0);
@@ -324,7 +357,7 @@ namespace UI.RobotSelection
         private void BuildChassisSection(RectTransform panel, float y0, float y1)
         {
             var label = UIFactory.CreateText(panel, "ChassisLabel", "底 盘 体 系", 28,
-                TextAlignmentOptions.Left, UIColors.BrightBlue, FontStyles.Bold);
+                TextAlignmentOptions.Left, Accent, FontStyles.Bold);
             label.rectTransform.anchorMin = new Vector2(0.06f, y1 - 0.06f);
             label.rectTransform.anchorMax = new Vector2(0.50f, y1);
             label.rectTransform.offsetMin = Vector2.zero;
@@ -335,7 +368,7 @@ namespace UI.RobotSelection
 
             // 功率优先
             chassisPower = UIFactory.CreateSkewedButton(panel, "ChassisPower", "",
-                UIColors.WithAlpha(UIColors.BrightBlue, 0.15f), SKEW, 24);
+                RowBg, SKEW, 24);
             chassisPowerBg = chassisPower.GetComponent<Image>();
             var cpRt = chassisPower.GetComponent<RectTransform>();
             cpRt.anchorMin = new Vector2(0.06f, btnY0);
@@ -347,7 +380,7 @@ namespace UI.RobotSelection
 
             // 血量优先
             chassisHealth = UIFactory.CreateSkewedButton(panel, "ChassisHP", "",
-                UIColors.WithAlpha(UIColors.BrightBlue, 0.15f), SKEW, 24);
+                RowBg, SKEW, 24);
             chassisHealthBg = chassisHealth.GetComponent<Image>();
             var chRt = chassisHealth.GetComponent<RectTransform>();
             chRt.anchorMin = new Vector2(0.52f, btnY0);
@@ -363,7 +396,7 @@ namespace UI.RobotSelection
         private void BuildSentrySection(RectTransform panel, float y0, float y1)
         {
             var label = UIFactory.CreateText(panel, "SentryLabel", "控 制 模 式", 28,
-                TextAlignmentOptions.Left, UIColors.BrightBlue, FontStyles.Bold);
+                TextAlignmentOptions.Left, Accent, FontStyles.Bold);
             label.rectTransform.anchorMin = new Vector2(0.06f, y1 - 0.06f);
             label.rectTransform.anchorMax = new Vector2(0.50f, y1);
             label.rectTransform.offsetMin = Vector2.zero;
@@ -374,7 +407,7 @@ namespace UI.RobotSelection
 
             // 全自动
             sentryAuto = UIFactory.CreateSkewedButton(panel, "SentryAuto", "",
-                UIColors.WithAlpha(UIColors.BrightBlue, 0.15f), SKEW, 24);
+                RowBg, SKEW, 24);
             sentryAutoBg = sentryAuto.GetComponent<Image>();
             var saRt = sentryAuto.GetComponent<RectTransform>();
             saRt.anchorMin = new Vector2(0.06f, btnY0);
@@ -386,7 +419,7 @@ namespace UI.RobotSelection
 
             // 半自动
             sentrySemi = UIFactory.CreateSkewedButton(panel, "SentrySemi", "",
-                UIColors.WithAlpha(UIColors.BrightBlue, 0.15f), SKEW, 24);
+                RowBg, SKEW, 24);
             sentrySemiBg = sentrySemi.GetComponent<Image>();
             var ssRt = sentrySemi.GetComponent<RectTransform>();
             ssRt.anchorMin = new Vector2(0.52f, btnY0);
@@ -450,8 +483,8 @@ namespace UI.RobotSelection
         {
             if (bg == null) return;
             bg.color = isSelected
-                ? UIColors.WithAlpha(UIColors.BrightBlue, 0.45f)
-                : UIColors.WithAlpha(UIColors.BrightBlue, 0.15f);
+                ? UIColors.WithAlpha(Accent, 0.55f)
+                : RowBg;
         }
 
         private void UpdateStatus()
@@ -489,12 +522,12 @@ namespace UI.RobotSelection
             if (canConfirm)
             {
                 if (statusText) statusText.text = $"已选择: {string.Join("  ·  ", parts)}";
-                if (confirmBg) confirmBg.color = UIColors.WithAlpha(UIColors.BrightBlue, 0.65f);
+                if (confirmBg) confirmBg.color = BtnSave;
             }
             else
             {
                 if (statusText) statusText.text = "请完成所有体系选择";
-                if (confirmBg) confirmBg.color = UIColors.WithAlpha(UIColors.BrightBlue, 0.25f);
+                if (confirmBg) confirmBg.color = new Color(0.08f, 0.10f, 0.16f, 0.55f);
             }
         }
 

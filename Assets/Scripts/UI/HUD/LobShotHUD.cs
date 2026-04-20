@@ -17,8 +17,8 @@ namespace UI.HUD
     /// 独立 Canvas, 仅在吊射模式激活时显示
     /// 
     /// v3 超分辨率升级：
-    ///   - 360×540 H.264 解码 → SRGAN 2× 超分 → 720×1080 显示
-    ///   - Unity Sentis GPU 推理，LobShot-SRGAN v3 模型 (67K 参数, ~6ms)
+    ///   - 1024×512 H.264 解码 → 直接显示（v3.2.1 原生分辨率，默认不用 SR）
+    ///   - Unity Sentis GPU 推理，LobShot-SRGAN v3 模型（仅支持 360×540，需重训）
     ///   - 全局残差学习：输出 = Bicubic(LR) + 网络高频残差
     ///   - SR 失败自动回退到 Bilinear 放大
     /// 
@@ -40,18 +40,18 @@ namespace UI.HUD
         private RawImage visionDisplay;
         private Texture2D displayTex;
 
-        // v2 H.264 参数 (360×540 RGB24, 竖屏 2:3)
-        private const int V2_TEX_W = 360, V2_TEX_H = 540;
+        // v2 H.264 参数 (1024×512 RGB24, 横屏 2:1, v3.2.1 原生采集分辨率)
+        private const int V2_TEX_W = 1024, V2_TEX_H = 512;
         private const int V2_BYTES_PER_PIXEL = 3; // RGB24
 
-        // SR 输出尺寸 (720×1080, 2× 超分)
-        private const int SR_TEX_W = 720, SR_TEX_H = 1080;
+        // SR 输出尺寸 (保留字段，v3.2.1 默认不启用 SR)
+        private const int SR_TEX_W = 2048, SR_TEX_H = 1024;
 
         // v1 二值化参数 (192×144 1bit) — 向后兼容
         private const int V1_TEX_W = 192, V1_TEX_H = 144;
 
-        // 显示尺寸(屏幕像素) — 竖屏 2:3 比例，与屏幕等高
-        private const int DISPLAY_W = 720, DISPLAY_H = 1080;
+        // 显示尺寸(屏幕像素) — 横屏 2:1 比例，占中居中显示
+        private const int DISPLAY_W = 1024, DISPLAY_H = 512;
 
         // 基地血条
         private RectTransform baseBarRoot;
@@ -66,9 +66,13 @@ namespace UI.HUD
         private int v2FrameCount;  // v2 已解码帧计数
 
         // ─── 超分辨率 (SR) ───
+        // v3.2.1 起默认禁用：1024×512 已是原始采集分辨率，旧 SRGAN 模型仅针对 360×540 竖屏训练，
+        // 不适用于横屏。若需重启 SR，需重训模型并修改 SR_TEX_W/H 。
         private LobShotSuperResolution srModule;
-        private bool srEnabled = true;     // SR 开关
-        private Texture2D decodeTex;       // 解码纹理 360×540 (SR 输入)
+        private bool srEnabled = false;    // SR 开关（v3.2.1 默认关闭）
+        private bool stretchToFullHD = false; // 是否拉伸显示（v3.2.1 默认关闭，1024×512 已足够大）
+        private Texture2D decodeTex;       // 解码纹理 1024×512 (直接显示 / SR 输入)
+        private RectTransform visionDisplayRt;
         private float lastSrInferTime;
         private const float SR_INFER_MIN_INTERVAL = 1f / 15f; // SR 最多 15FPS，避免 GPU 过载卡死
 
@@ -86,7 +90,38 @@ namespace UI.HUD
         private const byte FT_D_FRAME = 0x10;
         private const byte FT_D_EMPTY = 0x11;
         private const byte FT_TRAIL = 0x20;
+        private const byte FT_TEXT_MSG = 0x30;
+        private const byte FT_ARMOR_TARGETS = 0x40;
+        private const byte FT_RADAR_MARK = 0x51;
+        private const byte FT_CMD_REQUEST_I = 0xF0;
+        private const byte FT_CMD_SET_PARAM = 0xF1;
+
+        // ─── 弹道拖影（v3.2.1）───
+        // 客户端可通过 TrailEnabled 属性操作：
+        //  1) 本地立即隐藏/显示轨迹叠加层
+        //  2) 上行发送 CMD_SET_PARAM(0xF1) param_id=0x05 到发送端，禁用后发送端不再打包 0x20 TRAIL 帧
+        private bool trailEnabled = true;
+        private const byte PARAM_ID_TRAIL_ENABLE = 0x05;
+        private const byte PARAM_ID_I_INTERVAL = 0x01;
+        private const byte PARAM_ID_TRAIL_BUFLEN = 0x02;
+        private const byte PARAM_ID_BIN_THRESHOLD = 0x03;
+        private const byte PARAM_ID_ROI_ENABLE = 0x04;
+        private const byte PARAM_ID_VIDEO_FPS = 0x06;
+        private const byte PARAM_ID_VIDEO_BITRATE = 0x07;
+        private const byte PARAM_ID_VIDEO_RESOLUTION = 0x08;
+        private const byte PARAM_ID_IDR_FORCE = 0x09;
+        private const byte PARAM_ID_TRAIL_COLOR = 0x0A;
+        private const string TRAIL_CTRL_TOPIC = "CustomControl"; // 上行控制频道
         private const byte FT_HEARTBEAT = 0xFE;
+
+        // TRAIL 叠加层（v3.3.0）—— 解析 TRAIL_FRAME(0x20) 并在 visionDisplay 上绘点
+        private const int TRAIL_MAX_POINTS = 64;
+        private const float TRAIL_DOT_SIZE = 6f;
+        private const float TRAIL_DOT_SIZE_MIN = 3f;
+        private static readonly Color TRAIL_DOT_COLOR = new Color(1f, 0.85f, 0.2f, 0.95f);
+        private RectTransform trailRoot;
+        private Image[] trailDots;
+        private int trailActiveCount;
 
         // v1 块常量
         private const int V1_THUMB_W = 96, V1_THUMB_H = 72;
@@ -147,6 +182,14 @@ namespace UI.HUD
         private int slowFrameCount;          // 连续慢帧计数（Update 耗时 > 50ms）
         private const int SLOW_FRAME_FUSE = 5;  // 连续 5 帧慢则触发保护
 
+        // ─── 解码管线拥塞保护（SR熔断触发器） ───
+        private int consecutiveBudgetExceedFrames;      // 连续超出主线程预算帧数
+        private int consecutivePipelineBacklogFrames;   // 连续管线积压帧数
+        private const int BUDGET_EXCEED_FUSE = 8;       // 连续8帧超预算触发SR熔断
+        private const int PIPELINE_BACKLOG_FUSE = 15;   // 连续15帧积压触发SR熔断
+        private const int TRANSPORT_BACKLOG_THRESHOLD = 8; // H264Transport输出队列阈值
+        private const int DECODER_BACKLOG_THRESHOLD = 3;   // FFmpeg解码队列阈值
+
         // ─── 主线程时间预算诊断 ───
         private readonly Stopwatch updateStopwatch = new Stopwatch();
         private float worstUpdateMs;       // 最近诊断周期内最慢的一帧
@@ -164,8 +207,32 @@ namespace UI.HUD
 
         // ═══════════════════════════════ 生命周期 ═══════════════════════════════
 
+        // 单例引用，供 LobShotUdpReceiver 等外部模块在收到队友吊射 UDP 数据时唤醒 HUD
+        public static LobShotHUD Instance { get; private set; }
+
+        private void Awake()
+        {
+            if (Instance != null && Instance != this)
+            {
+                wmj.Log.W("[LobShotHUD] 检测到多实例，销毁后来者", wmj.Log.Tag.UI);
+                Destroy(this);
+                return;
+            }
+            Instance = this;
+        }
+
+        private void OnDestroy()
+        {
+            if (Instance == this) Instance = null;
+        }
+
         public void Initialize()
         {
+            // 兜底：如果 Awake 因初始化顺序未触发，仍确保 Instance 可用
+            if (Instance == null) Instance = this;
+
+            ReloadDisplayConfigFromGameParams();
+
             unitVM = new GlobalUnitStatusViewModel();
             unitVM.Initialize();
 
@@ -175,6 +242,7 @@ namespace UI.HUD
             BuildBorder();
             BuildVisionDisplay();
             BuildCrosshairOverlay();
+            BuildTrailOverlay();
             BuildBaseHealthBar();
 
             // 订阅 CustomByteBlock 数据
@@ -182,7 +250,7 @@ namespace UI.HUD
 
             // ─── 预初始化 SR 模块（不再同步 GPU 预热，改用逐帧异步协程）───
             // SR Worker 将在整个 LobShotHUD 生命周期内持久存在，不会随 Show/Hide 销毁重建。
-            if (srEnabled)
+            if (srEnabled && stretchToFullHD)
             {
                 srModule = new LobShotSuperResolution(V2_TEX_W, V2_TEX_H);
                 if (!srModule.IsReady)
@@ -224,8 +292,8 @@ namespace UI.HUD
         {
             if (h264Decoder != null) return;
 
-            // ─── H.264 解码器 (360×540) ───
-            // 吊射使用软件解码：360×540 分辨率 CPU 解码开销极低，
+            // ─── H.264 解码器 (1024×512, v3.2.1) ───
+            // 吊射使用软件解码：比赛模式下码率仅 ≈100kbps，1024×512@10fps CPU 解码负担极低（<5%）
             // 避免与主图传争抢 NVDEC 硬件解码器 session（消费级 GPU 仅 2-3 个 session 上限）
             h264Decoder = new FfmpegPipeDecoder(
                 inputCodec: "h264",
@@ -239,14 +307,14 @@ namespace UI.HUD
             );
             h264Decoder.MaxQueueSize = 4;
 
-            wmj.Log.I($"[LobShotHUD] H.264 解码器已启动 ({V2_TEX_W}×{V2_TEX_H}, 彩色)", wmj.Log.Tag.UI);
+            wmj.Log.I($"[LobShotHUD] H.264 解码器已启动 ({V2_TEX_W}×{V2_TEX_H}, 彩色, v3.2.1)", wmj.Log.Tag.UI);
 
             // ─── 超分辨率模块 ───
             // SR 模块在 Initialize() 中已预创建（持久存在），通常无需重建。
             // 仅在以下两种情况下重新创建：
             //   1. srEnabled 从 false 切换到 true（用户中途启用）
             //   2. 前一次初始化失败（srModule == null）
-            if (srEnabled && srModule == null)
+            if (srEnabled && stretchToFullHD && srModule == null)
             {
                 srModule = new LobShotSuperResolution(V2_TEX_W, V2_TEX_H);
                 if (!srModule.IsReady)
@@ -265,6 +333,8 @@ namespace UI.HUD
             {
                 wmj.Log.I($"[LobShotHUD] SR 模块复用已预热实例 ({V2_TEX_W}×{V2_TEX_H} → {SR_TEX_W}×{SR_TEX_H})", wmj.Log.Tag.UI);
             }
+
+            UpdateV2DisplayLayout();
         }
 
         /// <summary>释放解码器资源（退出吊射模式时）。SR 模块持久，不在此释放。</summary>
@@ -330,11 +400,13 @@ namespace UI.HUD
             circuitBreakerLevel = 0;
             srSkipCounter = 0;
             slowFrameCount = 0;
+            consecutiveBudgetExceedFrames = 0;
+            consecutivePipelineBacklogFrames = 0;
             frameTimeIndex = 0;
             for (int i = 0; i < recentFrameTimes.Length; i++) recentFrameTimes[i] = 0f;
 
             if (lobCanvas != null) lobCanvas.gameObject.SetActive(true);
-            wmj.Log.I($"[LobShotHUD] 显示吊射画面 (v2 彩色 H.264, SR={srEnabled})", wmj.Log.Tag.UI);
+            wmj.Log.I($"[LobShotHUD] 显示吊射画面 (v2 彩色 H.264, 拉伸={stretchToFullHD}, SR={srEnabled})", wmj.Log.Tag.UI);
         }
 
         public void Hide()
@@ -350,6 +422,7 @@ namespace UI.HUD
             while (pendingFrames.TryDequeue(out var buf))
                 ArrayPool<byte>.Shared.Return(buf.Data);
 
+            HideAllTrailDots();
             if (lobCanvas != null) lobCanvas.gameObject.SetActive(false);
             wmj.Log.I($"[LobShotHUD] 隐藏吊射画面 (共接收 {frameCount} 帧, v2解码 {v2FrameCount} 帧, 严重卡帧 {totalFreezeFrames} 次)", wmj.Log.Tag.UI);
         }
@@ -452,7 +525,7 @@ namespace UI.HUD
         {
             var root = lobCanvas.transform;
 
-            // ─── 解码纹理 (360×540 RGBA32, SR 输入 / v2 兜底显示) ───
+            // ─── 解码纹理 (1024×512 RGBA32, v3.2.1 原生采集分辨率) ───
             decodeTex = new Texture2D(V2_TEX_W, V2_TEX_H, TextureFormat.RGBA32, false);
             decodeTex.filterMode = FilterMode.Bilinear;
             decodeTex.wrapMode = TextureWrapMode.Clamp;
@@ -485,11 +558,13 @@ namespace UI.HUD
             visionDisplay.color = Color.white;
 
             var rt = go.GetComponent<RectTransform>();
+            visionDisplayRt = rt;
             rt.anchorMin = new Vector2(0.5f, 0.48f);
             rt.anchorMax = new Vector2(0.5f, 0.48f);
             rt.pivot = new Vector2(0.5f, 0.5f);
             rt.anchoredPosition = Vector2.zero;
             rt.sizeDelta = new Vector2(DISPLAY_W, DISPLAY_H);
+            UpdateV2DisplayLayout();
         }
 
         private void BuildCrosshairOverlay()
@@ -523,6 +598,200 @@ namespace UI.HUD
             rtD.pivot = new Vector2(0.5f, 0.5f);
             rtD.anchoredPosition = Vector2.zero;
             rtD.sizeDelta = new Vector2(6f, 6f);
+        }
+
+        private void BuildTrailOverlay()
+        {
+            // 以 visionDisplay 为父节点，实现轨迹点与图像同步缩放/移动。
+            // 父节点 sizeDelta = DISPLAY_W × DISPLAY_H，与 TRAIL 帧坐标系 1024×512 一致，
+            // 因此 anchorMin=(0,0) 的子节点 anchoredPosition 可直接用 (x, DISPLAY_H - y)。
+            if (visionDisplayRt == null) return;
+            var go = new GameObject("TrailOverlay");
+            go.transform.SetParent(visionDisplayRt, false);
+            trailRoot = go.AddComponent<RectTransform>();
+            trailRoot.anchorMin = Vector2.zero;
+            trailRoot.anchorMax = Vector2.one;
+            trailRoot.pivot = new Vector2(0.5f, 0.5f);
+            trailRoot.offsetMin = Vector2.zero;
+            trailRoot.offsetMax = Vector2.zero;
+
+            trailDots = new Image[TRAIL_MAX_POINTS];
+            for (int i = 0; i < TRAIL_MAX_POINTS; i++)
+            {
+                var dot = UIFactory.CreateImage(trailRoot, "Dot" + i, TRAIL_DOT_COLOR);
+                var rt = dot.rectTransform;
+                rt.anchorMin = Vector2.zero;
+                rt.anchorMax = Vector2.zero;
+                rt.pivot = new Vector2(0.5f, 0.5f);
+                rt.sizeDelta = new Vector2(TRAIL_DOT_SIZE, TRAIL_DOT_SIZE);
+                dot.gameObject.SetActive(false);
+                trailDots[i] = dot;
+            }
+            trailActiveCount = 0;
+        }
+
+        private void HideAllTrailDots()
+        {
+            if (trailDots == null) return;
+            for (int i = 0; i < trailActiveCount; i++)
+            {
+                if (trailDots[i] != null) trailDots[i].gameObject.SetActive(false);
+            }
+            trailActiveCount = 0;
+        }
+
+        /// <summary>
+        /// 解析 TRAIL_FRAME(0x20) v3.2.1/v3.3.0：
+        ///   [point_count][oldest_age][flags]
+        ///   points[] : (x_lo,x_hi,y_lo,y_hi) 每点 4B（has_radius=1 时 +1B 半径）
+        /// 坐标系：1024×512 原始采集分辨率，与 visionDisplay sizeDelta 1:1。
+        /// </summary>
+        private void DecodeTrailFrame(byte[] p, int ps, int pl)
+        {
+            if (!trailEnabled)
+            {
+                HideAllTrailDots();
+                return;
+            }
+            if (pl < 3 || trailDots == null) return;
+
+            int count = p[ps];
+            // int oldestAge = p[ps + 1]; // 暂未使用（可用于时间戳重建）
+            byte flags = p[ps + 2];
+            bool coordU16 = (flags & 0x01) != 0;
+            bool hasRadius = (flags & 0x02) != 0;
+
+            if (!coordU16) return; // v3.2.1 起固定为 uint16，若为 0 视为非法帧
+            int stride = hasRadius ? 5 : 4;
+            int bodyLen = count * stride;
+            if (3 + bodyLen > pl) return;
+
+            int render = count < TRAIL_MAX_POINTS ? count : TRAIL_MAX_POINTS;
+            int cursor = ps + 3;
+            for (int i = 0; i < render; i++)
+            {
+                int x = p[cursor] | (p[cursor + 1] << 8);
+                int y = p[cursor + 2] | (p[cursor + 3] << 8);
+                byte radius = hasRadius ? p[cursor + 4] : (byte)0;
+                cursor += stride;
+
+                var dot = trailDots[i];
+                if (dot == null) continue;
+                var rt = dot.rectTransform;
+                // 图像坐标系 y 轴向下，UI y 轴向上 → 翻转
+                rt.anchoredPosition = new Vector2(x, DISPLAY_H - y);
+                if (hasRadius && radius > 0)
+                {
+                    float d = radius * 2f;
+                    if (d < TRAIL_DOT_SIZE_MIN) d = TRAIL_DOT_SIZE_MIN;
+                    rt.sizeDelta = new Vector2(d, d);
+                }
+                else
+                {
+                    rt.sizeDelta = new Vector2(TRAIL_DOT_SIZE, TRAIL_DOT_SIZE);
+                }
+                dot.gameObject.SetActive(true);
+            }
+            // 关闭多余的点
+            for (int i = render; i < trailActiveCount; i++)
+            {
+                if (trailDots[i] != null) trailDots[i].gameObject.SetActive(false);
+            }
+            trailActiveCount = render;
+        }
+
+        // ═══════════════════════════════ v3.3.0 文字/装甲/雷达标记 ═══════════════════════════════
+
+        /// <summary>TEXT_MSG(0x30) 到达时触发。severity: 0=INFO 1=WARN 2=ERROR。</summary>
+        public static event System.Action<byte, byte, string> OnTextMessage;
+
+        /// <summary>ARMOR_TARGETS(0x40) 到达时触发。</summary>
+        public static event System.Action<ArmorTargetsFrame> OnArmorTargets;
+
+        /// <summary>RADAR_MARK(0x51) 到达时触发。action: 0x01=MARK, 0x02=CANCEL。</summary>
+        public static event System.Action<byte, byte> OnRadarMark;
+
+        public struct ArmorTarget
+        {
+            public byte robotType;
+            public byte armorId;
+            public ushort x, y, w, h;
+            public byte confidence;
+        }
+
+        public struct ArmorTargetsFrame
+        {
+            public ushort imgWidth;
+            public ushort imgHeight;
+            /// <summary>有效目标数量（订阅方应遍历 targets[0 .. count-1]）。</summary>
+            public int count;
+            /// <summary>复用缓冲区，长度固定 ARMOR_TARGETS_MAX；事件派发完成后不得保留引用。</summary>
+            public ArmorTarget[] targets;
+        }
+
+        // 预分配缓冲（零 GC）：协议 §4.12 限制 count ≤ 20
+        private const int ARMOR_TARGETS_MAX = 20;
+        private readonly ArmorTarget[] armorTargetsBuf = new ArmorTarget[ARMOR_TARGETS_MAX];
+
+        private void DecodeTextMsg(byte[] p, int ps, int pl)
+        {
+            if (pl < 3) return;
+            byte msgId = p[ps];
+            byte severity = p[ps + 1];
+            byte textLen = p[ps + 2];
+            string text = null;
+            if (msgId == 0x00 && textLen > 0)
+            {
+                if (3 + textLen > pl) return;
+                text = System.Text.Encoding.UTF8.GetString(p, ps + 3, textLen);
+            }
+            try { OnTextMessage?.Invoke(msgId, severity, text); }
+            catch (System.Exception ex) { wmj.Log.E($"[LobShotHUD] OnTextMessage 异常: {ex.Message}", wmj.Log.Tag.UI); }
+            wmj.Log.I($"[LobShotHUD] TEXT_MSG id=0x{msgId:X2} sev={severity} text=\"{text}\"", wmj.Log.Tag.UI);
+        }
+
+        private void DecodeArmorTargets(byte[] p, int ps, int pl)
+        {
+            if (pl < 5) return;
+            ushort imgW = (ushort)(p[ps] | (p[ps + 1] << 8));
+            ushort imgH = (ushort)(p[ps + 2] | (p[ps + 3] << 8));
+            int count = p[ps + 4];
+            if (count > ARMOR_TARGETS_MAX) return; // 协议 §4.12 硬上限
+            const int ENTRY = 11;
+            if (5 + count * ENTRY > pl) return;
+            int cursor = ps + 5;
+            for (int i = 0; i < count; i++)
+            {
+                armorTargetsBuf[i].robotType = p[cursor];
+                armorTargetsBuf[i].armorId = p[cursor + 1];
+                armorTargetsBuf[i].x = (ushort)(p[cursor + 2] | (p[cursor + 3] << 8));
+                armorTargetsBuf[i].y = (ushort)(p[cursor + 4] | (p[cursor + 5] << 8));
+                armorTargetsBuf[i].w = (ushort)(p[cursor + 6] | (p[cursor + 7] << 8));
+                armorTargetsBuf[i].h = (ushort)(p[cursor + 8] | (p[cursor + 9] << 8));
+                armorTargetsBuf[i].confidence = p[cursor + 10];
+                cursor += ENTRY;
+            }
+            try
+            {
+                OnArmorTargets?.Invoke(new ArmorTargetsFrame
+                {
+                    imgWidth = imgW,
+                    imgHeight = imgH,
+                    count = count,
+                    targets = armorTargetsBuf,
+                });
+            }
+            catch (System.Exception ex) { wmj.Log.E($"[LobShotHUD] OnArmorTargets 异常: {ex.Message}", wmj.Log.Tag.UI); }
+        }
+
+        private void DecodeRadarMark(byte[] p, int ps, int pl)
+        {
+            if (pl < 2) return;
+            byte targetId = p[ps];
+            byte action = p[ps + 1];
+            try { OnRadarMark?.Invoke(targetId, action); }
+            catch (System.Exception ex) { wmj.Log.E($"[LobShotHUD] OnRadarMark 异常: {ex.Message}", wmj.Log.Tag.UI); }
+            wmj.Log.I($"[LobShotHUD] RADAR_MARK target=0x{targetId:X2} action={(action == 0x01 ? "MARK" : action == 0x02 ? "CANCEL" : "?")}", wmj.Log.Tag.UI);
         }
 
         private void BuildBaseHealthBar()
@@ -590,12 +859,28 @@ namespace UI.HUD
 
         private void OnProtoDataUpdated(string typeName, object data)
         {
-            if (!isShowing) return;
             if (typeName != "CustomByteBlock") return;
 
             var block = data as CustomByteBlock;
             if (block == null || block.Data == null) return;
             if (block.Data.Length < 9) return;
+
+            // 未进入吊射模式时：
+            //   - autoShowLobShotOnIncomingFrame = true → 自动 Show()（观察队友吊射画面）
+            //   - autoShowLobShotOnIncomingFrame = false → 丢弃数据，保持原有行为
+            if (!isShowing)
+            {
+                if (GameParamsConfig.Get.autoShowLobShotOnIncomingFrame)
+                {
+                    // 首帧自动弹出：不发送 deploy 命令（只是 UI 展示，不干扰本机机器人状态）
+                    Show();
+                    if (!isShowing) return; // Show 失败（未初始化）则跳过
+                }
+                else
+                {
+                    return;
+                }
+            }
 
             // 使用 ArrayPool 避免每帧 ToByteArray() 的 GC 分配
             int dataLen = block.Data.Length;
@@ -727,8 +1012,9 @@ namespace UI.HUD
         /// 将解码后的 RGB24 帧数据写入纹理，并根据 GPU 压力动态决定超分/双线性策略
         /// 
         /// 管线:
-        ///   RGB24 (360×540) → RGBA32 (Y翻转) → decodeTex → [SR推理 | Bilinear] → 显示
+        ///   RGB24 (1024×512) → RGBA32 (Y翻转) → decodeTex → [SR推理 | Bilinear] → 显示
         ///   GPU 压力级别决定 SR 行为：Normal=每帧SR, Light=隔帧SR, Heavy=仅双线性, Critical=跳过
+        ///   (v3.2.1 起 SR 默认关闭，除非重训了 1024×512 模型)
         /// </summary>
         private void ApplyDecodedFrame(DecodedFrame frame)
         {
@@ -788,7 +1074,7 @@ namespace UI.HUD
             }
 
             // 判断是否应执行 SR 推理（基于 GPU 压力 + 熔断器）
-            bool srAvailable = srModule != null && srModule.IsReady && srEnabled
+            bool srAvailable = stretchToFullHD && srModule != null && srModule.IsReady && srEnabled
                 && !circuitBreakerPermanent && circuitBreakerLevel == 0;
 
             bool shouldDoSR = false;
@@ -899,7 +1185,7 @@ namespace UI.HUD
 
         private void SwitchToV2Texture()
         {
-            // 确保解码纹理尺寸正确 (360×540)
+            // 确保解码纹理尺寸正确 (1024×512, v3.2.1)
             if (decodeTex == null || decodeTex.width != V2_TEX_W || decodeTex.height != V2_TEX_H)
             {
                 if (decodeTex != null) Destroy(decodeTex);
@@ -910,6 +1196,22 @@ namespace UI.HUD
             // SR 启用时 visionDisplay.texture 在 ApplyDecodedFrame 中动态切换
             // 默认先显示解码纹理
             visionDisplay.texture = decodeTex;
+            UpdateV2DisplayLayout();
+        }
+
+        private void ReloadDisplayConfigFromGameParams()
+        {
+            var gp = GameParamsConfig.Get;
+            stretchToFullHD = gp.lobShotStretchTo720x1080;
+            srEnabled = gp.lobShotUseSrWhenStretched;
+        }
+
+        private void UpdateV2DisplayLayout()
+        {
+            if (visionDisplayRt == null) return;
+            visionDisplayRt.sizeDelta = stretchToFullHD
+                ? new Vector2(DISPLAY_W, DISPLAY_H)
+                : new Vector2(V2_TEX_W, V2_TEX_H);
         }
 
         private void SwitchToV1Texture()
@@ -956,6 +1258,18 @@ namespace UI.HUD
                     break;
                 case FT_D_EMPTY:
                     V1_UpdateTexture();
+                    break;
+                case FT_TRAIL:
+                    DecodeTrailFrame(packet, payloadStart, payloadLen);
+                    break;
+                case FT_TEXT_MSG:
+                    DecodeTextMsg(packet, payloadStart, payloadLen);
+                    break;
+                case FT_ARMOR_TARGETS:
+                    DecodeArmorTargets(packet, payloadStart, payloadLen);
+                    break;
+                case FT_RADAR_MARK:
+                    DecodeRadarMark(packet, payloadStart, payloadLen);
                     break;
                 case FT_HEARTBEAT:
                     break;
@@ -1210,7 +1524,31 @@ namespace UI.HUD
                     wmj.Log.I($"[LobShotHUD] ✅ SR 熔断恢复（等待 {elapsed:F0}s），" +
                         $"GPU 压力={gpuPressure}，尝试重新启用推理", wmj.Log.Tag.UI);
                     slowFrameCount = 0;
+                    consecutiveBudgetExceedFrames = 0;
+                    consecutivePipelineBacklogFrames = 0;
                 }
+            }
+
+            // ─── 解码管线拥塞监测：队列持续积压时提前熔断 SR，优先保证实时性 ───
+            int transportBacklog = h264Transport?.PendingFrameCount ?? 0;
+            int decoderBacklog = h264Decoder?.GetQueueCount() ?? 0;
+            bool pipelineBacklogged = transportBacklog >= TRANSPORT_BACKLOG_THRESHOLD
+                || decoderBacklog >= DECODER_BACKLOG_THRESHOLD;
+            if (pipelineBacklogged)
+            {
+                consecutivePipelineBacklogFrames++;
+                if (consecutivePipelineBacklogFrames >= PIPELINE_BACKLOG_FUSE
+                    && srModule != null && stretchToFullHD
+                    && circuitBreakerLevel == 0 && !circuitBreakerPermanent)
+                {
+                    TriggerCircuitBreaker($"解码管线积压 transport={transportBacklog}, decoder={decoderBacklog}");
+                    if (visionDisplay != null && decodeTex != null)
+                        visionDisplay.texture = decodeTex;
+                }
+            }
+            else
+            {
+                consecutivePipelineBacklogFrames = 0;
             }
 
             // ─── 1. 处理挂起的协议帧 ───
@@ -1222,9 +1560,19 @@ namespace UI.HUD
             if (t2 > UPDATE_BUDGET_MS)
             {
                 RecordPhaseTime("ProcessPendingFrames", t2 - t1, t2);
+                consecutiveBudgetExceedFrames++;
+                if (consecutiveBudgetExceedFrames >= BUDGET_EXCEED_FUSE
+                    && srModule != null && stretchToFullHD
+                    && circuitBreakerLevel == 0 && !circuitBreakerPermanent)
+                {
+                    TriggerCircuitBreaker($"主线程预算连续超限 {consecutiveBudgetExceedFrames} 帧({t2:F1}ms)");
+                    if (visionDisplay != null && decodeTex != null)
+                        visionDisplay.texture = decodeTex;
+                }
             }
             else
             {
+                consecutiveBudgetExceedFrames = 0;
                 // ─── 2. H.264 解码管线 ───
                 DrainH264Pipeline();
                 float t3 = updateStopwatch.ElapsedMilliseconds;
@@ -1243,8 +1591,11 @@ namespace UI.HUD
                     : circuitBreakerLevel > 0 ? $" [SR熔断Lv{circuitBreakerLevel},{circuitBreakerRecoverSec:F0}s]"
                     : "";
                 string pressureStr = $" GPU压力={gpuPressure}(avg={avgFrameTimeMs:F1}ms)";
+                int transportBacklogDiag = h264Transport?.PendingFrameCount ?? 0;
+                int decoderBacklogDiag = h264Decoder?.GetQueueCount() ?? 0;
                 string freezeInfo = totalFreezeFrames > 0 ? $" 严重卡帧={totalFreezeFrames}" : "";
                 wmj.Log.I($"[LobShotHUD] 诊断: 总帧={frameCount} v2解码={v2FrameCount} 模式={modeStr}{fuseStr}{pressureStr}" +
+                    $" backlog(T={transportBacklogDiag},D={decoderBacklogDiag}) budgetEx={consecutiveBudgetExceedFrames} pipeEx={consecutivePipelineBacklogFrames}" +
                     $" 最慢帧={worstUpdateMs:F1}ms@{worstUpdatePhase}{freezeInfo}" +
                     $" | {transportDiag} | {srDiag}", wmj.Log.Tag.UI);
                 worstUpdateMs = 0;
@@ -1345,7 +1696,132 @@ namespace UI.HUD
             }
         }
 
+        /// <summary>应用吊射显示配置（支持设置面板实时更新）</summary>
+        public void ApplyDisplaySettings(bool stretch, bool useSrWhenStretched)
+        {
+            stretchToFullHD = stretch;
+            SREnabled = useSrWhenStretched;
+            UpdateV2DisplayLayout();
+
+            if (!stretchToFullHD && visionDisplay != null && decodeTex != null)
+                visionDisplay.texture = decodeTex;
+
+            wmj.Log.I($"[LobShotHUD] 显示设置已更新: 拉伸={stretchToFullHD}, 拉伸用SR={srEnabled}", wmj.Log.Tag.UI);
+        }
+
         /// <summary>切换 SR 开关</summary>
         public void ToggleSR() => SREnabled = !SREnabled;
+
+        // ═══════════════════════════════ 弹道拖影控制 (v3.2.1) ═══════════════════════════════
+
+        /// <summary>
+        /// 弹道拖影是否启用。写入时会：
+        ///   1. 立即隐藏/显示本地轨迹叠加层（UI 即时生效）
+        ///   2. 上行发送 CMD_SET_PARAM(0xF1) param_id=0x05 到发送端，
+        ///      发送端收到后停止/恢复打包 TRAIL_FRAME(0x20)，释放/回收带宽
+        /// </summary>
+        public bool TrailEnabled
+        {
+            get => trailEnabled;
+            set
+            {
+                if (trailEnabled == value) return;
+                trailEnabled = value;
+                wmj.Log.I($"[LobShotHUD] 弹道拖影 {(value ? "已启用" : "已禁用")} (客户端+上行命令)", wmj.Log.Tag.UI);
+
+                // 1) 上行命令：通知发送端停止/恢复 TRAIL 打包
+                SendTrailEnableCommand(value);
+
+                // 2) 本地 UI 效果：禁用时立即清空叠加层；启用时等待下一帧 TRAIL 到达
+                if (!value) HideAllTrailDots();
+            }
+        }
+
+        /// <summary>切换弹道拖影开关</summary>
+        public void ToggleTrail() => TrailEnabled = !TrailEnabled;
+
+        /// <summary>构建并上行 CMD_SET_PARAM / trail_enable 指令</summary>
+        private void SendTrailEnableCommand(bool enable)
+        {
+            SendSetParamCommand(PARAM_ID_TRAIL_ENABLE, new byte[] { (byte)(enable ? 1 : 0) });
+        }
+
+        /// <summary>
+        /// 上行 CMD_SET_PARAM(0xF1)：通用参数设置接口（支持协议 §4.9 所有 param_id）。
+        /// 载荷 = [param_id, param_len, param_val...]；上行裁判系统 0x0311 单帧 ≤ 30B，
+        /// 扣除 9B 协议头尾后 param_val ≤ 19B。
+        /// </summary>
+        public void SendSetParamCommand(byte paramId, byte[] paramVal)
+        {
+            int valLen = paramVal != null ? paramVal.Length : 0;
+            if (valLen > 19)
+            {
+                wmj.Log.W($"[LobShotHUD] CMD_SET_PARAM param_val 超过上行 19B 限制 (id=0x{paramId:X2}, len={valLen})", wmj.Log.Tag.Network);
+                return;
+            }
+            int payloadLen = 2 + valLen;
+            byte[] frame = new byte[7 + payloadLen + 2];
+            ushort frameId = (ushort)(Time.frameCount & 0xFFFF);
+            frame[0] = 0xA5;
+            frame[1] = FT_CMD_SET_PARAM;
+            frame[2] = (byte)(frameId & 0xFF);
+            frame[3] = (byte)((frameId >> 8) & 0xFF);
+            frame[4] = 0x00;
+            frame[5] = (byte)(payloadLen & 0xFF);
+            frame[6] = (byte)((payloadLen >> 8) & 0xFF);
+            frame[7] = paramId;
+            frame[8] = (byte)valLen;
+            if (valLen > 0) System.Buffer.BlockCopy(paramVal, 0, frame, 9, valLen);
+            byte xor = 0;
+            int xorEnd = 7 + payloadLen;
+            for (int i = 0; i < xorEnd; i++) xor ^= frame[i];
+            frame[xorEnd] = xor;
+            frame[xorEnd + 1] = 0x5A;
+            PublishControlFrame(frame, $"CMD_SET_PARAM id=0x{paramId:X2} len={valLen}");
+        }
+
+        /// <summary>
+        /// 上行 CMD_REQUEST_I(0xF0)：请求发送端立即补发一个完整 I 帧。
+        /// 载荷为空，总帧长 9B，远低于上行 30B 限制。
+        /// </summary>
+        public void SendRequestIFrameCommand()
+        {
+            byte[] frame = new byte[9];
+            ushort frameId = (ushort)(Time.frameCount & 0xFFFF);
+            frame[0] = 0xA5;
+            frame[1] = FT_CMD_REQUEST_I;
+            frame[2] = (byte)(frameId & 0xFF);
+            frame[3] = (byte)((frameId >> 8) & 0xFF);
+            frame[4] = 0x00;
+            frame[5] = 0x00;
+            frame[6] = 0x00;
+            byte xor = 0;
+            for (int i = 0; i < 7; i++) xor ^= frame[i];
+            frame[7] = xor;
+            frame[8] = 0x5A;
+            PublishControlFrame(frame, "CMD_REQUEST_I");
+        }
+
+        private void PublishControlFrame(byte[] frame, string tag)
+        {
+            try
+            {
+                var msg = new CustomControl { Data = Google.Protobuf.ByteString.CopyFrom(frame) };
+                byte[] payload = Google.Protobuf.MessageExtensions.ToByteArray(msg);
+                if (NetworkManager.Instance != null)
+                {
+                    NetworkManager.Instance.SendMqttMessage(TRAIL_CTRL_TOPIC, payload);
+                    wmj.Log.I($"[LobShotHUD] 已发送上行指令: {tag} ({frame.Length}B)", wmj.Log.Tag.Network);
+                }
+                else
+                {
+                    wmj.Log.W($"[LobShotHUD] NetworkManager 未就绪，{tag} 未发送", wmj.Log.Tag.Network);
+                }
+            }
+            catch (System.Exception ex)
+            {
+                wmj.Log.E($"[LobShotHUD] 发送 {tag} 失败: {ex.Message}", wmj.Log.Tag.Network);
+            }
+        }
     }
 }

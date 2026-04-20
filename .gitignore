@@ -366,3 +366,9 @@ crashlytics-build.properties
 # Keep source .md, ignore generated PDF (optional)
 # UDP图传架构.pdf
 !UDP图传架构.pdf
+# ========================================
+# 内置 ffmpeg 二进制（由 tools/download_ffmpeg.sh 拉取，不入库）
+# ========================================
+/[Aa]ssets/[Ss]treamingAssets/ffmpeg/**/ffmpeg
+/[Aa]ssets/[Ss]treamingAssets/ffmpeg/**/ffmpeg.exe
+tools/.release.env

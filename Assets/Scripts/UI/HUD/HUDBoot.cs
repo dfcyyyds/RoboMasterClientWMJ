@@ -56,6 +56,13 @@ namespace UI.HUD
                 settingsGO.AddComponent<SettingsPanel>();
                 wmj.Log.I("[HUDBoot] 已创建 SettingsPanel", wmj.Log.Tag.UI);
             }
+
+            if (QuickReferencePanel.Instance == null)
+            {
+                var qrGO = new GameObject("[QuickReferencePanel]");
+                qrGO.AddComponent<QuickReferencePanel>();
+                wmj.Log.I("[HUDBoot] 已创建 QuickReferencePanel (按 H 切换)", wmj.Log.Tag.UI);
+            }
         }
     }
 }

@@ -82,7 +82,9 @@ namespace Framework.Video
         // Push() 将数据入队，后台 WriteLoop 线程负责实际的 stdin 管道写入
         private readonly ConcurrentQueue<byte[]> writeQueue = new ConcurrentQueue<byte[]>();
         private volatile int writeQueueBytes = 0;
-        private const int MAX_WRITE_QUEUE_BYTES = 128 * 1024; // 128KB 背压上限
+        // 128KB 在正式赛 HEVC 码流下会频繁丢帧（约 1~2 帧即打满），导致解码器长期拿不到可参考帧而“卡死”。
+        // 提升到 8MB，可覆盖短时抖动；仍有上限以防内存无限增长。
+        private const int MAX_WRITE_QUEUE_BYTES = 8 * 1024 * 1024; // 8MB 背压上限
         private Task writerTask;
 
         public FfmpegPipeDecoder(string inputCodec = "hevc", bool useRawVideo = false, int outputWidth = 0, int outputHeight = 0, bool verboseFrameLogs = false, bool enableStderrLog = false, bool useHardwareDecode = true, bool forceHevc = false)
@@ -130,7 +132,7 @@ namespace Framework.Video
                 var checkProc = new Process();
                 checkProc.StartInfo = new ProcessStartInfo
                 {
-                    FileName = "ffmpeg",
+                    FileName = FfmpegLocator.GetExecutablePath(),
                     Arguments = "-version",
                     UseShellExecute = false,
                     RedirectStandardOutput = true,
@@ -186,7 +188,7 @@ namespace Framework.Video
                 proc = new Process();
                 proc.StartInfo = new ProcessStartInfo
                 {
-                    FileName = "ffmpeg",
+                    FileName = FfmpegLocator.GetExecutablePath(),
                     // 提升日志级别便于诊断；输出 PPM(P6) 并使用 RGB24
                     Arguments = BuildFfmpegArgs(),
                     UseShellExecute = false,
@@ -326,7 +328,7 @@ namespace Framework.Video
                     }
                 }
                 vf = $"scale={outputWidth}:{outputHeight},format=rgb24";
-                // 软解路径：小分辨率（如 360×540 吊射）只用 2 线程，减少 CPU 争抢
+                // 软解路径：小分辨率（如 1024×512 吊射）只用 2 线程，减少 CPU 争抢
                 int swThreads = (outputWidth <= 640 && outputHeight <= 640) ? 2 : 4;
                 return $"-loglevel warning -nostdin -hide_banner -probesize 32 -analyzeduration 0 -fflags +nobuffer -flags low_delay -threads {swThreads} -an -sn -vsync passthrough -f {inputCodec} -i - -vf {vf} -pix_fmt rgb24 -f rawvideo pipe:1";
             }
@@ -949,9 +951,15 @@ namespace Framework.Video
             writeQueue.Enqueue(data);
             int total = Interlocked.Add(ref writeQueueBytes, data.Length);
             // 背压：队列超限时丢弃旧数据
+            int droppedCount = 0;
             while (total > MAX_WRITE_QUEUE_BYTES && writeQueue.TryDequeue(out var dropped))
             {
                 total = Interlocked.Add(ref writeQueueBytes, -dropped.Length);
+                droppedCount++;
+            }
+            if (droppedCount > 0)
+            {
+                wmj.Log.W($"[FfmpegPipeDecoder] 写入队列背压: 丢弃旧块={droppedCount}, 队列={total / 1024}KB", wmj.Log.Tag.Decoder);
             }
         }
 
@@ -972,15 +980,9 @@ namespace Framework.Video
                         var s = stdin;
                         if (s != null)
                         {
-                            // 使用异步写入 + 超时保护，避免管道满时永久阻塞
-                            var writeTask = s.WriteAsync(data, 0, data.Length, token);
-                            if (!writeTask.Wait(2000)) // 2 秒写入超时
-                            {
-                                wmj.Log.W("[FfmpegPipeDecoder] 管道写入超时(2s)，请求重启", wmj.Log.Tag.Decoder);
-                                restartReason = "管道写入超时";
-                                restartRequested = true;
-                                break;
-                            }
+                            // 专用写线程允许阻塞写入；避免 2s 超时导致误重启→反复丢关键帧→画面卡死。
+                            // 真实异常由 catch 处理并触发重连。
+                            s.Write(data, 0, data.Length);
                         }
                     }
                     else
@@ -994,7 +996,11 @@ namespace Framework.Video
                 catch (Exception ex)
                 {
                     if (!token.IsCancellationRequested)
+                    {
                         wmj.Log.W("[FfmpegPipeDecoder] 写入线程异常: " + ex.Message, wmj.Log.Tag.Decoder);
+                        restartReason = "写入线程异常: " + ex.Message;
+                        restartRequested = true;
+                    }
                     Thread.Sleep(10);
                 }
             }

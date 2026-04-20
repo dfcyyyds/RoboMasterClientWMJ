@@ -34,6 +34,10 @@ namespace UI.HUD
         private CrosshairRingHUD crosshairRing;
         private RawImage videoRawImage; // 缓存视频 RawImage 引用，用于进入吊射时隐藏
 
+        // ─── 远端部署状态同步（由 DeployModeStatusSync 驱动） ───
+        private volatile bool remoteDeployStatusDirty;
+        private volatile uint remoteDeployStatus;
+
         // ─── 事件(供BattleHUD订阅) ───
         public bool IsActive => isActive;
         public float RecoilProgress => recoilTimer > 0 ? recoilTimer / RECOIL_DURATION : 0f;
@@ -47,6 +51,8 @@ namespace UI.HUD
                 enabled = false;
                 return;
             }
+
+            Framework.Network.ProtobufManager.Instance.OnDataUpdated += OnProtoDataUpdated;
             wmj.Log.I("[LobShotService] 英雄吊射服务已初始化", wmj.Log.Tag.UI);
         }
 
@@ -59,12 +65,14 @@ namespace UI.HUD
         {
             if (!isHero) return;
 
+            ApplyRemoteDeployStatusIfNeeded();
+
             DetectShiftToggle();
             HandleFireInput();
 
             // Escape 键退出吊射模式
             if (isActive && Input.GetKeyDown(KeyCode.Escape))
-                ExitDeployMode();
+                ExitDeployMode(sendCommand: !IsPassiveObserverMode());
 
             if (fireCooldown > 0) fireCooldown -= Time.deltaTime;
             if (recoilTimer > 0) recoilTimer -= Time.deltaTime;
@@ -77,29 +85,34 @@ namespace UI.HUD
         {
             if (Input.GetKeyDown(KeyCode.LeftShift) || Input.GetKeyDown(KeyCode.RightShift))
             {
-                ToggleDeployMode();
+                bool sendCmd = !IsPassiveObserverMode();
+                if (isActive)
+                    ExitDeployMode(sendCommand: sendCmd);
+                else
+                    EnterDeployMode(sendCommand: sendCmd);
             }
-        }
-
-        private void ToggleDeployMode()
-        {
-            if (isActive)
-                ExitDeployMode();
-            else
-                EnterDeployMode();
         }
 
         // ═══════════════════════════════ 模式切换 ═══════════════════════════════
 
         private void EnterDeployMode()
         {
+            EnterDeployMode(sendCommand: true);
+        }
+
+        private void EnterDeployMode(bool sendCommand)
+        {
+            if (isActive) return;
             isActive = true;
 
             // 发送部署进入指令
-            if (GameParamsConfig.Get.isCompetitionMode)
-                SendDeployModeCommand(1); // 官方协议: HeroDeployModeEventCommand(mode=1)
-            else
-                SendCommand(103, 0); // MockServer模式
+            if (sendCommand)
+            {
+                if (GameParamsConfig.Get.isCompetitionMode)
+                    SendDeployModeCommand(1); // 官方协议: HeroDeployModeEventCommand(mode=1)
+                else
+                    SendCommand(103, 0); // MockServer模式
+            }
 
             // 停止图传解码
             var videoService = VideoStreamService.Instance;
@@ -113,18 +126,27 @@ namespace UI.HUD
             if (lobShotHUD != null)
                 lobShotHUD.Show();
 
-            wmj.Log.I("[LobShotService] 进入吊射模式", wmj.Log.Tag.UI);
+            wmj.Log.I($"[LobShotService] 进入吊射模式{(sendCommand ? "" : " (仅观察)")}", wmj.Log.Tag.UI);
         }
 
         private void ExitDeployMode()
         {
+            ExitDeployMode(sendCommand: true);
+        }
+
+        private void ExitDeployMode(bool sendCommand)
+        {
+            if (!isActive) return;
             isActive = false;
 
             // 发送部署退出指令
-            if (GameParamsConfig.Get.isCompetitionMode)
-                SendDeployModeCommand(0); // 官方协议: HeroDeployModeEventCommand(mode=0)
-            else
-                SendCommand(104, 0); // MockServer模式
+            if (sendCommand)
+            {
+                if (GameParamsConfig.Get.isCompetitionMode)
+                    SendDeployModeCommand(0); // 官方协议: HeroDeployModeEventCommand(mode=0)
+                else
+                    SendCommand(104, 0); // MockServer模式
+            }
 
             // 恢复图传画面
             HideVideoDisplay(false);
@@ -138,7 +160,37 @@ namespace UI.HUD
             if (lobShotHUD != null)
                 lobShotHUD.Hide();
 
-            wmj.Log.I("[LobShotService] 退出吊射模式", wmj.Log.Tag.UI);
+            wmj.Log.I($"[LobShotService] 退出吊射模式{(sendCommand ? "" : " (仅观察)")}", wmj.Log.Tag.UI);
+        }
+
+        private void OnProtoDataUpdated(string typeName, object data)
+        {
+            if (!isHero) return;
+            if (typeName != "DeployModeStatusSync") return;
+
+            var sync = data as DeployModeStatusSync;
+            if (sync == null) return;
+
+            remoteDeployStatus = sync.Status;
+            remoteDeployStatusDirty = true;
+        }
+
+        /// <summary>
+        /// 在主线程应用服务器下发的部署状态：
+        /// status!=0 视为进入吊射，status=0 视为退出吊射。
+        /// </summary>
+        private void ApplyRemoteDeployStatusIfNeeded()
+        {
+            if (!remoteDeployStatusDirty) return;
+            remoteDeployStatusDirty = false;
+
+            bool shouldActive = remoteDeployStatus != 0;
+            if (shouldActive == isActive) return;
+
+            if (shouldActive)
+                EnterDeployMode(sendCommand: false);
+            else
+                ExitDeployMode(sendCommand: false);
         }
 
         /// <summary>查找并隐藏/显示图传 RawImage</summary>
@@ -159,6 +211,8 @@ namespace UI.HUD
         private void HandleFireInput()
         {
             if (!isActive) return;
+            if (IsPassiveObserverMode()) return;
+
             if (Input.GetKeyDown(KeyCode.Return) || Input.GetKeyDown(KeyCode.KeypadEnter))
             {
                 if (fireCooldown <= 0)
@@ -190,8 +244,15 @@ namespace UI.HUD
             NetworkManager.Instance.SendMqttMessage("HeroDeployModeEventCommand", payload);
         }
 
+        private bool IsPassiveObserverMode()
+        {
+            return GameParamsConfig.Get.isCompetitionMode
+                && GameParamsConfig.Get.competitionPassiveObserverMode;
+        }
+
         void OnDestroy()
         {
+            Framework.Network.ProtobufManager.Instance.OnDataUpdated -= OnProtoDataUpdated;
             if (isActive) ExitDeployMode();
         }
     }

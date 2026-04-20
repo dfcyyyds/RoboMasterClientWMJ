@@ -180,6 +180,7 @@ namespace UI.HUD
                 lobGO.transform.SetParent(transform, false);
                 lobShotHUD = lobGO.AddComponent<LobShotHUD>();
                 lobShotHUD.Initialize();
+                ApplyLobShotDisplaySettingsFromConfig();
             }
         }
 
@@ -416,6 +417,16 @@ namespace UI.HUD
         public void UpdateEnemyInfo(uint enemyHealth, uint enemyMaxHealth, int bulletsToKill)
         {
             if (crosshairRing) crosshairRing.UpdateEnemyInfo(enemyHealth, enemyMaxHealth, bulletsToKill);
+        }
+
+        /// <summary>将 game_params 中的吊射显示参数实时应用到 LobShotHUD</summary>
+        public void ApplyLobShotDisplaySettingsFromConfig()
+        {
+            if (lobShotHUD == null) return;
+            var gp = GameParamsConfig.Get;
+            lobShotHUD.ApplyDisplaySettings(
+                gp.lobShotStretchTo720x1080,
+                gp.lobShotUseSrWhenStretched);
         }
 
         // 提供给事件通知服务访问的 NotificationHUD 引用

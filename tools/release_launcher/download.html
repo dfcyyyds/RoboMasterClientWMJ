@@ -1,0 +1,649 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>WMJ 自定义客户端 — 立即下载</title>
+<link rel="icon" type="image/png" href="WMJ_LOGO.png">
+<style>
+:root {
+    --titlebar-bg:  rgba(6, 8, 16, 0.88);
+    --bar-bg:       rgba(6, 8, 16, 0.92);
+    --row-even:     rgba(18, 20, 36, 0.55);
+    --row-odd:      rgba(13, 15, 28, 0.40);
+    --slider-track: rgba(20, 20, 40, 0.85);
+    --slider-fill:  rgba(56, 140, 240, 0.85);
+    --btn-save:     rgba(40, 128, 224, 0.92);
+    --btn-close:    rgba(89, 89, 102, 0.65);
+    --btn-reset:    rgba(204, 64, 51, 0.75);
+    --accent:       #5AB8FA;
+    --accent-soft:  rgba(90, 184, 250, 0.15);
+    --text-white:   #F1F5FF;
+    --text-silver:  #C3CDDE;
+    --text-hint:    #8BA5C7;
+    --divider:      rgba(90, 184, 250, 0.30);
+    --ok:           #6ACB7E;
+    --warn:         #EFE580;
+    --err:          #E86B63;
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html, body {
+    height: 100%; width: 100%;
+    font-family: 'Microsoft YaHei', 'PingFang SC', 'Hiragino Sans GB', 'Noto Sans CJK SC', 'Segoe UI', sans-serif;
+    color: var(--text-white);
+    background: #04060C;
+    overflow: hidden;
+    -webkit-font-smoothing: antialiased;
+}
+
+.topline {
+    position: fixed; top: 0; left: 0; right: 0; z-index: 30;
+    height: 2px; background: var(--accent);
+    box-shadow: 0 0 12px rgba(90,184,250,0.6);
+}
+
+/* ═══════ 标题栏 ═══════ */
+.titlebar {
+    position: fixed; top: 2px; left: 0; right: 0; z-index: 20;
+    height: 72px;
+    background: var(--titlebar-bg);
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+    border-bottom: 1px solid var(--divider);
+    display: flex; align-items: center;
+    justify-content: space-between;
+    padding: 0 28px;
+}
+.brand { display: flex; align-items: center; gap: 14px; }
+.brand img { height: 52px; width: auto; }
+.brand .title { font-size: 21px; font-weight: 700; letter-spacing: 1.5px; line-height: 1.1; }
+.brand .sub   { font-size: 12px; color: var(--text-hint); letter-spacing: 4px; margin-top: 4px; }
+.nav-back {
+    color: var(--text-silver); text-decoration: none;
+    font-size: 13px; padding: 8px 14px;
+    background: rgba(20,28,48,0.6);
+    border: 1px solid rgba(90,184,250,0.20);
+    transition: all 0.15s;
+}
+.nav-back:hover { background: var(--accent-soft); color: var(--text-white); }
+
+/* ═══════ 主舞台：相册作为画面主体 ═══════ */
+.stage {
+    position: fixed;
+    top: 74px;
+    left: 0; right: 0;
+    bottom: 132px;
+    z-index: 1;
+    background: #02030A;
+    overflow: hidden;
+}
+.slide {
+    position: absolute; inset: 0;
+    background-size: contain;
+    background-position: center;
+    background-repeat: no-repeat;
+    background-color: #02030A;
+    opacity: 0;
+    transform: scale(1.04);
+    transition: opacity 1.2s ease, transform 9s linear;
+}
+.slide.active { opacity: 1; transform: scale(1.0); }
+.slide.active.kb-in  { transform: scale(1.07); }
+.slide.active.kb-out { transform: scale(1.00); }
+
+.stage::before, .stage::after {
+    content: ''; position: absolute; left: 0; right: 0;
+    pointer-events: none; z-index: 2;
+}
+.stage::before { top: 0;    height: 60px; background: linear-gradient(180deg, rgba(2,4,12,0.55), transparent); }
+.stage::after  { bottom: 0; height: 80px; background: linear-gradient(0deg,  rgba(2,4,12,0.65), transparent); }
+
+.album-meta {
+    position: absolute;
+    left: 24px; bottom: 18px; z-index: 5;
+    font-family: 'Cascadia Mono', 'Consolas', monospace;
+    color: var(--text-silver);
+    font-size: 13px; letter-spacing: 2px;
+    text-shadow: 0 2px 8px rgba(0,0,0,0.85);
+}
+.album-meta .num { color: var(--accent); font-weight: 700; font-size: 16px; }
+.album-meta .lab { display: block; color: var(--text-hint); font-size: 11px; letter-spacing: 4px; margin-top: 2px; }
+
+.dots {
+    position: absolute;
+    right: 24px; bottom: 22px; z-index: 5;
+    display: flex; gap: 6px;
+}
+.dots .d {
+    width: 22px; height: 3px;
+    background: rgba(255,255,255,0.20);
+    transition: all .3s ease;
+    cursor: pointer;
+}
+.dots .d.on {
+    background: var(--accent);
+    box-shadow: 0 0 6px rgba(90,184,250,0.7);
+}
+
+/* ═══════ 选择浮窗 ═══════ */
+.pick-card {
+    position: absolute;
+    left: 50%; top: 50%;
+    transform: translate(-50%, -50%);
+    z-index: 10;
+    width: min(560px, 90vw);
+    background: rgba(6, 9, 18, 0.78);
+    backdrop-filter: blur(20px) saturate(1.1);
+    -webkit-backdrop-filter: blur(20px) saturate(1.1);
+    border: 1px solid rgba(90,184,250,0.22);
+    box-shadow: 0 30px 100px rgba(0,0,0,0.85), inset 0 1px 0 rgba(255,255,255,0.05);
+    padding: 26px 30px 24px;
+    transition: opacity .35s ease, transform .35s ease;
+}
+.pick-card::before {
+    content: ''; position: absolute; left: 0; top: 0;
+    width: 56px; height: 2px; background: var(--accent);
+}
+.pick-card.hidden { opacity: 0; transform: translate(-50%, -54%); pointer-events: none; }
+
+.pick-card h1 { font-size: 20px; font-weight: 700; margin-bottom: 4px; letter-spacing: 0.5px; }
+.pick-card h1 .ac { color: var(--accent); }
+.pick-card .lead { color: var(--text-silver); font-size: 13px; line-height: 1.65; margin-bottom: 18px; }
+
+.plat-row { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.plat {
+    padding: 14px;
+    background: var(--row-even);
+    border: 1px solid transparent;
+    cursor: pointer; transition: all 0.15s; user-select: none;
+}
+.plat:hover { background: var(--accent-soft); }
+.plat.sel { background: rgba(38, 63, 115, 0.85); border-color: var(--accent); }
+.plat .ico { font-size: 20px; color: var(--accent); }
+.plat .nm  { font-size: 15px; font-weight: 600; margin-top: 4px; }
+.plat .meta { font-size: 11.5px; color: var(--text-hint); margin-top: 3px; }
+.plat .sz   { font-size: 12.5px; color: var(--accent); margin-top: 5px; font-weight: 600; }
+
+.pick-actions { margin-top: 18px; display: flex; gap: 10px; }
+.btn {
+    flex: 1; padding: 11px 18px;
+    background: var(--btn-save); color: var(--text-white);
+    border: 1px solid rgba(90,184,250,0.30);
+    cursor: pointer; font-size: 14px; font-weight: 600;
+    font-family: inherit; letter-spacing: 0.5px;
+    transition: all 0.15s; text-align: center;
+    text-decoration: none;
+    line-height: 1.4;
+}
+.btn:hover { background: rgba(56, 150, 245, 1); }
+.btn.ghost { background: var(--btn-close); border-color: rgba(255,255,255,0.15); }
+.btn.danger { background: var(--btn-reset); border-color: rgba(204,64,51,0.50); }
+
+.facts {
+    margin-top: 14px;
+    display: grid; grid-template-columns: 1fr 1fr; gap: 6px;
+    font-size: 11.5px; color: var(--text-hint);
+}
+.facts .f { padding: 6px 10px; background: var(--row-odd); display: flex; justify-content: space-between; }
+.facts .f .v { color: var(--text-white); font-weight: 600; }
+
+/* ═══════ 完成浮窗 ═══════ */
+.done-card {
+    position: absolute;
+    left: 50%; top: 50%;
+    transform: translate(-50%, -50%);
+    z-index: 10;
+    width: min(540px, 90vw);
+    background: rgba(6, 9, 18, 0.85);
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+    border: 1px solid rgba(106,203,126,0.30);
+    box-shadow: 0 30px 100px rgba(0,0,0,0.85);
+    padding: 28px;
+    text-align: center;
+    display: none;
+}
+.done-card.show { display: block; }
+.done-card .check {
+    width: 64px; height: 64px; margin: 0 auto 16px;
+    border-radius: 50%;
+    background: rgba(106,203,126,0.14);
+    border: 2px solid var(--ok);
+    display: grid; place-items: center;
+    color: var(--ok); font-size: 32px;
+    animation: pop .35s ease;
+}
+@keyframes pop { from { transform: scale(0.4); opacity: 0; } to { transform: scale(1); opacity: 1; } }
+.done-card h3 { font-size: 19px; margin-bottom: 8px; }
+.done-card p  { color: var(--text-silver); font-size: 13px; line-height: 1.65; margin-bottom: 12px; }
+.done-card pre {
+    background: #05080F; color: #BFD7F5;
+    border-left: 2px solid var(--accent);
+    padding: 12px 14px; font-family: 'Cascadia Mono', 'Consolas', monospace;
+    font-size: 12.5px; text-align: left; line-height: 1.7;
+    margin: 8px 0 14px; white-space: pre-wrap; word-break: break-all;
+}
+
+/* ═══════ 底部下载状态横条 ═══════ */
+.dlbar {
+    position: fixed; left: 0; right: 0; bottom: 32px; z-index: 20;
+    height: 100px;
+    background: var(--bar-bg);
+    backdrop-filter: blur(14px);
+    -webkit-backdrop-filter: blur(14px);
+    border-top: 1px solid var(--divider);
+    display: grid;
+    grid-template-rows: 4px 1fr;
+    transition: opacity .3s ease;
+}
+.dlbar.idle { opacity: 0.65; }
+
+.dlbar .barline {
+    background: var(--slider-track);
+    position: relative; overflow: hidden;
+}
+.dlbar .barline .fill {
+    position: absolute; left: 0; top: 0; bottom: 0;
+    width: 0%; background: var(--slider-fill);
+    transition: width 0.20s ease;
+    box-shadow: 0 0 8px rgba(90,184,250,0.6);
+}
+.dlbar .barline .pulse {
+    position: absolute; top: 0; bottom: 0; width: 80px;
+    background: linear-gradient(90deg, transparent, rgba(255,255,255,0.45), transparent);
+    animation: shimmer 1.6s linear infinite;
+    display: none;
+}
+.dlbar.busy .barline .pulse { display: block; }
+@keyframes shimmer { from { left: -80px; } to { left: 100%; } }
+
+.dlbar .row {
+    display: grid;
+    grid-template-columns: minmax(220px, 1fr) auto minmax(440px, 1.4fr);
+    align-items: center;
+    gap: 24px;
+    padding: 0 28px;
+    height: 100%;
+}
+.dlbar .info { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.dlbar .info .state { font-size: 12px; letter-spacing: 4px; color: var(--text-hint); }
+.dlbar .info .plat-name {
+    font-size: 16px; font-weight: 700; color: var(--text-white);
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.dlbar .info .plat-name .dot {
+    display: inline-block; width: 8px; height: 8px; border-radius: 50%;
+    background: var(--text-hint); margin-right: 8px; vertical-align: middle;
+}
+.dlbar.busy .info .plat-name .dot {
+    background: var(--accent); box-shadow: 0 0 10px rgba(90,184,250,0.8);
+    animation: blink 1s ease-in-out infinite;
+}
+.dlbar.done .info .plat-name .dot { background: var(--ok); box-shadow: 0 0 10px rgba(106,203,126,0.7); }
+.dlbar.err  .info .plat-name .dot { background: var(--err); box-shadow: 0 0 10px rgba(232,107,99,0.7); }
+@keyframes blink { 0%,100% { opacity: 1; } 50% { opacity: 0.4; } }
+
+.dlbar .pct {
+    font-family: 'Cascadia Mono', 'Consolas', monospace;
+    font-size: 38px; font-weight: 700;
+    color: var(--text-white);
+    line-height: 1; letter-spacing: -1px; white-space: nowrap;
+}
+.dlbar .pct .u { font-size: 18px; color: var(--accent); margin-left: 2px; vertical-align: 4px; }
+
+.dlbar .stats {
+    display: grid;
+    grid-template-columns: 1fr 1fr 1fr auto;
+    align-items: center;
+    gap: 1px;
+    height: 56px;
+}
+.dlbar .stats .s {
+    height: 100%;
+    background: rgba(18,20,36,0.55);
+    padding: 8px 14px;
+    display: flex; flex-direction: column; justify-content: center;
+    font-family: 'Cascadia Mono', 'Consolas', monospace;
+}
+.dlbar .stats .s .k { font-size: 10.5px; color: var(--text-hint); letter-spacing: 2px; }
+.dlbar .stats .s .v { font-size: 16px; color: var(--text-white); font-weight: 700; margin-top: 2px; }
+.dlbar .stats .s .v.ac { color: var(--accent); }
+.dlbar .stats .act { margin-left: 14px; display: flex; gap: 8px; }
+.dlbar .stats .act .btn {
+    flex: 0 0 auto;
+    padding: 0 22px;
+    height: 56px;
+    font-size: 13px;
+    line-height: 56px;
+}
+
+.helpbar {
+    position: fixed; bottom: 0; left: 0; right: 0; z-index: 20;
+    height: 32px;
+    background: var(--titlebar-bg);
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+    border-top: 1px solid var(--divider);
+    display: flex; align-items: center;
+    justify-content: space-between;
+    padding: 0 24px;
+    color: var(--text-silver); font-size: 12px;
+}
+.helpbar .slogan { color: var(--accent); letter-spacing: 6px; font-weight: 600; }
+
+.err-badge {
+    position: fixed; bottom: 144px; left: 50%; transform: translateX(-50%);
+    z-index: 25;
+    padding: 8px 16px;
+    background: rgba(232,107,99,0.18);
+    border: 1px solid var(--err);
+    color: var(--err);
+    font-size: 13px; letter-spacing: 0.5px;
+    display: none;
+}
+.err-badge.show { display: block; }
+
+@media (max-width: 900px) {
+    .dlbar { height: auto; }
+    .dlbar .row {
+        grid-template-columns: 1fr;
+        gap: 8px; padding: 12px 16px;
+    }
+    .dlbar .stats { grid-template-columns: 1fr 1fr 1fr; }
+    .dlbar .stats .act { display: none; }
+    .dlbar .pct { font-size: 30px; text-align: center; }
+    .stage { bottom: 220px; }
+}
+@media (max-width: 600px) {
+    .titlebar { height: 60px; padding: 0 14px; }
+    .brand img { height: 42px; }
+    .brand .title { font-size: 16px; letter-spacing: 1px; }
+    .brand .sub { display: none; }
+    .pick-card { padding: 20px 18px; width: 94vw; }
+    .helpbar .slogan { display: none; }
+    .stage { top: 62px; }
+}
+</style>
+</head>
+<body>
+
+<div class="topline"></div>
+
+<div class="titlebar">
+    <div class="brand">
+        <img src="WMJ_LOGO.png" alt="WMJ">
+        <div>
+            <div class="title">WMJ 自定义客户端</div>
+            <div class="sub">百铸千炼 · 我亦为剑</div>
+        </div>
+    </div>
+    <a class="nav-back" href="./">← 返回安装中心</a>
+</div>
+
+<div class="stage" id="stage">
+    <div class="album-meta">
+        <span class="num" id="album-num">01</span>
+        <span style="color:var(--text-hint);">/ <span id="album-total">08</span></span>
+        <span class="lab">WMJ 战队精选</span>
+    </div>
+    <div class="dots" id="dots"></div>
+
+    <div class="pick-card" id="pick-card">
+        <h1>立即<span class="ac">下载</span>客户端</h1>
+        <p class="lead">浏览器原生流式下载，进度实时显示在画面下方横条。完成后按引导解压并运行启动器。</p>
+
+        <div class="plat-row">
+            <div class="plat sel" data-plat="linux">
+                <div class="ico">🐧</div>
+                <div class="nm">Linux 64-bit</div>
+                <div class="meta">tar.gz · Ubuntu 22.04+</div>
+                <div class="sz" id="sz-linux">— MB</div>
+            </div>
+            <div class="plat" data-plat="windows">
+                <div class="ico">🪟</div>
+                <div class="nm">Windows 64-bit</div>
+                <div class="meta">tar.gz · Win10 1809+</div>
+                <div class="sz" id="sz-windows">— MB</div>
+            </div>
+        </div>
+
+        <div class="pick-actions">
+            <button class="btn" id="btn-start">开始下载</button>
+            <a class="btn ghost" href="./">返回</a>
+        </div>
+
+        <div class="facts">
+            <div class="f"><span>版本</span><span class="v" id="fact-ver">—</span></div>
+            <div class="f"><span>构建</span><span class="v" id="fact-time">—</span></div>
+            <div class="f"><span>校验</span><span class="v">SHA-256</span></div>
+            <div class="f"><span>传输</span><span class="v">HTTPS · HTTP/2</span></div>
+        </div>
+    </div>
+
+    <div class="done-card" id="done-card">
+        <div class="check">✓</div>
+        <h3>下载完成</h3>
+        <p>文件已保存到浏览器默认下载目录。按以下步骤解压并运行：</p>
+        <pre id="post-cmd"></pre>
+        <div class="pick-actions">
+            <button class="btn ghost" id="btn-again">下载另一平台</button>
+            <a class="btn" href="./">返回安装中心</a>
+        </div>
+    </div>
+</div>
+
+<div class="err-badge" id="err-badge"></div>
+
+<div class="dlbar idle" id="dlbar">
+    <div class="barline">
+        <div class="fill" id="bar-fill"></div>
+        <div class="pulse"></div>
+    </div>
+    <div class="row">
+        <div class="info">
+            <div class="state" id="dl-state">待机</div>
+            <div class="plat-name"><span class="dot"></span><span id="dl-plat">尚未开始下载</span></div>
+        </div>
+        <div class="pct"><span id="pct-num">0.0</span><span class="u">%</span></div>
+        <div class="stats">
+            <div class="s"><div class="k">已下载</div><div class="v ac" id="dl-done">0 MB</div></div>
+            <div class="s"><div class="k">总大小</div><div class="v" id="dl-total">— MB</div></div>
+            <div class="s"><div class="k">速度</div><div class="v" id="dl-speed">— KB/s</div></div>
+            <div class="act">
+                <button class="btn danger" id="btn-cancel" style="display:none;">取消</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="helpbar">
+    <span>WMJ · RoboMaster 2026</span>
+    <span class="slogan">百铸千炼 · 我亦为剑</span>
+</div>
+
+<script>
+const ALBUM = Array.from({length: 8}, (_, i) => `album/wmj_${String(i + 1).padStart(2, '0')}.jpg`);
+const stage = document.getElementById('stage');
+const dotsBox = document.getElementById('dots');
+const slides = [];
+const dots = [];
+const KB_CLASSES = ['kb-in', 'kb-out'];
+ALBUM.forEach((src, i) => {
+    const el = document.createElement('div');
+    el.className = 'slide' + (i === 0 ? ' active kb-out' : '');
+    el.style.backgroundImage = `url("${src}")`;
+    stage.insertBefore(el, stage.firstChild);
+    slides.push(el);
+    const dot = document.createElement('div');
+    dot.className = 'd' + (i === 0 ? ' on' : '');
+    dotsBox.appendChild(dot);
+    dots.push(dot);
+    const im = new Image(); im.src = src;
+});
+document.getElementById('album-total').textContent = String(slides.length).padStart(2, '0');
+let curSlide = 0;
+function gotoSlide(idx) {
+    if (idx === curSlide) return;
+    slides[curSlide].classList.remove('active', 'kb-in', 'kb-out');
+    dots[curSlide].classList.remove('on');
+    curSlide = idx;
+    const kb = KB_CLASSES[Math.floor(Math.random() * 2)];
+    slides[curSlide].classList.add('active', kb);
+    dots[curSlide].classList.add('on');
+    document.getElementById('album-num').textContent = String(curSlide + 1).padStart(2, '0');
+}
+setInterval(() => gotoSlide((curSlide + 1) % slides.length), 5500);
+dots.forEach((d, i) => d.addEventListener('click', () => gotoSlide(i)));
+
+const PACKAGES = {
+    linux:   { url: 'packages/RoboMasterClient_Linux64_latest.tar.gz',   filename: 'RoboMasterClient_Linux64.tar.gz',   nice: 'Linux 64-bit',
+        post: `tar -xzf RoboMasterClient_Linux64.tar.gz
+cd RoboMasterClient_Linux64
+chmod +x launch.sh
+./launch.sh` },
+    windows: { url: 'packages/RoboMasterClient_Windows64_latest.tar.gz', filename: 'RoboMasterClient_Windows64.tar.gz', nice: 'Windows 64-bit',
+        post: `# 用 7-Zip 或 PowerShell 解压：
+tar -xzf RoboMasterClient_Windows64.tar.gz
+cd RoboMasterClient_Windows64
+launch.bat` }
+};
+let selectedPlat = 'linux';
+document.querySelectorAll('.plat').forEach(el => {
+    el.addEventListener('click', () => {
+        document.querySelectorAll('.plat').forEach(x => x.classList.remove('sel'));
+        el.classList.add('sel');
+        selectedPlat = el.dataset.plat;
+    });
+});
+
+function fmtBytes(b) {
+    if (!b && b !== 0) return '— MB';
+    if (b < 1024) return b + ' B';
+    if (b < 1048576) return (b / 1024).toFixed(1) + ' KB';
+    if (b < 1073741824) return (b / 1048576).toFixed(1) + ' MB';
+    return (b / 1073741824).toFixed(2) + ' GB';
+}
+async function probeSize(plat) {
+    try {
+        const r = await fetch(PACKAGES[plat].url, { method: 'HEAD' });
+        if (!r.ok) throw 0;
+        const len = parseInt(r.headers.get('Content-Length') || '0', 10);
+        document.getElementById('sz-' + plat).textContent = fmtBytes(len);
+        PACKAGES[plat].size = len;
+    } catch {
+        document.getElementById('sz-' + plat).textContent = '不可用';
+    }
+}
+async function loadFacts() {
+    try {
+        const r = await fetch('Linux64/manifest.json', { cache: 'no-store' });
+        const m = await r.json();
+        document.getElementById('fact-ver').textContent  = m.version || '—';
+        document.getElementById('fact-time').textContent = (m.build_time || '—').split('T')[0];
+    } catch {}
+}
+probeSize('linux'); probeSize('windows'); loadFacts();
+
+const dlbar    = document.getElementById('dlbar');
+const pickCard = document.getElementById('pick-card');
+const doneCard = document.getElementById('done-card');
+const errBadge = document.getElementById('err-badge');
+let dlAbort = null;
+
+function setDlState(mode, stateText, platName) {
+    dlbar.classList.remove('idle', 'busy', 'done', 'err');
+    dlbar.classList.add(mode);
+    document.getElementById('dl-state').textContent = stateText;
+    if (platName !== undefined) document.getElementById('dl-plat').textContent = platName;
+    document.getElementById('btn-cancel').style.display = (mode === 'busy') ? '' : 'none';
+}
+function setProgress(done, total) {
+    const ratio = total > 0 ? Math.min(1, done / total) : 0;
+    const pct = (ratio * 100).toFixed(1);
+    document.getElementById('pct-num').textContent = pct;
+    document.getElementById('bar-fill').style.width = pct + '%';
+    document.getElementById('dl-done').textContent  = fmtBytes(done);
+    document.getElementById('dl-total').textContent = total > 0 ? fmtBytes(total) : '— MB';
+}
+function showErr(msg) {
+    errBadge.textContent = '⚠  ' + msg;
+    errBadge.classList.add('show');
+    setTimeout(() => errBadge.classList.remove('show'), 4000);
+}
+
+async function startDownload() {
+    const cfg = PACKAGES[selectedPlat];
+    pickCard.classList.add('hidden');
+    doneCard.classList.remove('show');
+    errBadge.classList.remove('show');
+    setDlState('busy', '正在下载', cfg.nice);
+    setProgress(0, cfg.size || 0);
+    document.getElementById('dl-speed').textContent = '— KB/s';
+
+    dlAbort = new AbortController();
+    let received = 0, total = cfg.size || 0;
+    let lastTime = performance.now(), lastBytes = 0;
+
+    try {
+        const resp = await fetch(cfg.url, { signal: dlAbort.signal, cache: 'no-store' });
+        if (!resp.ok) throw new Error('HTTP ' + resp.status);
+        if (!total) {
+            total = parseInt(resp.headers.get('Content-Length') || '0', 10);
+            cfg.size = total;
+        }
+        const reader = resp.body.getReader();
+        const chunks = [];
+        while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            chunks.push(value);
+            received += value.length;
+            const now = performance.now();
+            const dt = now - lastTime;
+            if (dt >= 350) {
+                const speedBps = ((received - lastBytes) * 1000) / dt;
+                lastTime = now; lastBytes = received;
+                document.getElementById('dl-speed').textContent =
+                    speedBps > 1048576
+                        ? (speedBps / 1048576).toFixed(2) + ' MB/s'
+                        : (speedBps / 1024).toFixed(0)   + ' KB/s';
+            }
+            setProgress(received, total);
+        }
+        setDlState('busy', '组装文件', cfg.nice);
+        const blob = new Blob(chunks, { type: 'application/gzip' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url; a.download = cfg.filename;
+        document.body.appendChild(a); a.click(); a.remove();
+        setTimeout(() => URL.revokeObjectURL(url), 60000);
+
+        setDlState('done', '下载完成', cfg.nice);
+        document.getElementById('post-cmd').textContent = cfg.post;
+        doneCard.classList.add('show');
+    } catch (e) {
+        if (e.name === 'AbortError') {
+            setDlState('idle', '已取消', '尚未开始下载');
+            setProgress(0, 0);
+            document.getElementById('dl-speed').textContent = '— KB/s';
+        } else {
+            setDlState('err', '下载失败', cfg.nice);
+            showErr(e.message + '   （请稍后重试）');
+        }
+        pickCard.classList.remove('hidden');
+    } finally {
+        dlAbort = null;
+    }
+}
+
+document.getElementById('btn-start').addEventListener('click', startDownload);
+document.getElementById('btn-cancel').addEventListener('click', () => { if (dlAbort) dlAbort.abort(); });
+document.getElementById('btn-again').addEventListener('click', () => {
+    doneCard.classList.remove('show');
+    pickCard.classList.remove('hidden');
+    setDlState('idle', '待机', '尚未开始下载');
+    setProgress(0, 0);
+});
+</script>
+</body>
+</html>

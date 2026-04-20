@@ -120,7 +120,7 @@ public class AutoResupplyService : MonoBehaviour
                 SendAmmoPurchaseCommand(actualBatches);
                 purchaseCooldown = gp.autoResupplyInterval * 0.5f; // 紧急时缩短冷却
 
-                wmj.Log.I($"[AutoResupply] ⚡ 紧急补给: {actualBatches}批={actualBatches * amountPerBatch}发 " +
+                wmj.Log.I($"[AutoResupply] [紧急] 补给: {actualBatches}批={actualBatches * amountPerBatch}发 " +
                     $"{ammoType} | 弹药={currentAmmo} | 可用金币={usableGold}",
                     wmj.Log.Tag.UI);
             }

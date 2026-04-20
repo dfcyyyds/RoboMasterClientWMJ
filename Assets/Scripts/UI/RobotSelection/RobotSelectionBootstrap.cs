@@ -145,7 +145,21 @@ namespace UI.RobotSelection
             PerformanceSelectionPanel.Show(profile, perfResult =>
             {
                 CompleteSelection(result, perfResult);
-                SendPerformanceCommand(perfResult);
+
+                bool isCompetition = GameParamsConfig.Get.isCompetitionMode;
+                bool passiveObserver = GameParamsConfig.Get.competitionPassiveObserverMode;
+                bool allowSend = !isCompetition ||
+                    (!passiveObserver && GameParamsConfig.Get.allowCustomPerformanceSelectionCommandInCompetition);
+
+                if (allowSend)
+                {
+                    SendPerformanceCommand(perfResult);
+                }
+                else
+                {
+                    wmj.Log.I("[RobotSelection] 比赛模式已启用被动体系选择：跳过发送 RobotPerformanceSelectionCommand（避免与主客户端冲突）",
+                        wmj.Log.Tag.UI);
+                }
             });
         }
 

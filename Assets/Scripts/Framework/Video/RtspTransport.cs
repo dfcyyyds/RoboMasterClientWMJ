@@ -53,7 +53,7 @@ namespace Framework.Video
 
             proc.StartInfo = new ProcessStartInfo
             {
-                FileName = "ffmpeg",
+                FileName = FfmpegLocator.GetExecutablePath(),
                 Arguments = ffArgs,
                 UseShellExecute = false,
                 RedirectStandardOutput = true,

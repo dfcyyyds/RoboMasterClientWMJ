@@ -261,42 +261,33 @@ namespace UI.HUD
             switch (id)
             {
                 // ═══════════════════════════════════════════
-                // 官方协议 event_id (1-18)
+                // 官方协议 event_id (V1.3.0, 1-15)
                 // ═══════════════════════════════════════════
 
                 case EventIds.KILL:
                     {
-                        // param: "killer_id:victim_id"
-                        var parts = param.Split(':');
+                        // V1.3.0 param: "被击杀者,击杀者"（如"1,101"）
+                        var parts = param.Split(',');
                         msg = parts.Length >= 2
-                            ? $"💀 机器人{parts[1]} 被 {parts[0]} 击毁"
+                            ? $"💀 机器人{parts[0]} 被 {parts[1]} 击毁"
                             : $"💀 击杀事件: {param}";
                         color = UIColors.Red;
                         break;
                     }
-                case EventIds.STRUCTURE_DESTROYED:
+                case EventIds.OUTPOST_DESTROYED:
                     {
-                        // param: 目标 id（如蓝方前哨站=111）
+                        // param: 目标 id（前哨站）
                         string target = param switch
                         {
                             "11" => "红方前哨站",
                             "111" => "蓝方前哨站",
-                            _ => $"建筑(ID={param})"
+                            _ => $"前哨站(ID={param})"
                         };
                         msg = $"💥 {target}被摧毁！";
                         color = UIColors.Red;
                         duration = 3f;
                         break;
                     }
-                case EventIds.RUNE_CHANCE_CHANGE:
-                    msg = $"能量机关可激活次数 → {param}";
-                    color = UIColors.BrightBlue;
-                    cooldown = SPAM_COOLDOWN;
-                    break;
-                case EventIds.RUNE_CAN_ACTIVATE:
-                    msg = "能量机关可进入激活状态";
-                    color = UIColors.BrightBlue;
-                    break;
                 case EventIds.RUNE_ARM_RESULT:
                     {
                         // param: "arms:rings"
@@ -309,11 +300,11 @@ namespace UI.HUD
                     }
                 case EventIds.RUNE_ACTIVATED:
                     {
-                        // param: "small"/"large" 或激活类型
+                        // V1.3.0 param: 激活类型 1=小能量机关, 2=大能量机关
                         string typeName = param switch
                         {
-                            "small" => "小能量机关",
-                            "large" => "大能量机关",
+                            "1" => "小能量机关",
+                            "2" => "大能量机关",
                             _ => $"能量机关({param})"
                         };
                         msg = $"✦ {typeName}激活成功";
@@ -321,10 +312,6 @@ namespace UI.HUD
                         duration = 3f;
                         break;
                     }
-                case EventIds.HERO_DEPLOY_MODE:
-                    msg = "己方英雄进入部署模式";
-                    color = UIColors.BrightBlue;
-                    break;
                 case EventIds.HERO_SNIPER_OWN:
                     msg = $"己方英雄狙击伤害: 累计{param}";
                     color = UIColors.HealthGreen;
@@ -335,71 +322,59 @@ namespace UI.HUD
                     color = UIColors.Red;
                     cooldown = SPAM_COOLDOWN;
                     break;
-                case EventIds.AIR_SUPPORT_OWN:
-                    msg = "✈ 己方呼叫空中支援";
-                    color = UIColors.BrightBlue;
-                    break;
-                case EventIds.AIR_SUPPORT_OWN_BROKEN:
-                    msg = $"己方空中支援被打断（对方剩余{param}次）";
-                    color = UIColors.Red;
-                    break;
                 case EventIds.AIR_SUPPORT_ENEMY:
                     msg = "[!] 对方呼叫空中支援";
                     color = UIColors.Orange;
                     break;
-                case EventIds.AIR_SUPPORT_ENEMY_BROKEN:
-                    msg = $"对方空中支援被打断（己方剩余{param}次）";
+                case EventIds.AIR_SUPPORT_ENEMY_COUNTERED:
+                    msg = $"对方空中支援被反制（己方剩余{param}次）";
                     color = UIColors.HealthGreen;
                     break;
                 case EventIds.DART_HIT:
                     {
-                        string target = param switch
+                        // V1.3.0 param: "命中目标,命中方"（命中方: 1=红方,2=蓝方）
+                        var parts = param.Split(',');
+                        string target = parts.Length >= 1 ? parts[0] switch
                         {
                             "1" => "前哨站",
                             "2" => "基地（固定目标）",
                             "3" => "基地（随机固定目标）",
                             "4" => "基地（随机移动目标）",
                             "5" => "基地（末端移动目标）",
-                            _ => $"目标({param})"
-                        };
-                        msg = $"🎯 飞镖命中 {target}";
+                            _ => $"目标({parts[0]})"
+                        } : $"目标({param})";
+                        string side = parts.Length >= 2 ? (parts[1] == "1" ? "红方" : "蓝方") : "";
+                        msg = $"🎯 {side}飞镖命中 {target}";
                         color = UIColors.Orange;
                         duration = 3f;
                         break;
                     }
-                case EventIds.DART_GATE:
-                    msg = param switch
-                    {
-                        "1" => "己方飞镖闸门开启",
-                        "2" => "对方飞镖闸门开启",
-                        _ => "飞镖闸门开启"
-                    };
+                case EventIds.DART_GATE_ENEMY:
+                    msg = "对方飞镖闸门开启";
                     color = UIColors.Orange;
                     break;
                 case EventIds.BASE_ATTACKED:
-                    msg = "[!] 己方基地遭到攻击！";
+                    msg = "[!] 基地遭到攻击！";
                     color = UIColors.Red;
                     duration = 2f;
                     cooldown = 5f; // 官方：5s 内置冷却
                     break;
-                case EventIds.OUTPOST_STOP_ROTATE:
-                    msg = param switch
-                    {
-                        "1" => "己方前哨站装甲停转",
-                        "2" => "对方前哨站装甲停转",
-                        _ => "前哨站停转"
-                    };
+                case EventIds.OUTPOST_STOP_ROTATE_ENEMY:
+                    msg = "对方前哨站装甲停转";
                     color = UIColors.Orange;
                     break;
-                case EventIds.BASE_ARMOR_OPEN:
-                    msg = param switch
-                    {
-                        "1" => "[!] 己方基地护甲展开！",
-                        "2" => "[!] 对方基地护甲展开",
-                        _ => "基地护甲展开"
-                    };
+                case EventIds.BASE_ARMOR_OPEN_ENEMY:
+                    msg = "[!] 对方基地护甲展开";
                     color = UIColors.Red;
                     duration = 3f;
+                    break;
+                case EventIds.ASSEMBLY_BUFFER:
+                    msg = $"[装配] 缓冲期: {param}";
+                    color = UIColors.BrightBlue;
+                    break;
+                case EventIds.ASSEMBLY_RESULT:
+                    msg = $"[装配] 结果: {param}";
+                    color = UIColors.HealthGreen;
                     break;
 
                 // ═══════════════════════════════════════════
@@ -440,7 +415,7 @@ namespace UI.HUD
                         break;
                     }
                 case EventIds.EXT_MATCH_PAUSED:
-                    msg = "⏸ 比赛暂停";
+                    msg = "[||] 比赛暂停";
                     color = UIColors.HeatYellow;
                     break;
                 case EventIds.EXT_MATCH_RESUMED:
@@ -495,7 +470,7 @@ namespace UI.HUD
                     {
                         var parts = param.Split(':');
                         string diff = parts.Length >= 2 ? $" 难度{parts[1]}" : "";
-                        msg = $"⚙ {TeamName(parts.Length > 0 ? parts[0] : param)}开始装配科技核心{diff}";
+                        msg = $"[装配] {TeamName(parts.Length > 0 ? parts[0] : param)}开始装配科技核心{diff}";
                         color = UIColors.BrightBlue;
                         break;
                     }
@@ -529,7 +504,7 @@ namespace UI.HUD
                     {
                         var parts = param.Split(':');
                         string target = parts.Length >= 2 ? DartTargetName(parts[1]) : "目标";
-                        msg = $"🚀 {TeamName(parts.Length > 0 ? parts[0] : param)}飞镖发射 → {target}";
+                        msg = $"[飞镖] {TeamName(parts.Length > 0 ? parts[0] : param)}飞镖发射 -> {target}";
                         color = UIColors.Orange;
                         break;
                     }
@@ -721,7 +696,7 @@ namespace UI.HUD
                         break;
                     }
                 case EventIds.EXT_RADAR_DOUBLE_VULN:
-                    msg = "⚡ 雷达双倍易伤触发！";
+                    msg = "[触发] 雷达双倍易伤！";
                     color = UIColors.Red;
                     duration = 3f;
                     break;
@@ -753,7 +728,7 @@ namespace UI.HUD
                     cooldown = SPAM_COOLDOWN;
                     break;
                 case EventIds.EXT_ENERGY_BOOST_MODE:
-                    msg = $"⚡ 机器人{param} 底盘增强模式";
+                    msg = $"[增强] 机器人{param} 底盘增强模式";
                     color = UIColors.HealthGreen;
                     cooldown = SPAM_COOLDOWN;
                     break;
@@ -916,44 +891,38 @@ namespace UI.HUD
 
     public static class EventIds
     {
-        // ─── 官方协议 event_id (1-18) ───
+        // ─── 官方协议 event_id (V1.3.0, 1-15) ───
 
-        /// <summary>1 - 击杀事件。param: "killer_id:victim_id"</summary>
+        /// <summary>1 - 击杀事件。param: "被击杀者,击杀者"（如"1,101"）</summary>
         public const int KILL = 1;
-        /// <summary>2 - 建筑被摧毁。param: 目标 id（红方前哨站=11, 蓝方前哨站=111）</summary>
-        public const int STRUCTURE_DESTROYED = 2;
-        /// <summary>3 - 能量机关可激活次数变化。param: 变化后次数</summary>
-        public const int RUNE_CHANCE_CHANGE = 3;
-        /// <summary>4 - 能量机关可进入激活状态。无参数</summary>
-        public const int RUNE_CAN_ACTIVATE = 4;
-        /// <summary>5 - 能量机关臂数+平均环数。param: "arms:rings"</summary>
-        public const int RUNE_ARM_RESULT = 5;
-        /// <summary>6 - 能量机关被激活（含类型）。param: "small"/"large"</summary>
-        public const int RUNE_ACTIVATED = 6;
-        /// <summary>7 - 己方英雄进入部署模式。无参数</summary>
-        public const int HERO_DEPLOY_MODE = 7;
-        /// <summary>8 - 己方英雄狙击伤害。param: 累计伤害</summary>
-        public const int HERO_SNIPER_OWN = 8;
-        /// <summary>9 - 对方英雄狙击伤害。param: 累计伤害</summary>
-        public const int HERO_SNIPER_ENEMY = 9;
-        /// <summary>10 - 己方呼叫空中支援。无参数</summary>
-        public const int AIR_SUPPORT_OWN = 10;
-        /// <summary>11 - 己方空中支援被打断。param: 对方剩余打断次数</summary>
-        public const int AIR_SUPPORT_OWN_BROKEN = 11;
-        /// <summary>12 - 对方呼叫空中支援。无参数</summary>
-        public const int AIR_SUPPORT_ENEMY = 12;
-        /// <summary>13 - 对方空中支援被打断。param: 己方剩余打断次数</summary>
-        public const int AIR_SUPPORT_ENEMY_BROKEN = 13;
-        /// <summary>14 - 飞镖命中。param: 1=前哨站,2=基地固定,3=基地随机固定,4=基地随机移动,5=基地末端移动</summary>
-        public const int DART_HIT = 14;
-        /// <summary>15 - 飞镖闸门开启。param: 1=己方,2=对方</summary>
-        public const int DART_GATE = 15;
-        /// <summary>16 - 己方基地遭到攻击。无参数（5s冷却）</summary>
-        public const int BASE_ATTACKED = 16;
-        /// <summary>17 - 前哨站停转。param: 1=己方,2=对方</summary>
-        public const int OUTPOST_STOP_ROTATE = 17;
-        /// <summary>18 - 基地护甲展开。param: 1=己方,2=对方</summary>
-        public const int BASE_ARMOR_OPEN = 18;
+        /// <summary>2 - 前哨站被摧毁。param: 目标 id</summary>
+        public const int OUTPOST_DESTROYED = 2;
+        /// <summary>3 - 大能量机关灯臂/环数。param: "arms:rings"</summary>
+        public const int RUNE_ARM_RESULT = 3;
+        /// <summary>4 - 能量机关进入已激活状态。param: 激活类型(1=小能量机关,2=大能量机关)</summary>
+        public const int RUNE_ACTIVATED = 4;
+        /// <summary>5 - 己方英雄狙击伤害。param: 累计伤害</summary>
+        public const int HERO_SNIPER_OWN = 5;
+        /// <summary>6 - 对方英雄狙击伤害。param: 累计伤害</summary>
+        public const int HERO_SNIPER_ENEMY = 6;
+        /// <summary>7 - 对方呼叫空中支援。无参数</summary>
+        public const int AIR_SUPPORT_ENEMY = 7;
+        /// <summary>8 - 对方空中支援被反制。param: 己方剩余可反制次数</summary>
+        public const int AIR_SUPPORT_ENEMY_COUNTERED = 8;
+        /// <summary>9 - 飞镖命中。param: "命中目标,命中方"（命中方: 1=红方,2=蓝方）</summary>
+        public const int DART_HIT = 9;
+        /// <summary>10 - 对方飞镖闸门开启。无参数</summary>
+        public const int DART_GATE_ENEMY = 10;
+        /// <summary>11 - 基地遭攻击。无参数（5s冷却）</summary>
+        public const int BASE_ATTACKED = 11;
+        /// <summary>12 - 对方前哨站停转。无参数</summary>
+        public const int OUTPOST_STOP_ROTATE_ENEMY = 12;
+        /// <summary>13 - 对方基地护甲展开。无参数</summary>
+        public const int BASE_ARMOR_OPEN_ENEMY = 13;
+        /// <summary>14 - 装配缓冲期。param: 缓冲时间</summary>
+        public const int ASSEMBLY_BUFFER = 14;
+        /// <summary>15 - 装配结果事件。param: 结果</summary>
+        public const int ASSEMBLY_RESULT = 15;
 
         // ─── 仿真扩展 event_id (101+) ───
 

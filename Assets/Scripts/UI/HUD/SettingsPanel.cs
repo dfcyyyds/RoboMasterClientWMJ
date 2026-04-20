@@ -1066,7 +1066,7 @@ namespace UI.HUD
             btnBg.raycastTarget = false;
 
             var iconTxt = UIFactory.CreateText(btnGo.transform, "Icon",
-                "\u2699 \u8bbe\u7f6e [F10]", 18,
+                "[设置 F10]", 18,
                 TextAlignmentOptions.Center, UIColors.White, FontStyles.Bold);
             UIFactory.SetFullStretch(iconTxt.rectTransform);
         }
@@ -1595,6 +1595,7 @@ namespace UI.HUD
         {
             var c = CreateScrollContent("Network");
             var cfg = ConfigLoader.config;
+            var gp = GameParamsConfig.Get;
             if (cfg == null)
             {
                 AddSectionHeader(c, "\u26a0 \u914d\u7f6e\u672a\u52a0\u8f7d");
@@ -1625,13 +1626,35 @@ namespace UI.HUD
                 v => cfg.maxDrainPerUpdate = v, "");
             AddSectionHeader(c, "\u9ad8\u7ea7\u53c2\u6570");
             AddSliderRow(c, "MQTT \u91cd\u8fde\u95f4\u9694", "s",
-                cfg.mqttReconnectInterval, 2f, 0.5f, 30f,
+                cfg.mqttReconnectInterval, 3f, 2f, 30f,
                 v => cfg.mqttReconnectInterval = v);
             AddIntInputRow(c, "\u65e5\u5fd7\u7f13\u51b2\u533a\u5927\u5c0f", cfg.logBufferSize, 1, 256, cfg.logBufferSize,
                 v => cfg.logBufferSize = v, "");
+
+            AddSectionHeader(c, "\u6bd4\u8d5b\u9632\u51b2\u7a81");
+            AddToggleRow(c, "\u6bd4\u8d5b\u6a21\u5f0f\u88ab\u52a8\u89c2\u5bdf\u6a21\u5f0f(\u53ea\u6536\u4e0d\u53d1)", gp.competitionPassiveObserverMode,
+                v => gp.competitionPassiveObserverMode = v);
+            AddToggleRow(c, "\u6bd4\u8d5b\u6a21\u5f0f\u5141\u8bb8\u53d1\u9001\u4f53\u7cfb\u9009\u62e9\u547d\u4ee4", gp.allowCustomPerformanceSelectionCommandInCompetition,
+                v => gp.allowCustomPerformanceSelectionCommandInCompetition = v);
+
+            AddSectionHeader(c, "\u540a\u5c04\u56fe\u4f20\u663e\u793a");
+            AddToggleRow(c, "拉伸到全屏显示（v3.2.1: 1024×512 原生）", gp.lobShotStretchTo720x1080,
+                v =>
+                {
+                    gp.lobShotStretchTo720x1080 = v;
+                    BattleHUD.Instance?.ApplyLobShotDisplaySettingsFromConfig();
+                });
+            AddToggleRow(c, "\u62c9\u4f38\u65f6\u4f7f\u7528 SR \u8d85\u5206\u6a21\u578b", gp.lobShotUseSrWhenStretched,
+                v =>
+                {
+                    gp.lobShotUseSrWhenStretched = v;
+                    BattleHUD.Instance?.ApplyLobShotDisplaySettingsFromConfig();
+                });
+
             AddButtonRow(c, "\ud83d\udcbe \u4fdd\u5b58\u7f51\u7edc\u914d\u7f6e", () =>
             {
                 ConfigLoader.SaveConfig();
+                GameParamsConfig.Save();
                 wmj.Log.I("[Settings] \u7f51\u7edc\u914d\u7f6e\u5df2\u4fdd\u5b58", wmj.Log.Tag.UI);
             });
         }
@@ -1753,6 +1776,19 @@ namespace UI.HUD
             System.Action<float> onChange)
         {
             string fmt = (max - min) > 50 ? "F0" : "F1";
+            // 包装回调：每次变更打印详细日志
+            var label_ = label; var unit_ = unit; var fmt_ = fmt;
+            float lastLogged = value;
+            var origChange = onChange;
+            onChange = (v) =>
+            {
+                origChange?.Invoke(v);
+                if (Mathf.Abs(v - lastLogged) > 0.0001f)
+                {
+                    wmj.Log.I($"[Settings] 修改 {label_} = {v.ToString(fmt_)}{unit_}", wmj.Log.Tag.UI);
+                    lastLogged = v;
+                }
+            };
 
             var go = new GameObject("Slider_" + label);
             go.transform.SetParent(content, false);
@@ -1859,6 +1895,14 @@ namespace UI.HUD
         private void AddToggleRow(Transform content, string label, bool value,
             System.Action<bool> onChange)
         {
+            // 包装回调：打印开关状态变化
+            var label_ = label;
+            var origChange = onChange;
+            onChange = (v) =>
+            {
+                origChange?.Invoke(v);
+                wmj.Log.I($"[Settings] 开关 {label_} = {(v ? "开启" : "关闭")}", wmj.Log.Tag.UI);
+            };
             var go = new GameObject("Toggle_" + label);
             go.transform.SetParent(content, false);
             var le = go.AddComponent<LayoutElement>();
@@ -1916,6 +1960,19 @@ namespace UI.HUD
         private void AddIntInputRow(Transform content, string label, int value,
             int min, int max, int defaultVal, System.Action<int> onChange, string unit)
         {
+            // 包装回调：每次值变化打印日志
+            var label_ = label; var unit_ = unit;
+            int lastLogged = value;
+            var origChange = onChange;
+            onChange = (v) =>
+            {
+                origChange?.Invoke(v);
+                if (v != lastLogged)
+                {
+                    wmj.Log.I($"[Settings] 修改 {label_} = {v}{unit_}", wmj.Log.Tag.UI);
+                    lastLogged = v;
+                }
+            };
             var go = new GameObject("IntInput_" + label);
             go.transform.SetParent(content, false);
             var le = go.AddComponent<LayoutElement>();
@@ -1973,6 +2030,19 @@ namespace UI.HUD
         private void AddTextInputRow(Transform content, string label, string value,
             System.Action<string> onChange)
         {
+            // 包装回调：每次文本变化打印日志
+            var label_ = label;
+            string lastLogged = value ?? "";
+            var origChange = onChange;
+            onChange = (v) =>
+            {
+                origChange?.Invoke(v);
+                if (v != lastLogged)
+                {
+                    wmj.Log.I($"[Settings] 修改 {label_} = \"{v}\"", wmj.Log.Tag.UI);
+                    lastLogged = v;
+                }
+            };
             var go = new GameObject("TextInput_" + label);
             go.transform.SetParent(content, false);
             var le = go.AddComponent<LayoutElement>();
@@ -2141,8 +2211,10 @@ namespace UI.HUD
         private void OnSaveClicked()
         {
             UILayoutManager.Save();
+            try { ConfigLoader.SaveConfig(); } catch (System.Exception e) { wmj.Log.W($"[Settings] ConfigLoader.SaveConfig 失败: {e.Message}", wmj.Log.Tag.UI); }
+            try { GameParamsConfig.Save(); } catch (System.Exception e) { wmj.Log.W($"[Settings] GameParamsConfig.Save 失败: {e.Message}", wmj.Log.Tag.UI); }
             if (BattleHUD.Instance != null) BattleHUD.Instance.RebuildHUD();
-            wmj.Log.I("[Settings] \u8bbe\u7f6e\u5df2\u4fdd\u5b58\u5e76\u5e94\u7528", wmj.Log.Tag.UI);
+            wmj.Log.I("[Settings] ✅ 所有设置已保存并应用 (UILayout + params.json + game_params.json)", wmj.Log.Tag.UI);
         }
 
         private void OnResetAllClicked()
@@ -2190,8 +2262,11 @@ namespace UI.HUD
             yield return new WaitForSeconds(PREVIEW_DELAY);
             previewCoroutine = null;
             UILayoutManager.Save();
+            try { ConfigLoader.SaveConfig(); } catch { }
+            try { GameParamsConfig.Save(); } catch { }
             if (BattleHUD.Instance != null)
                 BattleHUD.Instance.RebuildHUD();
+            wmj.Log.D("[Settings] 实时预览已保存到磁盘 (自动持久化)", wmj.Log.Tag.UI);
         }
 
         private IEnumerator ResetKeyLabelAfterDelay(RowData row)

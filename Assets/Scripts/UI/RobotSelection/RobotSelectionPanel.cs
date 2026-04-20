@@ -72,6 +72,13 @@ namespace UI.RobotSelection
 
         private const float SKEW = 5f; // 选项倾斜角度
 
+        // ─── 设置面板同款色板（深蓝导航风）───
+        private static readonly Color PanelBg    = new Color(0.04f, 0.05f, 0.10f, 0.96f);
+        private static readonly Color TitleBarBg = new Color(0.03f, 0.04f, 0.08f, 0.95f);
+        private static readonly Color ContentBg  = new Color(0.05f, 0.06f, 0.12f, 0.90f);
+        private static readonly Color Accent     = new Color(0.35f, 0.72f, 0.98f, 1f);
+        private static readonly Color BtnSave    = new Color(0.16f, 0.50f, 0.88f, 0.80f);
+
         private static readonly RobotType[] Types = {
             RobotType.Hero, RobotType.Engineer, RobotType.Infantry3,
             RobotType.Infantry4, RobotType.Infantry5, RobotType.Aerial,
@@ -175,39 +182,65 @@ namespace UI.RobotSelection
 
             var root = canvas.transform;
 
-            // 半透明背景遮罩
+            // 深色全屏遮罩（设置面板同款，突出弹出内容）
             var overlay = UIFactory.CreateFullScreenImage(root, "Overlay",
-                new Color(0.02f, 0.02f, 0.06f, 0.55f));
+                new Color(0.01f, 0.01f, 0.03f, 0.82f));
             overlay.raycastTarget = true;
 
-            // ── 主容器面板（不倾斜，接近屏幕比例 16:9 → 选一个宽扁容器）──
+            // ── 主容器面板 ──
             var panel = new GameObject("Panel").AddComponent<RectTransform>();
             panel.SetParent(root, false);
             UIFactory.SetAnchoredSize(panel, new Vector2(0, 10), new Vector2(1750, 780));
 
-            // 容器背景（亮蓝色半透明 + 圆角）
-            var panelBg = UIFactory.CreateContainerBg(panel, "Bg", 0.12f);
-            UIFactory.SetFullStretch(panelBg.rectTransform);
+            // 面板背景（深蓝导航风，圆角）
+            var panelBgGo = new GameObject("Bg");
+            panelBgGo.transform.SetParent(panel, false);
+            var panelBgImg = panelBgGo.AddComponent<Image>();
+            panelBgImg.sprite = UIShapeHelper.RoundedRect;
+            panelBgImg.type = Image.Type.Sliced;
+            panelBgImg.color = PanelBg;
+            panelBgImg.raycastTarget = true;
+            UIFactory.SetFullStretch(panelBgImg.rectTransform);
 
-            // 容器边框（淡蓝色）
-            var panelBorder = UIFactory.CreateContainerBorder(panel, "Border", 0.25f);
-            UIFactory.SetFullStretch(panelBorder.rectTransform);
+            // 顶部标题条（TitleBarBg）
+            var titleBar = new GameObject("TitleBar");
+            titleBar.transform.SetParent(panel, false);
+            var titleBarImg = titleBar.AddComponent<Image>();
+            titleBarImg.color = TitleBarBg;
+            titleBarImg.raycastTarget = false;
+            var tbRt = titleBarImg.rectTransform;
+            tbRt.anchorMin = new Vector2(0f, 0.83f);
+            tbRt.anchorMax = new Vector2(1f, 1f);
+            tbRt.offsetMin = Vector2.zero;
+            tbRt.offsetMax = Vector2.zero;
+
+            // 标题条下方细线（Accent）
+            var titleDiv = UIFactory.CreateImage(panel, "TitleDiv",
+                UIColors.WithAlpha(Accent, 0.35f));
+            titleDiv.rectTransform.anchorMin = new Vector2(0f, 0.828f);
+            titleDiv.rectTransform.anchorMax = new Vector2(1f, 0.832f);
+            titleDiv.rectTransform.offsetMin = Vector2.zero;
+            titleDiv.rectTransform.offsetMax = Vector2.zero;
 
             // ── 标题 ──
-            var title = UIFactory.CreateText(panel, "Title", "兵 种 选 择", 48,
-                TextAlignmentOptions.Center, UIColors.BrightBlue, FontStyles.Bold);
+            var title = UIFactory.CreateText(panel, "Title", "兵 种 选 择", 46,
+                TextAlignmentOptions.Center, Accent, FontStyles.Bold);
             title.rectTransform.anchorMin = new Vector2(0.05f, 0.84f);
-            title.rectTransform.anchorMax = new Vector2(0.95f, 0.97f);
+            title.rectTransform.anchorMax = new Vector2(0.95f, 0.99f);
             title.rectTransform.offsetMin = Vector2.zero;
             title.rectTransform.offsetMax = Vector2.zero;
 
-            // 分隔线
-            var divider = UIFactory.CreateImage(panel, "Divider",
-                UIColors.WithAlpha(UIColors.LightBlueBorder, 0.25f));
-            divider.rectTransform.anchorMin = new Vector2(0.04f, 0.80f);
-            divider.rectTransform.anchorMax = new Vector2(0.96f, 0.805f);
-            divider.rectTransform.offsetMin = Vector2.zero;
-            divider.rectTransform.offsetMax = Vector2.zero;
+            // 内容区背景（ContentBg）
+            var contentBg = new GameObject("ContentBg");
+            contentBg.transform.SetParent(panel, false);
+            var contentBgImg = contentBg.AddComponent<Image>();
+            contentBgImg.color = ContentBg;
+            contentBgImg.raycastTarget = false;
+            var cbRt = contentBgImg.rectTransform;
+            cbRt.anchorMin = new Vector2(0.02f, 0.13f);
+            cbRt.anchorMax = new Vector2(0.98f, 0.82f);
+            cbRt.offsetMin = Vector2.zero;
+            cbRt.offsetMax = Vector2.zero;
 
             // ── 阵营选择行 ──
             var teamRow = new GameObject("TeamRow").AddComponent<RectTransform>();
@@ -264,11 +297,11 @@ namespace UI.RobotSelection
                 cellRt.offsetMin = Vector2.zero;
                 cellRt.offsetMax = Vector2.zero;
 
-                // 背景（圆角 + skew 倾斜）
+                // 背景（圆角 + skew 倾斜）— 设置面板 RowOdd 风
                 var bg = cellGo.AddComponent<Image>();
                 bg.sprite = UIShapeHelper.RoundedRect;
                 bg.type = Image.Type.Sliced;
-                bg.color = UIColors.WithAlpha(UIColors.BrightBlue, 0.15f);
+                bg.color = new Color(0.07f, 0.08f, 0.14f, 0.85f);
                 bg.raycastTarget = true;
 
                 // 施加 skew
@@ -322,9 +355,9 @@ namespace UI.RobotSelection
             statusText.rectTransform.offsetMin = Vector2.zero;
             statusText.rectTransform.offsetMax = Vector2.zero;
 
-            // ── 确认按钮（skew 倾斜）──
+            // ── 确认按钮（skew 倾斜，设置面板保存按钮同款配色）──
             confirmBtn = UIFactory.CreateSkewedButton(panel, "Confirm", "确认选择 [Enter]",
-                UIColors.BrightBlue, SKEW, 28, UIColors.White);
+                BtnSave, SKEW, 28, UIColors.White);
             var confirmRt = confirmBtn.GetComponent<RectTransform>();
             confirmRt.anchorMin = new Vector2(0.60f, 0.02f);
             confirmRt.anchorMax = new Vector2(0.85f, 0.10f);
@@ -361,8 +394,8 @@ namespace UI.RobotSelection
             {
                 bool sel = viewModel.SelectedRobot.HasValue && viewModel.SelectedRobot.Value == Types[i];
                 robotBgs[i].color = sel
-                    ? UIColors.WithAlpha(teamAccent, 0.55f)
-                    : UIColors.WithAlpha(UIColors.BrightBlue, 0.15f);
+                    ? UIColors.WithAlpha(teamAccent, 0.65f)
+                    : new Color(0.07f, 0.08f, 0.14f, 0.85f);
                 robotLabels[i].color = sel ? UIColors.White : UIColors.Silver;
                 robotKeyLabels[i].color = sel
                     ? UIColors.WithAlpha(UIColors.White, 0.9f)
@@ -378,8 +411,8 @@ namespace UI.RobotSelection
             if (confirmBtn) confirmBtn.interactable = ok;
             if (confirmBg)
                 confirmBg.color = ok
-                    ? UIColors.WithAlpha(UIColors.BrightBlue, 0.7f)
-                    : new Color(0.15f, 0.15f, 0.2f, 0.3f);
+                    ? BtnSave
+                    : new Color(0.08f, 0.10f, 0.16f, 0.55f);
         }
 
         private void OnSelectionDone(object sender, RobotSelectionEventArgs e)

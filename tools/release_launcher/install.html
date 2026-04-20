@@ -1,0 +1,726 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>WMJ 自定义客户端 — 装备中心</title>
+<link rel="icon" type="image/png" href="WMJ_LOGO.png">
+<style>
+/* ═══════ 配色 — 严格沿用客户端 SettingsPanel.cs ═══════ */
+:root {
+    --panel-bg:     rgba(10, 13, 26, 0.96);       /* PanelBg */
+    --sidebar-bg:   rgba(8, 10, 20, 0.98);        /* SidebarBg */
+    --content-bg:   rgba(13, 15, 31, 0.90);       /* ContentBg */
+    --titlebar-bg:  rgba(8, 10, 20, 0.95);        /* TitleBarBg */
+    --row-even:     rgba(18, 20, 36, 0.60);       /* RowEven */
+    --row-odd:      rgba(13, 15, 28, 0.45);       /* RowOdd */
+    --row-focus:    rgba(38, 63, 115, 0.80);      /* RowFocused */
+    --slider-track: rgba(20, 20, 40, 0.95);       /* SliderTrack */
+    --slider-fill:  rgba(56, 140, 240, 0.70);     /* SliderFill */
+    --sidebar-active: rgba(31, 46, 82, 0.85);     /* SidebarActive */
+    --btn-save:     rgba(40, 128, 224, 0.80);     /* BtnSave */
+    --btn-reset:    rgba(204, 64, 51, 0.65);      /* BtnReset */
+    --btn-close:    rgba(89, 89, 102, 0.60);      /* BtnClose */
+    --accent:       #5AB8FA;                      /* Accent */
+    --accent-dim:   rgba(90, 184, 250, 0.55);
+    --help-blue:    #5BC1FA;
+    --help-yellow:  #EFE580;
+    --text-white:   #F1F5FF;
+    --text-silver:  #C3CDDE;
+    --text-hint:    #8BA5C7;
+    --divider:      rgba(90, 184, 250, 0.30);
+    --ok:           #6ACB7E;
+    --warn:         #EFE580;
+    --err:          #E86B63;
+}
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html, body {
+    height: 100%;
+    font-family: 'Microsoft YaHei', 'PingFang SC', 'Hiragino Sans GB', 'Noto Sans CJK SC', 'Segoe UI', sans-serif;
+    color: var(--text-white);
+    background:
+        radial-gradient(ellipse at 20% 0%, rgba(40, 90, 180, 0.10), transparent 55%),
+        radial-gradient(ellipse at 80% 100%, rgba(40, 90, 180, 0.10), transparent 60%),
+        #04060C;
+    overflow: hidden;
+    -webkit-font-smoothing: antialiased;
+}
+
+.panel {
+    position: absolute;
+    inset: 3% 7%;
+    background: var(--panel-bg);
+    border: 1px solid rgba(90, 184, 250, 0.10);
+    display: grid;
+    grid-template-rows: 9% 1fr 5%;
+    box-shadow:
+        0 0 0 1px rgba(90, 184, 250, 0.06),
+        0 30px 120px rgba(0, 0, 0, 0.85);
+}
+.panel::before {
+    /* 顶部细蓝线 — 与 Unity 端 TopAccent 对齐 */
+    content: '';
+    position: absolute;
+    left: 0; right: 0; top: -2px; height: 2px;
+    background: var(--accent);
+}
+
+/* ═══════ 标题栏 ═══════ */
+.titlebar {
+    background: var(--titlebar-bg);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0 22px;
+    border-bottom: 1px solid var(--divider);
+    gap: 18px;
+}
+.brand { display: flex; align-items: center; gap: 14px; min-width: 0; }
+.brand img.logo {
+    height: 56px; width: auto;
+    object-fit: contain;
+    flex-shrink: 0;
+}
+.title-main {
+    font-size: 22px;
+    font-weight: 700;
+    color: var(--text-white);
+    letter-spacing: 1.5px;
+    line-height: 1.1;
+}
+.title-sub {
+    font-size: 12px;
+    color: var(--text-hint);
+    letter-spacing: 4px;
+    margin-top: 4px;
+}
+
+.shortcuts {
+    font-size: 13px;
+    color: var(--text-hint);
+    white-space: nowrap;
+}
+.shortcuts kbd {
+    color: var(--help-yellow);
+    font-family: inherit;
+    font-weight: 600;
+    margin: 0 2px;
+}
+
+/* ═══════ 主体 ═══════ */
+.body { display: grid; grid-template-columns: 18% 1fr; }
+
+.sidebar {
+    background: var(--sidebar-bg);
+    display: flex;
+    flex-direction: column;
+    overflow-y: auto;
+}
+.sidebar::-webkit-scrollbar { width: 0; }
+.menu-item {
+    display: grid;
+    grid-template-columns: 3% 14% 1fr;
+    align-items: center;
+    height: calc(100% / 7);
+    min-height: 46px;
+    padding: 2px 0;
+    cursor: pointer;
+    transition: background 0.15s;
+    color: var(--text-silver);
+    border-bottom: 1px solid rgba(90, 184, 250, 0.05);
+    user-select: none;
+}
+.menu-item:hover { background: rgba(31, 46, 82, 0.40); }
+.menu-item.active {
+    background: var(--sidebar-active);
+    color: var(--text-white);
+}
+.menu-item .accent-bar { width: 3px; height: 70%; background: transparent; transition: background 0.15s; }
+.menu-item.active .accent-bar { background: var(--accent); }
+.menu-item .keyhint {
+    font-size: 14px; font-weight: 700;
+    color: var(--text-hint);
+    text-align: center;
+    font-family: 'Cascadia Mono', 'Consolas', monospace;
+}
+.menu-item.active .keyhint { color: var(--accent); }
+.menu-item .label { font-size: 15px; padding-left: 2px; }
+
+.content { background: var(--content-bg); overflow-y: auto; position: relative; }
+.content::-webkit-scrollbar { width: 6px; }
+.content::-webkit-scrollbar-thumb { background: rgba(90, 184, 250, 0.20); }
+
+.page { display: none; padding: 12px 24px 24px; animation: fade .25s ease; }
+.page.active { display: block; }
+@keyframes fade { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
+
+.section {
+    color: var(--accent);
+    font-size: 18px; font-weight: 700;
+    padding: 8px 14px;
+    margin: 16px 0 8px;
+    background: rgba(90, 184, 250, 0.06);
+    border-left: 2px solid var(--accent);
+    letter-spacing: 0.5px;
+}
+
+.row {
+    display: flex; align-items: center;
+    min-height: 46px; padding: 10px 18px;
+    background: var(--row-even); color: var(--text-silver);
+    font-size: 14.5px; gap: 14px;
+}
+.row:nth-child(even of .row) { background: var(--row-odd); }
+.row .lbl { min-width: 180px; flex-shrink: 0; color: var(--text-hint); }
+.row .val { color: var(--text-white); font-weight: 600; }
+.row .val.accent { color: var(--accent); }
+.row .hint { font-size: 12px; color: var(--text-hint); margin-left: auto; }
+
+.btn {
+    display: inline-flex; align-items: center; gap: 8px;
+    padding: 10px 22px;
+    background: var(--btn-save);
+    color: var(--text-white);
+    font-size: 14px; font-weight: 600;
+    border: 1px solid rgba(90, 184, 250, 0.30);
+    border-radius: 2px; cursor: pointer;
+    transition: all 0.15s;
+    font-family: inherit; letter-spacing: 0.5px;
+    text-decoration: none;
+}
+.btn:hover { background: rgba(56, 150, 245, 0.95); }
+.btn.ghost { background: var(--btn-close); border-color: rgba(255,255,255,0.15); }
+.btn.danger { background: var(--btn-reset); border-color: rgba(204, 64, 51, 0.50); }
+
+.plat-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin: 12px 0; }
+.plat-card {
+    background: var(--row-even);
+    border: 1px solid transparent;
+    padding: 18px; cursor: pointer;
+    transition: all 0.15s;
+}
+.plat-card:hover { background: var(--row-focus); border-color: var(--accent-dim); }
+.plat-card.selected {
+    background: var(--row-focus);
+    border-color: var(--accent);
+}
+.plat-card .os-icon { font-size: 22px; color: var(--accent); margin-bottom: 6px; }
+.plat-card .os-name { font-size: 17px; font-weight: 600; color: var(--text-white); }
+.plat-card .os-req  { font-size: 12px; color: var(--text-hint); margin-top: 6px; }
+.plat-card .os-size { font-size: 13px; color: var(--accent); margin-top: 8px; font-weight: 600; }
+
+pre.cmd {
+    background: #05080F; color: #BFD7F5;
+    padding: 14px 60px 14px 18px;
+    border-left: 2px solid var(--accent);
+    font-family: 'Cascadia Mono', 'Consolas', 'Courier New', monospace;
+    font-size: 13px; line-height: 1.7;
+    position: relative; overflow-x: auto;
+    white-space: pre-wrap; word-break: break-all;
+    margin: 10px 0 8px;
+}
+pre.cmd .copy {
+    position: absolute; top: 8px; right: 8px;
+    background: var(--btn-save); color: var(--text-white);
+    border: 1px solid rgba(90, 184, 250, 0.30);
+    cursor: pointer; font-size: 12px;
+    padding: 4px 10px; border-radius: 2px;
+    font-family: inherit;
+}
+pre.cmd .copy:hover { background: rgba(56, 150, 245, 0.95); }
+pre.cmd .copy.ok { background: var(--ok); border-color: var(--ok); }
+
+.version-box {
+    display: grid;
+    grid-template-columns: auto 1fr;
+    gap: 6px 16px;
+    padding: 14px 18px;
+    background: var(--row-even);
+    font-size: 14px;
+    font-family: 'Cascadia Mono', 'Consolas', monospace;
+    border-left: 2px solid var(--accent);
+}
+.version-box .k { color: var(--text-hint); }
+.version-box .v { color: var(--text-white); }
+.version-box .v.hl { color: var(--accent); font-weight: 700; }
+
+.hero {
+    padding: 18px 4px 14px;
+    border-bottom: 1px solid rgba(90, 184, 250, 0.10);
+    margin-bottom: 6px;
+}
+.hero h2 {
+    font-size: 24px; font-weight: 700;
+    color: var(--text-white);
+    margin-bottom: 6px; letter-spacing: 0.5px;
+}
+.hero h2 .accent { color: var(--accent); }
+.hero p.sub { color: var(--text-silver); font-size: 14px; line-height: 1.7; max-width: 800px; }
+.hero .chips { margin-top: 14px; display: flex; gap: 8px; flex-wrap: wrap; }
+.hero .chip {
+    padding: 4px 12px;
+    background: rgba(90, 184, 250, 0.08);
+    border: 1px solid rgba(90, 184, 250, 0.25);
+    color: var(--accent);
+    font-size: 12px; letter-spacing: 0.5px;
+    border-radius: 2px;
+}
+
+.steps { display: grid; gap: 10px; margin-top: 8px; }
+.step {
+    display: grid; grid-template-columns: 38px 1fr; gap: 14px;
+    padding: 12px 16px;
+    background: var(--row-even);
+    align-items: start;
+    border-left: 2px solid var(--accent-dim);
+}
+.step .num {
+    background: var(--accent);
+    color: #04060C;
+    font-size: 15px; font-weight: 700;
+    width: 28px; height: 28px;
+    display: grid; place-items: center;
+    border-radius: 2px;
+}
+.step .body h4 { font-size: 15px; color: var(--text-white); margin-bottom: 4px; }
+.step .body p  { font-size: 13px; color: var(--text-silver); line-height: 1.6; }
+
+ul.bullet { margin: 8px 0 8px 18px; color: var(--text-silver); font-size: 14px; line-height: 1.85; }
+ul.bullet li::marker { color: var(--accent); }
+
+.helpbar {
+    background: var(--titlebar-bg);
+    border-top: 1px solid var(--divider);
+    display: flex; align-items: center;
+    justify-content: center; gap: 22px;
+    color: var(--text-silver); font-size: 13.5px;
+}
+.helpbar kbd { color: var(--help-blue); font-family: inherit; font-weight: 600; }
+.helpbar .slogan {
+    color: var(--accent);
+    letter-spacing: 6px;
+    font-weight: 600;
+    margin-left: 24px;
+}
+
+.callout {
+    padding: 12px 16px;
+    background: rgba(239, 229, 128, 0.06);
+    border-left: 2px solid var(--help-yellow);
+    color: var(--text-silver);
+    font-size: 13.5px; line-height: 1.7;
+    margin: 10px 0;
+}
+.callout.err { background: rgba(232, 107, 99, 0.06); border-color: var(--err); }
+.callout.ok  { background: rgba(106, 203, 126, 0.06); border-color: var(--ok); }
+.callout .ttl { display: block; font-weight: 700; margin-bottom: 4px; color: var(--help-yellow); }
+.callout.err .ttl { color: var(--err); }
+.callout.ok  .ttl { color: var(--ok); }
+
+@media (max-width: 900px) {
+    .panel { inset: 0; border: none; }
+    .body { grid-template-columns: 44% 1fr; }
+    .title-main { font-size: 17px; }
+    .title-sub, .shortcuts { display: none; }
+    .helpbar .slogan { display: none; }
+}
+</style>
+</head>
+<body>
+
+<div class="panel">
+
+    <div class="titlebar">
+        <div class="brand">
+            <img class="logo" src="WMJ_LOGO.png" alt="WMJ">
+            <div>
+                <div class="title-main">WMJ 自定义客户端</div>
+                <div class="title-sub">百铸千炼 · 我亦为剑</div>
+            </div>
+        </div>
+        <div class="shortcuts">
+            <kbd>[1~7]</kbd> 切页  <kbd>[↑↓]</kbd> 导航  <kbd>[C]</kbd> 复制  <kbd>[Esc]</kbd> 返回
+        </div>
+    </div>
+
+    <div class="body">
+        <nav class="sidebar">
+            <div class="menu-item active" data-page="install"><div class="accent-bar"></div><div class="keyhint">1</div><div class="label">一键安装</div></div>
+            <div class="menu-item" data-page="manual"><div class="accent-bar"></div><div class="keyhint">2</div><div class="label">手动部署</div></div>
+            <div class="menu-item" data-page="update"><div class="accent-bar"></div><div class="keyhint">3</div><div class="label">更新机制</div></div>
+            <div class="menu-item" data-page="version"><div class="accent-bar"></div><div class="keyhint">4</div><div class="label">版本信息</div></div>
+            <div class="menu-item" data-page="requirements"><div class="accent-bar"></div><div class="keyhint">5</div><div class="label">系统要求</div></div>
+            <div class="menu-item" data-page="troubleshoot"><div class="accent-bar"></div><div class="keyhint">6</div><div class="label">问题排查</div></div>
+            <div class="menu-item" data-page="about"><div class="accent-bar"></div><div class="keyhint">7</div><div class="label">关于战队</div></div>
+        </nav>
+
+        <main class="content" id="content">
+
+        <section class="page active" data-page="install">
+            <div class="hero">
+                <h2>一键<span class="accent">安装</span></h2>
+                <p class="sub">
+                    选择操作系统，复制一行命令即可完成首次部署。启动后客户端内置自动更新检测：
+                    每次启动校验 manifest.json，仅下载变化部分，SHA-256 校验，原子替换，<b>不会重复下载，不会重复拷贝</b>。
+                </p>
+                <div class="chips">
+                    <span class="chip">HTTPS 加密</span>
+                    <span class="chip">SHA-256 校验</span>
+                    <span class="chip">增量更新</span>
+                    <span class="chip">断点续传</span>
+                    <span class="chip">游戏内进度 UI</span>
+                    <span class="chip">Linux / Windows</span>
+                </div>
+                <div style="margin-top: 16px; display: flex; gap: 10px; flex-wrap: wrap;">
+                    <a class="btn" href="download.html" style="text-decoration:none;">⬇  浏览器直接下载（带进度）</a>
+                    <span style="align-self:center; font-size:12.5px; color:var(--text-hint);">推荐：可视化进度，无需终端</span>
+                </div>
+            </div>
+
+            <div class="section">选择平台</div>
+            <div class="plat-grid">
+                <div class="plat-card selected" data-plat="linux">
+                    <div class="os-icon">🐧</div>
+                    <div class="os-name">Linux 64-bit</div>
+                    <div class="os-req">Ubuntu 22.04+ / glibc ≥ 2.35</div>
+                    <div class="os-size" id="sz-linux">加载中...</div>
+                </div>
+                <div class="plat-card" data-plat="windows">
+                    <div class="os-icon">🪟</div>
+                    <div class="os-name">Windows 64-bit</div>
+                    <div class="os-req">Windows 10 1809+ / Windows 11</div>
+                    <div class="os-size" id="sz-windows">加载中...</div>
+                </div>
+            </div>
+
+            <div class="section">复制即用 — 首次安装</div>
+
+            <div id="cmd-linux">
+                <div class="row" style="font-weight:600;"><span class="lbl">Linux（bash / zsh）</span><span class="hint">默认装到 ~/RoboMasterClient</span></div>
+                <pre class="cmd"><button class="copy" data-copy="linux-cmd">复制</button><span id="linux-cmd">mkdir -p ~/RoboMasterClient &amp;&amp; cd ~/RoboMasterClient &amp;&amp; \
+curl -sSL https://antientropy.xin/robomaster/Linux64/launch.sh -o launch.sh &amp;&amp; \
+chmod +x launch.sh &amp;&amp; ./launch.sh</span></pre>
+                <div class="callout ok">
+                    <span class="ttl">下次启动</span>
+                    在同一目录运行 <code>./launch.sh</code>。如有更新，客户端会在游戏内弹出带进度条的更新面板。
+                </div>
+            </div>
+
+            <div id="cmd-windows" style="display:none;">
+                <div class="row" style="font-weight:600;"><span class="lbl">Windows（cmd / PowerShell）</span><span class="hint">默认装到 C:\RoboMasterClient</span></div>
+                <pre class="cmd"><button class="copy" data-copy="win-cmd">复制</button><span id="win-cmd">mkdir C:\RoboMasterClient &amp; cd /d C:\RoboMasterClient &amp; ^
+curl -o launch.bat https://antientropy.xin/robomaster/Windows64/launch.bat &amp; ^
+launch.bat</span></pre>
+                <div class="callout ok">
+                    <span class="ttl">下次启动</span>
+                    双击 <code>launch.bat</code>。客户端启动后会自动弹出更新提示。
+                </div>
+            </div>
+
+            <div class="section">启动器直链</div>
+            <div class="row">
+                <span class="lbl">Linux 启动器</span>
+                <a class="btn" href="https://antientropy.xin/robomaster/Linux64/launch.sh" download>下载 launch.sh</a>
+                <span class="hint"><code>chmod +x launch.sh &amp;&amp; ./launch.sh</code></span>
+            </div>
+            <div class="row">
+                <span class="lbl">Windows 启动器</span>
+                <a class="btn" href="https://antientropy.xin/robomaster/Windows64/launch.bat" download>下载 launch.bat</a>
+                <span class="hint">下载后双击运行</span>
+            </div>
+        </section>
+
+        <section class="page" data-page="manual">
+            <div class="hero">
+                <h2>手动<span class="accent">部署</span></h2>
+                <p class="sub">完全掌控每一步，适用于服务器批量部署或特殊网络环境。</p>
+            </div>
+
+            <div class="section">Linux / macOS</div>
+            <div class="steps">
+                <div class="step"><div class="num">1</div><div class="body">
+                    <h4>检查依赖</h4>
+                    <p>启动器依赖 <code>curl</code>、<code>python3</code>、<code>sha256sum</code>。</p>
+                    <pre class="cmd"><button class="copy" data-copy="dep-linux">复制</button><span id="dep-linux">for c in curl python3 sha256sum; do command -v $c || echo "缺少: $c"; done</span></pre>
+                </div></div>
+                <div class="step"><div class="num">2</div><div class="body">
+                    <h4>新建安装目录</h4>
+                    <pre class="cmd"><button class="copy" data-copy="mk-linux">复制</button><span id="mk-linux">mkdir -p ~/RoboMasterClient &amp;&amp; cd ~/RoboMasterClient</span></pre>
+                </div></div>
+                <div class="step"><div class="num">3</div><div class="body">
+                    <h4>下载启动器</h4>
+                    <pre class="cmd"><button class="copy" data-copy="dl-linux">复制</button><span id="dl-linux">curl -sSL https://antientropy.xin/robomaster/Linux64/launch.sh -o launch.sh &amp;&amp; chmod +x launch.sh</span></pre>
+                </div></div>
+                <div class="step"><div class="num">4</div><div class="body">
+                    <h4>运行（首次约 318 MB）</h4>
+                    <pre class="cmd"><button class="copy" data-copy="run-linux">复制</button><span id="run-linux">./launch.sh</span></pre>
+                </div></div>
+            </div>
+
+            <div class="section">Windows (cmd)</div>
+            <div class="steps">
+                <div class="step"><div class="num">1</div><div class="body">
+                    <h4>确认系统版本</h4>
+                    <p>需要 Windows 10 1809 (Build 17763) 或更高。</p>
+                </div></div>
+                <div class="step"><div class="num">2</div><div class="body">
+                    <h4>建目录并进入</h4>
+                    <pre class="cmd"><button class="copy" data-copy="mk-win">复制</button><span id="mk-win">mkdir C:\RoboMasterClient
+cd /d C:\RoboMasterClient</span></pre>
+                </div></div>
+                <div class="step"><div class="num">3</div><div class="body">
+                    <h4>下载启动器</h4>
+                    <pre class="cmd"><button class="copy" data-copy="dl-win">复制</button><span id="dl-win">curl -o launch.bat https://antientropy.xin/robomaster/Windows64/launch.bat</span></pre>
+                </div></div>
+                <div class="step"><div class="num">4</div><div class="body">
+                    <h4>运行（首次约 334 MB）</h4>
+                    <pre class="cmd"><button class="copy" data-copy="run-win">复制</button><span id="run-win">launch.bat</span></pre>
+                </div></div>
+            </div>
+        </section>
+
+        <section class="page" data-page="update">
+            <div class="hero">
+                <h2>自动<span class="accent">增量更新</span>机制</h2>
+                <p class="sub">两层保障——启动器层面 / 客户端层面，均基于 manifest.json + SHA-256 短路，避免重复下载与重复拷贝。</p>
+            </div>
+
+            <div class="section">游戏内自动检测（推荐）</div>
+            <ul class="bullet">
+                <li>客户端启动时立刻对比远端 manifest 与本地 <code>manifest.local.json</code></li>
+                <li>检测到更新 → 弹出与 SettingsPanel 同样风格的更新面板（含版本对比、文件数、下载体积）</li>
+                <li>用户按 <kbd>[U]</kbd> 立即更新 → 切换到下载进度页：总进度条 / 当前文件 / 下载速率</li>
+                <li>下载到 <code>.update_staging/</code> 暂存目录，每个文件 SHA-256 校验通过后保留</li>
+                <li>全部完成 → 写 swap 脚本 → Unity 退出 → 脚本原子替换并自动重启客户端</li>
+                <li>可按 <kbd>[S]</kbd> 跳过本次、<kbd>[D]</kbd> 写入 <code>.wmj_disable_auto_check</code> 永久禁用</li>
+            </ul>
+
+            <div class="section">启动器层面（首次部署）</div>
+            <ul class="bullet">
+                <li>manifest 按 <code>path / size / sha256</code> 三元组寻址</li>
+                <li>已匹配文件 <b>零读盘</b>（用 manifest.local.json 缓存短路）</li>
+                <li>变更文件以 <code>*.tmp.download</code> 断点续传 → SHA 校验 → <code>os.replace</code> 原子替换</li>
+                <li>最多 5 轮重试，抗偶发 SSL / 连接中断</li>
+                <li>远端已移除的文件同步删除，但保护 <code>launch.sh / launch.bat / manifest.local.json</code></li>
+            </ul>
+
+            <div class="section">环境变量</div>
+            <div class="row"><span class="lbl"><code>ROBOMASTER_SKIP_UPDATE</code></span><span class="val">=1 跳过更新直接启动</span><span class="hint">赛场 / 离线</span></div>
+            <div class="row"><span class="lbl"><code>ROBOMASTER_UPDATE_URL</code></span><span class="val">自定义更新源基址</span><span class="hint">默认 antientropy.xin</span></div>
+            <div class="row"><span class="lbl"><code>WMJ_DISABLE_AUTO_CHECK</code></span><span class="val">=1 客户端内不再弹更新</span><span class="hint">仅保留启动器</span></div>
+
+            <div class="section">手动操作</div>
+            <div class="row"><span class="lbl">强制全量重装</span><span class="val">删除 <code>manifest.local.json</code> 后再运行</span></div>
+            <div class="row"><span class="lbl">清理本地</span><span class="val">直接删除 <code>RoboMasterClient/</code> 目录</span></div>
+
+            <div class="callout">
+                <span class="ttl">性能</span>
+                单次增量（如 Assembly-CSharp.dll 变更）通常 &lt; 5 秒；首次全量约 300 MB；
+                命中缓存时零网络、零拷贝。
+            </div>
+        </section>
+
+        <section class="page" data-page="version">
+            <div class="hero">
+                <h2>当前在线<span class="accent">版本</span></h2>
+                <p class="sub">页面自动从 manifest.json 拉取最新元数据。</p>
+            </div>
+
+            <div class="section">Linux64</div>
+            <div class="version-box">
+                <span class="k">version</span><span class="v hl" id="v-linux-version">加载中...</span>
+                <span class="k">build_time</span><span class="v" id="v-linux-time">—</span>
+                <span class="k">source_sha</span><span class="v" id="v-linux-sha">—</span>
+                <span class="k">file_count</span><span class="v" id="v-linux-files">—</span>
+                <span class="k">total_size</span><span class="v" id="v-linux-size">—</span>
+                <span class="k">manifest</span><span class="v"><a style="color:var(--accent)" href="https://antientropy.xin/robomaster/Linux64/manifest.json" target="_blank">查看 JSON ↗</a></span>
+            </div>
+
+            <div class="section">Windows64</div>
+            <div class="version-box">
+                <span class="k">version</span><span class="v hl" id="v-windows-version">加载中...</span>
+                <span class="k">build_time</span><span class="v" id="v-windows-time">—</span>
+                <span class="k">source_sha</span><span class="v" id="v-windows-sha">—</span>
+                <span class="k">file_count</span><span class="v" id="v-windows-files">—</span>
+                <span class="k">total_size</span><span class="v" id="v-windows-size">—</span>
+                <span class="k">manifest</span><span class="v"><a style="color:var(--accent)" href="https://antientropy.xin/robomaster/Windows64/manifest.json" target="_blank">查看 JSON ↗</a></span>
+            </div>
+
+            <div style="margin-top:16px; display:flex; gap:10px; flex-wrap:wrap;">
+                <button class="btn" onclick="loadVersions()">刷新版本信息</button>
+                <a class="btn ghost" href="https://antientropy.xin/robomaster/VERSION.txt" target="_blank">VERSION.txt</a>
+            </div>
+        </section>
+
+        <section class="page" data-page="requirements">
+            <div class="hero">
+                <h2>系统<span class="accent">要求</span></h2>
+                <p class="sub">基于 Unity 2022.3 LTS 打包。</p>
+            </div>
+            <div class="section">Linux64</div>
+            <div class="row"><span class="lbl">OS</span><span class="val">Ubuntu 22.04 LTS / Fedora 37+ / Arch</span></div>
+            <div class="row"><span class="lbl">glibc</span><span class="val">≥ 2.35</span></div>
+            <div class="row"><span class="lbl">GPU</span><span class="val">Vulkan 1.1 / OpenGL 4.5</span><span class="hint">Intel / NVIDIA / AMD</span></div>
+            <div class="row"><span class="lbl">磁盘</span><span class="val">≥ 1 GB</span></div>
+            <div class="row"><span class="lbl">依赖</span><span class="val"><code>curl</code> · <code>python3</code> · <code>sha256sum</code></span></div>
+
+            <div class="section">Windows64</div>
+            <div class="row"><span class="lbl">OS</span><span class="val">Windows 10 1809+ / Windows 11</span></div>
+            <div class="row"><span class="lbl">内置工具</span><span class="val"><code>curl.exe</code> · PowerShell 5+ · <code>Get-FileHash</code></span></div>
+            <div class="row"><span class="lbl">GPU</span><span class="val">DirectX 11 / 12</span></div>
+
+            <div class="section">网络</div>
+            <div class="row"><span class="lbl">首次下载</span><span class="val">约 300 ~ 340 MB</span></div>
+            <div class="row"><span class="lbl">后续增量</span><span class="val">通常 &lt; 10 MB</span></div>
+            <div class="row"><span class="lbl">端口</span><span class="val">HTTPS 443</span></div>
+        </section>
+
+        <section class="page" data-page="troubleshoot">
+            <div class="hero">
+                <h2>问题<span class="accent">排查</span></h2>
+                <p class="sub">实战沉淀的常见问题与解法。</p>
+            </div>
+
+            <div class="section">Q1: 启动时提示缺少 UnityPlayer.so</div>
+            <div class="callout err">
+                <span class="ttl">解决</span> 删除 <code>manifest.local.json</code> 后再次运行启动器。
+            </div>
+            <div class="section">Q2: Linux 提示 GLIBC_2.34 not found</div>
+            <div class="callout err">
+                <span class="ttl">解决</span> 升级到 Ubuntu 22.04+ / Debian 12 / Fedora 37+。
+            </div>
+            <div class="section">Q3: 下载中断 SSL_ERROR_SYSCALL</div>
+            <div class="callout">
+                <span class="ttl">解决</span> 再次运行启动器即可，已完成的文件会被 SHA-256 跳过。
+            </div>
+            <div class="section">Q4: 比赛断网能启动吗</div>
+            <div class="callout ok">
+                <span class="ttl">可以</span> 首次安装完成后，manifest 拉取失败也会 fallback 启动；或设置 <code>ROBOMASTER_SKIP_UPDATE=1</code>。
+            </div>
+            <div class="section">Q5: 客户端内更新提示能关闭吗</div>
+            <div class="callout">
+                <span class="ttl">能</span> 弹窗中按 <kbd>[D]</kbd>，或设置 <code>WMJ_DISABLE_AUTO_CHECK=1</code>。
+            </div>
+        </section>
+
+        <section class="page" data-page="about">
+            <div class="hero">
+                <h2>关于 <span class="accent">WMJ</span> 自定义客户端</h2>
+                <p class="sub">
+                    基于 Unity 2022.3 打造的 RoboMaster 2026 超级对抗赛 / 高校系列赛 专用客户端。
+                    集成视觉吊射、能量机关辅助、UDP 低延时图传、自定义参数调优等模块。
+                </p>
+            </div>
+
+            <div class="section">技术栈</div>
+            <div class="row"><span class="lbl">引擎</span><span class="val">Unity 2022.3 LTS · Mono</span></div>
+            <div class="row"><span class="lbl">协议</span><span class="val">RoboMaster 2026 V1.3.0</span></div>
+            <div class="row"><span class="lbl">传输</span><span class="val">MQTT（指令）+ UDP（视频）</span></div>
+            <div class="row"><span class="lbl">视频</span><span class="val">H.264 / H.265 · FFmpeg + NVDEC / QSV</span></div>
+            <div class="row"><span class="lbl">更新</span><span class="val">manifest + SHA-256 + HTTPS 增量 · 游戏内进度 UI</span></div>
+
+            <div class="section">分发</div>
+            <div class="row"><span class="lbl">域名</span><span class="val"><a style="color:var(--accent)" href="https://antientropy.xin/robomaster/" target="_blank">antientropy.xin/robomaster/ ↗</a></span></div>
+            <div class="row"><span class="lbl">服务器</span><span class="val">nginx 1.20.1 · HTTP/2 · TLS 1.3</span></div>
+
+            <div class="section">快速链接</div>
+            <div style="display:flex; gap:10px; flex-wrap:wrap; margin-top:10px;">
+                <a class="btn" href="https://antientropy.xin/robomaster/Linux64/manifest.json" target="_blank">Linux Manifest</a>
+                <a class="btn" href="https://antientropy.xin/robomaster/Windows64/manifest.json" target="_blank">Windows Manifest</a>
+                <a class="btn ghost" href="https://antientropy.xin/robomaster/VERSION.txt" target="_blank">VERSION.txt</a>
+            </div>
+        </section>
+        </main>
+    </div>
+
+    <div class="helpbar">
+        <span><kbd>[1~7]</kbd> 直达页面</span>
+        <span><kbd>[↑↓]</kbd>/<kbd>[W/S]</kbd> 切换</span>
+        <span><kbd>[C]</kbd> 复制命令</span>
+        <span><kbd>[Esc]</kbd> 返回顶部</span>
+        <span class="slogan">百铸千炼 · 我亦为剑</span>
+    </div>
+</div>
+
+<script>
+const menu = document.querySelectorAll('.menu-item');
+const pages = document.querySelectorAll('.page');
+let currentIdx = 0;
+function selectPage(idx) {
+    if (idx < 0 || idx >= menu.length) return;
+    menu.forEach(m => m.classList.remove('active'));
+    pages.forEach(p => p.classList.remove('active'));
+    menu[idx].classList.add('active');
+    document.querySelector(`.page[data-page="${menu[idx].dataset.page}"]`).classList.add('active');
+    currentIdx = idx;
+    document.getElementById('content').scrollTop = 0;
+}
+menu.forEach((m, i) => m.addEventListener('click', () => selectPage(i)));
+
+document.querySelectorAll('.plat-card').forEach(card => {
+    card.addEventListener('click', () => {
+        document.querySelectorAll('.plat-card').forEach(c => c.classList.remove('selected'));
+        card.classList.add('selected');
+        const plat = card.dataset.plat;
+        document.getElementById('cmd-linux').style.display   = plat === 'linux' ? '' : 'none';
+        document.getElementById('cmd-windows').style.display = plat === 'windows' ? '' : 'none';
+    });
+});
+
+document.querySelectorAll('.copy').forEach(btn => {
+    btn.addEventListener('click', async () => {
+        const txt = document.getElementById(btn.dataset.copy).innerText;
+        try {
+            await navigator.clipboard.writeText(txt);
+            const old = btn.textContent;
+            btn.textContent = '已复制 ✓';
+            btn.classList.add('ok');
+            setTimeout(() => { btn.textContent = old; btn.classList.remove('ok'); }, 1400);
+        } catch (e) { btn.textContent = '失败'; }
+    });
+});
+
+document.addEventListener('keydown', (e) => {
+    if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
+    const key = e.key;
+    if (/^[1-7]$/.test(key)) { selectPage(parseInt(key) - 1); e.preventDefault(); }
+    else if (key === 'ArrowDown' || key === 's' || key === 'S') { selectPage(Math.min(currentIdx + 1, menu.length - 1)); e.preventDefault(); }
+    else if (key === 'ArrowUp'   || key === 'w' || key === 'W') { selectPage(Math.max(currentIdx - 1, 0)); e.preventDefault(); }
+    else if (key === 'Escape') { selectPage(0); document.getElementById('content').scrollTop = 0; }
+    else if (key === 'c' || key === 'C') {
+        const btn = document.querySelector('.page.active .copy');
+        if (btn) btn.click();
+    }
+});
+
+function fmtBytes(b) {
+    if (b < 1024) return b + ' B';
+    if (b < 1048576) return (b / 1024).toFixed(1) + ' KB';
+    if (b < 1073741824) return (b / 1048576).toFixed(1) + ' MB';
+    return (b / 1073741824).toFixed(2) + ' GB';
+}
+async function loadManifest(plat) {
+    const pfx = plat === 'Linux64' ? 'linux' : 'windows';
+    try {
+        const r = await fetch(`https://antientropy.xin/robomaster/${plat}/manifest.json`, { cache: 'no-store' });
+        if (!r.ok) throw new Error('HTTP ' + r.status);
+        const m = await r.json();
+        const totalSize = m.files.reduce((s, f) => s + f.size, 0);
+        document.getElementById(`v-${pfx}-version`).textContent = m.version || '—';
+        document.getElementById(`v-${pfx}-time`).textContent = m.build_time || '—';
+        document.getElementById(`v-${pfx}-sha`).textContent = m.source_sha || '—';
+        document.getElementById(`v-${pfx}-files`).textContent = m.files.length + ' 个文件';
+        document.getElementById(`v-${pfx}-size`).textContent = fmtBytes(totalSize);
+        document.getElementById(`sz-${pfx}`).textContent =
+            `${fmtBytes(totalSize)}   ·   v${(m.version || '').split('-').slice(0,2).join('-') || '未知'}`;
+    } catch (e) {
+        document.getElementById(`v-${pfx}-version`).textContent = '❌ ' + e.message;
+        document.getElementById(`sz-${pfx}`).textContent = '— 无法连接 —';
+    }
+}
+function loadVersions() { loadManifest('Linux64'); loadManifest('Windows64'); }
+loadVersions();
+</script>
+</body>
+</html>

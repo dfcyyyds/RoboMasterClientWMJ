@@ -1,0 +1,106 @@
+{
+  "title": "操作手现场速查",
+  "subtitle": "按 [H] 关闭  /  [PgUp][PgDn] 翻页  /  [W/S ↑↓] 滚动",
+  "footer": "本面板由 quick_reference.json 自动生成 — 修改后保存即可热更（重新打开 H）",
+  "sections": [
+    {
+      "name": "1. 上场前 30 秒检查",
+      "color": "#3FA9F5",
+      "items": [
+        "params.json   ->  isCompetitionMode = true",
+        "params.json   ->  serverHost / serverPort 已对准裁判系统",
+        "game_params.json  ->  competitionPassiveObserverMode = true（默认）",
+        "game_params.json  ->  allowCustomPerformanceSelectionCommandInCompetition = false",
+        "MQTT clientId 自动追加 _obs 后缀，不会顶掉主客户端",
+        "F10 设置面板 -> 网络配置：确认 IP / 端口 / clientId 正确",
+        "F1 重新选择兵种：英雄/步兵/工程… 必须与实际车一致"
+      ]
+    },
+    {
+      "name": "2. 全局快捷键（任意界面）",
+      "color": "#7FD27F",
+      "items": [
+        "H            打开 / 关闭本速查面板",
+        "F10          打开 / 关闭设置面板",
+        "F1           重新选择兵种（仅设置面板内）",
+        "Esc          关闭面板 / 取消编辑 / 返回上一层",
+        "Ctrl + S     设置面板内：保存并预览",
+        "Ctrl + R     设置面板内：全部恢复默认值"
+      ]
+    },
+    {
+      "name": "3. 设置面板（F10）键位",
+      "color": "#7FD27F",
+      "items": [
+        "1~9 0 - =     直接跳转到第 1~12 个分类",
+        "W / ↑   S / ↓     侧边栏 / 行 上下移动",
+        "A / ←   D / →     滑块减/增 · 整数 -1/+1 · 开关切换",
+        "Space / Enter     切换开关 · 进入文字编辑",
+        "Shift + A/D       滑块精细微调（步长 ×0.2）",
+        "R                  当前行恢复默认值",
+        "Tab                侧边栏 ↔ 内容区 焦点切换"
+      ]
+    },
+    {
+      "name": "4. 英雄吊射（LobShot）",
+      "color": "#FFC857",
+      "items": [
+        "进入吊射：       Shift（仅在主控模式下生效）",
+        "确认部署：       Enter",
+        "取消部署：       Esc",
+        "观察者模式下：    本地按键被禁用，状态由服务器 DeployModeStatusSync 自动同步",
+        "图传分辨率：      1024×512 H.264 (v3.2.1 原生采集)",
+        "若图传花屏/卡顿：  设置面板 -> 网络配置 -> 关闭超分(SR)，观察 ProfilerCaptures"
+      ]
+    },
+    {
+      "name": "5. 比赛防冲突（强烈建议默认开启）",
+      "color": "#E07B7B",
+      "items": [
+        "competitionPassiveObserverMode = true   全部控制 topic 一律不发送",
+        "被屏蔽的 topic：KeyboardMouseControl / CommonCommand / AssemblyCommand /",
+        "                RobotPerformanceSelectionCommand / HeroDeployModeEventCommand 等 9 个",
+        "MQTT clientId 自动加 _obs / obs_xxx 候选，避免顶掉主客户端会话",
+        "若需切换为主控（仅训练 / 单人测试时）：",
+        "  设置面板 -> 比赛防冲突 -> 关闭 [被动观察者模式]",
+        "  ⚠️ 比赛中切回主控会与主客户端互相覆盖，禁止操作"
+      ]
+    },
+    {
+      "name": "6. 故障应急 30 秒处置",
+      "color": "#E07B7B",
+      "items": [
+        "图传全黑：           检查 RTP/UDP 端口（params.json）+ 看 ConnectionStatusHUD",
+        "图传花屏 / 撕裂：    设置 -> 网络 -> 关闭超分；或重启客户端",
+        "MQTT 断连：          ConnectionStatusHUD 变红 → 自动重连，确认 IP 可达",
+        "客户端无响应：        Ctrl + Alt + F2 切到 TTY，kill 进程后 ./run_unity_nvidia.sh 重启",
+        "GPU 异常：           ./switch_gpu_mode.sh 在 NVIDIA / 集显间切换",
+        "日志位置：           运行反馈/DebugLog.txt   及   Logs/  Log/"
+      ]
+    },
+    {
+      "name": "7. 启动脚本速查",
+      "color": "#A78BFA",
+      "items": [
+        "./run_unity_nvidia.sh    使用独立 NVIDIA 显卡启动（推荐）",
+        "./run_unity_opengl.sh    使用 OpenGL（兼容性回退，集显可用）",
+        "./switch_gpu_mode.sh     切换 GPU 渲染模式",
+        "./build.sh               重新构建客户端（开发机用）",
+        "./monitor_performance.sh 实时性能/温度监控",
+        "./check_nvidia.sh        诊断 NVIDIA 驱动 / CUDA / NVDEC 状态"
+      ]
+    },
+    {
+      "name": "8. 关键文件位置",
+      "color": "#A0A0A0",
+      "items": [
+        "网络/解码配置：   Assets/StreamingAssets/Config/params.json",
+        "游戏逻辑配置：   Assets/StreamingAssets/Config/game_params.json",
+        "速查内容（本面板）： Assets/StreamingAssets/Config/quick_reference.json",
+        "用户持久化覆盖：  ~/.config/unity3d/<Company>/<Product>/Config/*.json",
+        "日志：            运行反馈/DebugLog.txt   Logs/   Log/",
+        "文档总览：        文档/项目阅读指南.md   文档/自定义客户端配置与模式使用指南.md"
+      ]
+    }
+  ]
+}

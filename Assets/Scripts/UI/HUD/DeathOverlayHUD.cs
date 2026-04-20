@@ -185,7 +185,7 @@ namespace UI.HUD
             buybackButton.onClick.AddListener(OnBuybackClicked);
 
             // 按钮文字（手动创建以便动态更新）
-            buybackLabel = UIFactory.CreateText(btnRt, "Label", "⚡ 金币买活", 24,
+            buybackLabel = UIFactory.CreateText(btnRt, "Label", "[金币买活]", 24,
                 TextAlignmentOptions.Center, new Color(0.10f, 0.08f, 0.02f, 1f),
                 FontStyles.Bold);
             UIFactory.SetFullStretch(buybackLabel.rectTransform);
@@ -300,7 +300,7 @@ namespace UI.HUD
             // 已经请求过买活 → 显示等待
             if (buybackRequested)
             {
-                buybackLabel.text = "⏳ 买活请求已发送...";
+                buybackLabel.text = "...买活请求已发送";
                 var btnImg = buybackButton.GetComponent<Image>();
                 btnImg.color = BuybackDisabled;
                 buybackButton.interactable = false;
@@ -311,7 +311,7 @@ namespace UI.HUD
             // 可以买活
             if (canPay && cost > 0)
             {
-                buybackLabel.text = $"⚡ 金币买活 ({cost}金) [空格]";
+                buybackLabel.text = $"[金币买活] {cost}金  [空格]";
                 buybackLabel.color = new Color(0.10f, 0.08f, 0.02f, 1f);
                 var btnImg = buybackButton.GetComponent<Image>();
                 btnImg.color = BuybackGold;

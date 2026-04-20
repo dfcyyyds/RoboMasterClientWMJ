@@ -30,42 +30,102 @@ namespace UI.Core
             {
                 _cachedFont = loaded;
                 wmj.Log.I("[UIFactory] 预加载 SDF 字体成功", wmj.Log.Tag.UI);
-                return;
             }
-
-            // 2) SDF 资产不可用 — 从 TTF 在运行时动态创建
-            var ttf = Resources.Load<Font>("Fonts/ZhanKuGaoDuanHei");
-            if (ttf == null) ttf = Resources.Load<Font>("Fonts/ChineseFont");
-            if (ttf != null)
+            else
             {
-                _cachedFont = TMP_FontAsset.CreateFontAsset(ttf);
-                if (_cachedFont != null)
+                // 2) SDF 资产不可用 — 从 TTF 在运行时动态创建
+                var ttf = Resources.Load<Font>("Fonts/ZhanKuGaoDuanHei");
+                if (ttf == null) ttf = Resources.Load<Font>("Fonts/ChineseFont");
+                if (ttf != null)
                 {
-                    _cachedFont.atlasPopulationMode = AtlasPopulationMode.Dynamic;
-                    // 预热常用字符
-                    _cachedFont.TryAddCharacters(
-                        "兵种选择英雄工程步兵空中哨兵飞镖雷达红方蓝方确认设置保存通知参数界面自定义"
-                        + "血量热量弹药准星倍率宽度半径时长显示持续最大开镜受击提示重新选择阵营"
-                        + "请先选择已选择可以确认取消返回切换拖拽位置大小缩放可见恢复默认"
-                        + "攻防回冷罚速能加成惩击杀需发获得已结束效果增益减"
-                        + "字体透明度全局模块区域信息闪烁阈值低警告高点线环"
-                        + "系统配置全部重置条高度存储状态栏竖直排列"
-                        + "布局缩略图预览拖拽方块可调整元素实同步关闭单列宽间距"
-                        + "更多展开剩余秒级别中敌人血剩需弹"
-                        + "体射手底盘功率优先爆发冷却控制全自动半散"
-                        + "对局阶段倒计时轮次经济比赛准备自检未开始暂停比分隐藏"
-                        + "启用延迟关镜停止射击"
-                        + "购买弹丸花费金币快捷键绑定冲突按下键位数字"
-                        + "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz"
-                        + "+-*/=()[]{}|\\/<>,.;:!?@#$%^&~`'\""
-                        + "⚙×∞↺✕·⏸↑↓⚡⏳"
-                    );
-                    wmj.Log.I("[UIFactory] 已从 TTF 动态创建并预热中文字体", wmj.Log.Tag.UI);
+                    _cachedFont = TMP_FontAsset.CreateFontAsset(ttf);
+                    if (_cachedFont != null)
+                    {
+                        _cachedFont.atlasPopulationMode = AtlasPopulationMode.Dynamic;
+                        _cachedFont.TryAddCharacters(BuildPreloadCharset());
+                        wmj.Log.I("[UIFactory] 已从 TTF 动态创建并预热中文字体", wmj.Log.Tag.UI);
+                    }
                 }
             }
 
             if (_cachedFont == null)
+            {
                 wmj.Log.W("[UIFactory] 未找到中文字体，将使用 TMP 默认字体", wmj.Log.Tag.UI);
+                return;
+            }
+
+            // 3) 添加系统默认字体为回退 — 补齐中文字体里没有的符号（如 ⚙、箭头、表情等）
+            //    TMP 内置的 LiberationSans SDF 对西文符号覆盖完整
+            TryAttachDefaultFallback(_cachedFont);
+        }
+
+        /// <summary>构造字体预热字符集 — 包含常用汉字 + 全角标点 + ASCII + 业务符号</summary>
+        private static string BuildPreloadCharset()
+        {
+            var sb = new System.Text.StringBuilder(4096);
+
+            // 业务专用词汇（保证首次出现即可渲染）
+            sb.Append("兵种选择英雄工程步兵空中哨兵飞镖雷达红方蓝方确认设置保存通知参数界面自定义")
+              .Append("血量热量弹药准星倍率宽度半径时长显示持续最大开镜受击提示重新选择阵营")
+              .Append("请先选择已选择可以确认取消返回切换拖拽位置大小缩放可见恢复默认")
+              .Append("攻防回冷罚速能加成惩击杀需发获得已结束效果增益减")
+              .Append("字体透明度全局模块区域信息闪烁阈值低警告高点线环")
+              .Append("系统配置全部重置条高度存储状态栏竖直排列")
+              .Append("布局缩略图预览拖拽方块可调整元素实同步关闭单列宽间距")
+              .Append("更多展开剩余秒级别中敌人血剩需弹")
+              .Append("体射手底盘功率优先爆发冷却控制全自动半散")
+              .Append("对局阶段倒计时轮次经济比赛准备自检未开始暂停比分隐藏")
+              .Append("启用延迟关镜停止射击")
+              .Append("购买弹丸花费金币快捷键绑定冲突按下键位数字")
+              .Append("检测硬件网络摄像头分辨率读取失败成功异常错误启动连接断开")
+              .Append("体系方案性能高低中等模式推荐普通集成显卡内存处理器")
+              .Append("主机从机模式下创建加入房间等待广播扫描");
+
+            // ASCII
+            sb.Append("0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz")
+              .Append("+-*/=()[]{}|\\/<>,.;:!?@#$%^&~`'\" ");
+
+            // 全角中文标点（使用 Unicode 转义避免引号冲突）
+            sb.Append("【】「」『』、，。？！：；\u201c\u201d\u2018\u2019…—·《》〈〉（）");
+
+            // 常用符号与箭头（TTF 不含时，会由回退字体补齐）
+            sb.Append("⚙×∞↺✕·⏸↑↓←→⚡⏳◉○●▲▼◆★☆♦♠♥♣§※¶°±≈≠≤≥√∑");
+
+            // 扩展常用汉字 — CJK Unified Ideographs 常用区间中的高频字
+            //   说明：TryAddCharacters 会静默跳过 TTF 中不存在的字形，
+            //   此处只加"常用 3500"内的字（数量可控，不会爆图集）
+            string commonCJK =
+                "的一是不了人我在有他这为之大来以个中上们到说国和地也子时道出而要于就" +
+                "下得可你年生自会那后能对着事其里所去行过家十用发天如然作方成者多日都" +
+                "三小军二无同么经法当起与好看学进种将还分此心前面又定见只主没公从" +
+                "当最全性运力业现化她通机本由实体明党应理果象各因物期设党政法治济" +
+                "社会育科技信息安管委工作员干部门研究工业金数表明动直提让相使等流" +
+                "城区内外高下东西南北左右前后开关门窗玩家操作";
+            sb.Append(commonCJK);
+
+            return sb.ToString();
+        }
+
+        /// <summary>为字体附加系统默认回退 — 补齐缺失符号</summary>
+        private static void TryAttachDefaultFallback(TMP_FontAsset font)
+        {
+            try
+            {
+                // TMP 内置 LiberationSans SDF 通常覆盖全部 Latin-1 / 符号区
+                var fallback = TMP_Settings.defaultFontAsset;
+                if (fallback != null && fallback != font && font.fallbackFontAssetTable != null)
+                {
+                    if (!font.fallbackFontAssetTable.Contains(fallback))
+                    {
+                        font.fallbackFontAssetTable.Add(fallback);
+                        wmj.Log.I("[UIFactory] 已添加 TMP 默认字体回退", wmj.Log.Tag.UI);
+                    }
+                }
+            }
+            catch (System.Exception ex)
+            {
+                wmj.Log.W($"[UIFactory] 添加字体回退失败: {ex.Message}", wmj.Log.Tag.UI);
+            }
         }
 
         // ─── Canvas ───

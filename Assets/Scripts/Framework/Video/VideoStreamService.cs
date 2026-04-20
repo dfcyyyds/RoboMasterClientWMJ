@@ -190,9 +190,14 @@ public class VideoStreamService : MonoBehaviour
 
         if (decodeBackend == DecodeBackend.FfmpegPipe)
         {
-            // 强制软件解码：此机 CUDA/NVDEC会返回 "Hardware is lacking required capabilities".
-            // 软件解码 CPU 开销对于 1280x720 极低，不影响实际帧率。
-            decoder = new FfmpegPipeDecoder(decoderCodec, useRawVideo: true, outputWidth: decoderOutW, outputHeight: decoderOutH, verboseFrameLogs: false, enableStderrLog: false, useHardwareDecode: false, forceHevc: true);
+            // 修复：原先无脑 useHardwareDecode:false 是为了规避 CUDA "Hardware is lacking required capabilities"。
+            // 但代价是 Intel/AMD 集显也被强制走软解 —— 1280x720 HEVC 软解在 4 核低配 CPU 上跑不到 60fps，
+            // 导致写管道堆积、8MB 背压持续丢块、参考帧链断裂、延迟累积十几秒。
+            // 现在按硬件检测器结果选择：Software 走软解，Dxva/Vaapi/VideoToolbox 走硬解，
+            // CUDA 若启动失败会被 FfmpegPipeDecoder 内部 fallbackToSoftware 路径自动回落。
+            bool useHwDecode = detection.Accel != HardwareCapabilityDetector.RecommendedAccel.Software;
+            wmj.Log.I($"[VideoStreamService] 解码加速选择: Accel={detection.Accel}, useHardwareDecode={useHwDecode}", wmj.Log.Tag.Video);
+            decoder = new FfmpegPipeDecoder(decoderCodec, useRawVideo: true, outputWidth: decoderOutW, outputHeight: decoderOutH, verboseFrameLogs: false, enableStderrLog: false, useHardwareDecode: useHwDecode, forceHevc: true);
             if (decoder is FfmpegPipeDecoder ff)
                 ff.MaxQueueSize = decoderQueueLimit;
         }
@@ -210,6 +215,9 @@ public class VideoStreamService : MonoBehaviour
 
     // 标记 NVDEC 是否已延迟初始化
     private bool nvdecDelayedInitDone = false;
+    // NVDEC 初始化重试节流，避免每帧重试打日志
+    private float nvdecNextRetryTime = 0f;
+    private const float NVDEC_RETRY_INTERVAL_SEC = 1f;
 
     void Start()
     {
@@ -243,8 +251,18 @@ public class VideoStreamService : MonoBehaviour
 
         if (init != 0)
         {
+            // 关键修复：当原生插件缺失/入口缺失时，立即回退 ffmpeg，避免主图传一直无解码。
+            if (!NativeVideoBridge.Available || init == -2 || init == -3)
+            {
+                wmj.Log.W("[VideoStreamService] Native NVDEC 不可用 (code=" + init + ")，立即回退 ffmpeg", wmj.Log.Tag.Video);
+                nvdecDelayedInitDone = false;
+                SwitchToFfmpeg("NativeVideoPlugin 不可用/缺失, initCode=" + init);
+                return;
+            }
+
             wmj.Log.W("[VideoStreamService] Native NVDEC init 失败 (code=" + init + ")，保持原生模式等待重试", wmj.Log.Tag.Video);
             nvdecDelayedInitDone = false; // 允许重试
+            nvdecNextRetryTime = Time.realtimeSinceStartup + NVDEC_RETRY_INTERVAL_SEC;
         }
         else
         {
@@ -302,11 +320,24 @@ public class VideoStreamService : MonoBehaviour
     void Update()
     {
         mainUpdateSW.Restart();
-        if (decodeBackend == DecodeBackend.NativeNvdec && NativeVideoBridge.Available)
+        if (decodeBackend == DecodeBackend.NativeNvdec)
         {
+            // 原生插件不可用（常见于 Windows 包未携带 NativeVideoPlugin.dll）时，直接回退 ffmpeg。
+            if (!NativeVideoBridge.Available)
+            {
+                SwitchToFfmpeg("NativeVideoPlugin 不可用 (DllNotFound/EntryPointNotFound)");
+                return;
+            }
+
             // 确保延迟初始化已完成
             if (!nvdecDelayedInitDone)
             {
+                if (Time.realtimeSinceStartup >= nvdecNextRetryTime)
+                {
+                    InitializeNativeNvdec();
+                    if (!nvdecDelayedInitDone)
+                        nvdecNextRetryTime = Time.realtimeSinceStartup + NVDEC_RETRY_INTERVAL_SEC;
+                }
                 return; // 等待 Start() 完成初始化
             }
 
@@ -698,9 +729,11 @@ public class VideoStreamService : MonoBehaviour
             nativeTextureId = 0;
         }
 
-        // 强制软件解码：此机的 CUDA 会返回 "Hardware is lacking required capabilities"，
-        // 导致 FfmpegPipeDecoder 每 5 秒 watchdog 重启循环。软件解码即可。
-        decoder = new FfmpegPipeDecoder(decoderCodec, useRawVideo: true, outputWidth: decoderOutW, outputHeight: decoderOutH, verboseFrameLogs: false, enableStderrLog: false, useHardwareDecode: false, forceHevc: true);
+        // 修复：跟随硬件检测器结果。CUDA 失败由 FfmpegPipeDecoder 内部自动回落软解。
+        var detection = HardwareCapabilityDetector.Detect();
+        bool useHwDecode = detection.Accel != HardwareCapabilityDetector.RecommendedAccel.Software;
+        wmj.Log.I($"[VideoStreamService] SwitchToFfmpeg 解码加速: Accel={detection.Accel}, useHardwareDecode={useHwDecode}", wmj.Log.Tag.Video);
+        decoder = new FfmpegPipeDecoder(decoderCodec, useRawVideo: true, outputWidth: decoderOutW, outputHeight: decoderOutH, verboseFrameLogs: false, enableStderrLog: false, useHardwareDecode: useHwDecode, forceHevc: true);
         if (decoder is FfmpegPipeDecoder ff)
             ff.MaxQueueSize = decoderQueueLimit;
 

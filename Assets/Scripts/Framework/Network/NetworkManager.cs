@@ -33,6 +33,22 @@ public class NetworkManager : MonoBehaviour
     private int currentQueueLimit = 8;
     private int maxQueueLimit = 32;
 
+    // 比赛模式被动观察：拦截本客户端主动控制类消息，避免与主客户端冲突
+    private readonly HashSet<string> passiveBlockTopics = new HashSet<string>
+    {
+        "KeyboardMouseControl",
+        "CommonCommand",
+        "RobotPerformanceSelectionCommand",
+        "HeroDeployModeEventCommand",
+        "AssemblyCommand",
+        "RuneActivateCommand",
+        "DartCommand",
+        "SentryCtrlCommand",
+        "AirSupportCommand"
+    };
+    private readonly Dictionary<string, float> passiveBlockLogTimes = new Dictionary<string, float>();
+    private const float PASSIVE_BLOCK_LOG_INTERVAL = 2f;
+
     /// <summary>
     /// 将待发送消息入队，支持自动扩容
     /// </summary>
@@ -170,7 +186,9 @@ public class NetworkManager : MonoBehaviour
             wmj.Log.I("[NetworkManager] 自动创建 VideoStreamService", wmj.Log.Tag.Network);
         }
 
-        // 吐射图传 UDP 接收器：仅在非比赛模式下自动创建（比赛模式下 CustomByteBlock 通过 MQTT 传输）
+        // 吊射图传 UDP 接收器：仅在仿真模式下启用（接收 MockServer 推送的 H.264）。
+        // 比赛模式下，吊射图传只能走官方 CustomByteBlock(0x0310) → MQTT 通道，
+        // 不再启动 UDP 接收器，避免占用端口 / 误导诊断。
         if (!GameParamsConfig.Get.isCompetitionMode && LobShotUdpReceiver.Instance == null)
         {
             var lobUdpGO = new GameObject("[LobShotUdpReceiver]");
@@ -197,8 +215,8 @@ public class NetworkManager : MonoBehaviour
         };
 
         // 订阅网络状态事件
-        mqttService.OnConnected += () => OnMqttConnected?.Invoke();
-        mqttService.OnDisconnected += () => OnMqttDisconnected?.Invoke();
+        mqttService.OnConnected += () => { OnMqttConnected?.Invoke(); UpdateStatus("✅ 服务器已连接"); };
+        mqttService.OnDisconnected += () => { OnMqttDisconnected?.Invoke(); UpdateStatus("⚠ MQTT 连接断开，正在重连..."); };
         udpService.OnStarted += () => OnUdpStarted?.Invoke();
         udpService.OnStopped += () => OnUdpStopped?.Invoke();
 
@@ -222,26 +240,63 @@ public class NetworkManager : MonoBehaviour
     // Start is called once before the first execution of Update after the MonoBehaviour is created
     void Start()
     {
-        try
-        {
-            Debug.Log("[NetworkManager] ===== Start() 启动网络服务 =====");
-            wmj.Log.I("[NetworkManager] 启动网络服务...", wmj.Log.Tag.Network);
+        // 创建自检状态 UI（右下角）
+        EnsureConnectionStatusHUD();
+        UpdateStatus("等待兵种选择...");
 
-            // 根据用户选择的兵种和阵营，计算选手端 ID 作为 MQTT clientId
-            // 官方协议要求：clientID 需填入所连接机器人对应的选手端 ID 编号
+        // 仿真模式允许先用随机 GUID 连接（MockServer 不校验 clientId）
+        if (!GameParamsConfig.Get.isCompetitionMode)
+        {
+            wmj.Log.I("[NetworkManager] 仿真模式: 立即连接 MockServer", wmj.Log.Tag.Network);
             string playerTerminalId = null;
             if (RobotSelectionBootstrap.IsSelectionCompleted && RobotSelectionBootstrap.CurrentSelection != null)
-            {
                 playerTerminalId = RobotSelectionBootstrap.CurrentSelection.PlayerTerminalId;
-                wmj.Log.I($"[NetworkManager] 选手端 ID: {playerTerminalId} ({RobotSelectionBootstrap.CurrentSelection})", wmj.Log.Tag.Network);
-            }
-            else
-            {
-                wmj.Log.W("[NetworkManager] 兵种选择未完成，将使用随机 GUID 连接（仅限调试）", wmj.Log.Tag.Network);
-            }
+            ConnectToServer(playerTerminalId);
 
-            // 连接MQTT服务器，启动UDP接收
-            // 比赛模式自动切换到官方服务器IP和端口
+            // 兵种选完后用正确 ID 重连
+            if (!RobotSelectionBootstrap.IsSelectionCompleted)
+                RobotSelectionBootstrap.OnSelectionCompleted += OnRobotSelectionCompleted;
+            return;
+        }
+
+        // ═══ 比赛模式: 必须等兵种选择完成才连接 ═══
+        if (RobotSelectionBootstrap.IsSelectionCompleted && RobotSelectionBootstrap.CurrentSelection != null)
+        {
+            // 极少数情况：选择已在 Start 前完成
+            ConnectToServer(RobotSelectionBootstrap.CurrentSelection.PlayerTerminalId);
+        }
+        else
+        {
+            wmj.Log.I("[NetworkManager] 比赛模式: 等待兵种选择完成后连接...", wmj.Log.Tag.Network);
+            RobotSelectionBootstrap.OnSelectionCompleted += OnRobotSelectionCompletedFirstConnect;
+        }
+    }
+
+    /// <summary>比赛模式首次连接（兵种选择完成后触发）</summary>
+    private void OnRobotSelectionCompletedFirstConnect(RobotSelectionResult result)
+    {
+        RobotSelectionBootstrap.OnSelectionCompleted -= OnRobotSelectionCompletedFirstConnect;
+
+        if (result != null && !string.IsNullOrEmpty(result.PlayerTerminalId))
+        {
+            wmj.Log.I($"[NetworkManager] 兵种选择完成，开始连接: clientId={result.PlayerTerminalId} ({result})", wmj.Log.Tag.Network);
+            UpdateStatus($"正在连接服务器... (ID: {result.PlayerTerminalId})");
+            ConnectToServer(result.PlayerTerminalId);
+        }
+        else
+        {
+            wmj.Log.E("[NetworkManager] 兵种选择完成但未获取到有效的选手端 ID，无法连接", wmj.Log.Tag.Network);
+            UpdateStatus("❌ 选手端 ID 无效，无法连接");
+        }
+    }
+
+    /// <summary>实际连接逻辑</summary>
+    private void ConnectToServer(string playerTerminalId)
+    {
+        try
+        {
+            wmj.Log.I("[NetworkManager] 启动网络服务...", wmj.Log.Tag.Network);
+
             string connectIp = ConfigLoader.config.ip;
             int connectDataPort = ConfigLoader.config.dataPort;
             int connectVideoPort = ConfigLoader.config.videoPort;
@@ -250,24 +305,24 @@ public class NetworkManager : MonoBehaviour
             {
                 connectIp = GameParamsConfig.Get.competitionServerIp;
                 connectDataPort = GameParamsConfig.Get.competitionServerPort;
-                // 官方协议: 视频端口 = 数据端口 + 1
                 connectVideoPort = connectDataPort + 1;
                 wmj.Log.I($"[NetworkManager] 比赛模式: 连接官方服务器 {connectIp}:{connectDataPort} (视频: {connectVideoPort})", wmj.Log.Tag.Network);
             }
             else
             {
-                // 仿真模式: 强制使用本机回环地址连接 MockServer
                 connectIp = "127.0.0.1";
                 wmj.Log.I($"[NetworkManager] 仿真模式: 连接本机 MockServer {connectIp}:{connectDataPort} (视频: {connectVideoPort})", wmj.Log.Tag.Network);
             }
 
-            wmj.Log.I($"[NetworkManager] 最终连接参数: MQTT={connectIp}:{connectDataPort}, UDP={connectIp}:{connectVideoPort}", wmj.Log.Tag.Network);
+            UpdateStatus($"正在连接 {connectIp}:{connectDataPort}...");
+            wmj.Log.I($"[NetworkManager] 最终连接参数: MQTT={connectIp}:{connectDataPort}, UDP={connectIp}:{connectVideoPort}, clientId={playerTerminalId ?? "(随机)"}", wmj.Log.Tag.Network);
             mqttService.Connect(connectIp, connectDataPort, playerTerminalId);
             udpService.StartReceive(connectIp, connectVideoPort);
         }
         catch (Exception ex)
         {
             wmj.Log.E($"[NetworkManager] 启动网络服务异常: {ex.Message}", wmj.Log.Tag.Network);
+            UpdateStatus($"❌ 连接异常: {ex.Message}");
         }
     }
 
@@ -275,6 +330,8 @@ public class NetworkManager : MonoBehaviour
     {
         try
         {
+            RobotSelectionBootstrap.OnSelectionCompleted -= OnRobotSelectionCompleted;
+            RobotSelectionBootstrap.OnSelectionCompleted -= OnRobotSelectionCompletedFirstConnect;
             wmj.Log.I("[NetworkManager] 销毁释放资源...", wmj.Log.Tag.Network);
             mqttService?.Disconnect();
             udpService?.StopReceive();
@@ -285,12 +342,49 @@ public class NetworkManager : MonoBehaviour
         }
     }
 
+    /// <summary>
+    /// 仿真模式：兵种选择完成后，用正确的选手端 ID 重新连接 MQTT
+    /// </summary>
+    private void OnRobotSelectionCompleted(RobotSelectionResult result)
+    {
+        RobotSelectionBootstrap.OnSelectionCompleted -= OnRobotSelectionCompleted;
+
+        if (result != null && !string.IsNullOrEmpty(result.PlayerTerminalId))
+        {
+            wmj.Log.I($"[NetworkManager] 兵种选择完成，用正确 clientId 重连 MQTT: {result.PlayerTerminalId} ({result})", wmj.Log.Tag.Network);
+            UpdateStatus($"重连中... (ID: {result.PlayerTerminalId})");
+            mqttService.Reconnect(result.PlayerTerminalId);
+        }
+        else
+        {
+            wmj.Log.W("[NetworkManager] 兵种选择完成但未获取到有效的选手端 ID", wmj.Log.Tag.Network);
+        }
+    }
+
+    // ═══════════════════ 自检状态 UI ═══════════════════
+
+    private ConnectionStatusHUD statusHUD;
+
+    private void EnsureConnectionStatusHUD()
+    {
+        if (statusHUD != null) return;
+        var go = new GameObject("[ConnectionStatusHUD]");
+        go.transform.SetParent(transform);
+        statusHUD = go.AddComponent<ConnectionStatusHUD>();
+    }
+
+    private void UpdateStatus(string message)
+    {
+        if (statusHUD != null)
+            statusHUD.SetStatus(message);
+    }
+
     void OnApplicationQuit()
     {
         try
         {
             wmj.Log.I("[NetworkManager] OnApplicationQuit 释放资源", wmj.Log.Tag.Network);
-            mqttService?.Disconnect();
+            mqttService?.Shutdown();   // ← 使用 Shutdown 停止重连循环，避免后台 TCP 阻塞退出
             udpService?.StopReceive();
         }
         catch (Exception ex)
@@ -312,6 +406,20 @@ public class NetworkManager : MonoBehaviour
 
     public void SendMqttMessage(string topic, byte[] payload)
     {
+        if (GameParamsConfig.Get.isCompetitionMode
+            && GameParamsConfig.Get.competitionPassiveObserverMode
+            && passiveBlockTopics.Contains(topic))
+        {
+            float now = Time.realtimeSinceStartup;
+            if (!passiveBlockLogTimes.TryGetValue(topic, out var last)
+                || now - last >= PASSIVE_BLOCK_LOG_INTERVAL)
+            {
+                passiveBlockLogTimes[topic] = now;
+                wmj.Log.W($"[NetworkManager] 被动观察模式已拦截发送: topic={topic}", wmj.Log.Tag.Network);
+            }
+            return;
+        }
+
         mqttService.Publish(topic, payload);
     }
 

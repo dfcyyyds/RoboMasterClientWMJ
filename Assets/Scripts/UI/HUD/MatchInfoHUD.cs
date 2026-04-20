@@ -374,7 +374,7 @@ namespace UI.HUD
             bg.raycastTarget = false;
             UIFactory.ApplySkew(rt, 4f);
 
-            pauseText = UIFactory.CreateText(rt, "Txt", "⏸  比赛暂停", 16,
+            pauseText = UIFactory.CreateText(rt, "Txt", "[||] 比赛暂停", 16,
                 TextAlignmentOptions.Center, UIColors.White, FontStyles.Bold);
             UIFactory.SetFullStretch(pauseText.rectTransform);
             pauseText.enableAutoSizing = true;
