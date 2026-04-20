@@ -20,6 +20,7 @@ namespace UI.HUD
         // ─── 状态 ───
         private bool isActive;
         private bool isHero;
+        private bool localManualToggle; // 用户通过 Shift 手动切换（区分于远程同步）
 
         // ─── 射击冷却(本地预判) ───
         private float fireCooldown;
@@ -72,7 +73,10 @@ namespace UI.HUD
 
             // Escape 键退出吊射模式
             if (isActive && Input.GetKeyDown(KeyCode.Escape))
+            {
+                localManualToggle = false;
                 ExitDeployMode(sendCommand: !IsPassiveObserverMode());
+            }
 
             if (fireCooldown > 0) fireCooldown -= Time.deltaTime;
             if (recoilTimer > 0) recoilTimer -= Time.deltaTime;
@@ -87,9 +91,15 @@ namespace UI.HUD
             {
                 bool sendCmd = !IsPassiveObserverMode();
                 if (isActive)
+                {
+                    localManualToggle = false;
                     ExitDeployMode(sendCommand: sendCmd);
+                }
                 else
+                {
+                    localManualToggle = true;
                     EnterDeployMode(sendCommand: sendCmd);
+                }
             }
         }
 
@@ -178,6 +188,7 @@ namespace UI.HUD
         /// <summary>
         /// 在主线程应用服务器下发的部署状态：
         /// status!=0 视为进入吊射，status=0 视为退出吊射。
+        /// 被动观察模式下若用户已手动进入(localManualToggle)，不因远程 status=0 强制退出。
         /// </summary>
         private void ApplyRemoteDeployStatusIfNeeded()
         {
@@ -186,6 +197,10 @@ namespace UI.HUD
 
             bool shouldActive = remoteDeployStatus != 0;
             if (shouldActive == isActive) return;
+
+            // 被动观察模式：用户手动进入的吊射视图不被远程 status=0 覆盖
+            if (IsPassiveObserverMode() && localManualToggle && !shouldActive)
+                return;
 
             if (shouldActive)
                 EnterDeployMode(sendCommand: false);

@@ -200,6 +200,7 @@
     <Compile Include="Assets/Scripts/UI/Views/RobotStaticStatusView.cs" />
     <Compile Include="Assets/Scripts/Framework/Network/Handlers/SentryStatusSyncHandler.cs" />
     <Compile Include="Assets/Scripts/UI/ViewModels/CustomControlViewModel.cs" />
+    <Compile Include="Assets/Scripts/Framework/Boot/StartupUpdateChecker.cs" />
     <Compile Include="Assets/Scripts/Framework/Network/Handlers/TechCoreMotionStateSyncHandler.cs" />
     <Compile Include="Assets/Scripts/UI/Views/RobotRespawnStatusView.cs" />
     <Compile Include="Assets/TextMesh Pro/Examples &amp; Extras/Scripts/DropdownSample.cs" />

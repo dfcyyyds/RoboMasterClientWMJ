@@ -143,6 +143,7 @@ namespace UI.HUD
         private GlobalUnitStatusViewModel unitVM;
         private bool isShowing;
         private int frameCount;
+        private TextMeshProUGUI waitingHintText; // "等待吊射图传数据..."提示
 
         // ─── 诊断 ───
         private int diagDecodeReject;
@@ -406,6 +407,7 @@ namespace UI.HUD
             for (int i = 0; i < recentFrameTimes.Length; i++) recentFrameTimes[i] = 0f;
 
             if (lobCanvas != null) lobCanvas.gameObject.SetActive(true);
+            if (waitingHintText != null) waitingHintText.gameObject.SetActive(true);
             wmj.Log.I($"[LobShotHUD] 显示吊射画面 (v2 彩色 H.264, 拉伸={stretchToFullHD}, SR={srEnabled})", wmj.Log.Tag.UI);
         }
 
@@ -565,6 +567,23 @@ namespace UI.HUD
             rt.anchoredPosition = Vector2.zero;
             rt.sizeDelta = new Vector2(DISPLAY_W, DISPLAY_H);
             UpdateV2DisplayLayout();
+
+            // "等待吊射图传数据..."提示（居中显示，首帧到达后隐藏）
+            var hintGO = new GameObject("WaitingHint");
+            hintGO.transform.SetParent(root, false);
+            waitingHintText = hintGO.AddComponent<TextMeshProUGUI>();
+            waitingHintText.text = "等待吊射图传数据…\n\n<size=14><color=#8899BB>需要英雄机器人进入部署模式后，数据才会到达\n按 Escape 可退出吊射视图</color></size>";
+            waitingHintText.fontSize = 22;
+            waitingHintText.fontStyle = FontStyles.Normal;
+            waitingHintText.color = new Color(0.7f, 0.8f, 0.95f, 0.85f);
+            waitingHintText.alignment = TextAlignmentOptions.Center;
+            waitingHintText.raycastTarget = false;
+            var hintRt = waitingHintText.rectTransform;
+            hintRt.anchorMin = new Vector2(0.5f, 0.5f);
+            hintRt.anchorMax = new Vector2(0.5f, 0.5f);
+            hintRt.pivot = new Vector2(0.5f, 0.5f);
+            hintRt.sizeDelta = new Vector2(600, 200);
+            hintRt.anchoredPosition = Vector2.zero;
         }
 
         private void BuildCrosshairOverlay()
@@ -889,6 +908,10 @@ namespace UI.HUD
             pendingFrames.Enqueue(new PooledBuffer { Data = rented, Length = dataLen });
 
             int fc = System.Threading.Interlocked.Increment(ref frameCount);
+
+            // 首帧到达：隐藏"等待数据"提示
+            if (fc == 1 && waitingHintText != null)
+                waitingHintText.gameObject.SetActive(false);
             if (fc <= 5)
             {
                 string hexHead = "";
