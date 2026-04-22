@@ -1055,6 +1055,8 @@ public class StartupUpdateChecker : MonoBehaviour
         t.color = color;
         t.alignment = align;
         t.raycastTarget = false;
+        var cf = UI.Core.UIFactory.CachedFont;
+        if (cf != null) t.font = cf;
         var le = go.AddComponent<LayoutElement>();
         le.flexibleWidth = 1;
         return t;

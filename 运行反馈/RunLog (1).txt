@@ -1,0 +1,118 @@
+﻿[2026-04-20 23:38:26] [WARN] [Decoder] (NativeVideoBridge.cs:63) [NativeVideoBridge] DllNotFound: NativeVideoPlugin assembly:<unknown assembly> type:<unknown type> member:(null)
+[2026-04-20 23:38:26] [WARN] [Video] (VideoStreamService.cs:257) [VideoStreamService] Native NVDEC 不可用 (code=-2)，立即回退 ffmpeg
+[2026-04-20 23:38:26] [WARN] [Video] (VideoStreamService.cs:721) [VideoStreamService] 切换到 Ffmpeg 回退：NativeVideoPlugin 不可用/缺失, initCode=-2
+[2026-04-20 23:38:26] [WARN] [Video] (VideoStreamService.cs:650) [VideoStreamService][看门狗] 周期性重发参数集 尝试=1
+[2026-04-20 23:38:26] [WARN] [General] (RuntimeTuner.cs:136) [RuntimeTuner] 自适应降级: 帧率 15 < 目标 120*60%，降至 60fps
+[2026-04-20 23:38:26] [WARN] [General] (RuntimeTuner.cs:136) [RuntimeTuner] 自适应降级: 帧率 18 < 目标 60*60%，降至 30fps
+[2026-04-20 23:38:26] [WARN] [Video] (VideoStreamService.cs:650) [VideoStreamService][看门狗] 周期性重发参数集 尝试=2
+[2026-04-20 23:38:27] [WARN] [Video] (VideoStreamService.cs:650) [VideoStreamService][看门狗] 周期性重发参数集 尝试=3
+[2026-04-20 23:38:27] [WARN] [Video] (VideoStreamService.cs:650) [VideoStreamService][看门狗] 周期性重发参数集 尝试=4
+[2026-04-20 23:38:28] [WARN] [Video] (VideoStreamService.cs:650) [VideoStreamService][看门狗] 周期性重发参数集 尝试=5
+[2026-04-20 23:38:28] [WARN] [Video] (VideoStreamService.cs:650) [VideoStreamService][看门狗] 周期性重发参数集 尝试=6
+[2026-04-20 23:38:35] [FATAL] [Network] (MqttClientService.cs:362) [MqttClientService] CONNACK 被拒绝: code=0x02 (Identifier rejected) clientId=0x0165_obs 协议=Version_3_1_1 (attempt #1)
+[2026-04-20 23:38:35] [WARN] [Network] (MqttClientService.cs:175) [MqttClientService] 切换 clientId 候选 → obs_f338503c (候选 2/8, 协议=Version_3_1_1)
+[2026-04-20 23:38:35] [WARN] [Network] (NetworkManager.cs:418) [NetworkManager] 被动观察模式已拦截发送: topic=KeyboardMouseControl
+[2026-04-20 23:38:37] [FATAL] [Network] (MqttClientService.cs:362) [MqttClientService] CONNACK 被拒绝: code=0x02 (Identifier rejected) clientId=obs_f338503c 协议=Version_3_1_1 (attempt #2)
+[2026-04-20 23:38:37] [WARN] [Network] (MqttClientService.cs:175) [MqttClientService] 切换 clientId 候选 → 0x0165 (候选 3/8, 协议=Version_3_1_1)
+[2026-04-20 23:38:37] [WARN] [Network] (NetworkManager.cs:418) [NetworkManager] 被动观察模式已拦截发送: topic=KeyboardMouseControl
+[2026-04-20 23:38:39] [FATAL] [Network] (MqttClientService.cs:362) [MqttClientService] CONNACK 被拒绝: code=0x02 (Identifier rejected) clientId=0x0165 协议=Version_3_1_1 (attempt #3)
+[2026-04-20 23:38:39] [WARN] [Network] (MqttClientService.cs:175) [MqttClientService] 切换 clientId 候选 → 101 (候选 4/8, 协议=Version_3_1_1)
+[2026-04-20 23:38:39] [WARN] [Network] (NetworkManager.cs:418) [NetworkManager] 被动观察模式已拦截发送: topic=KeyboardMouseControl
+[2026-04-20 23:38:41] [WARN] [Video] (VideoStreamService.cs:632) [VideoStreamService][诊断] 未入场: HasParamSets=False, IdrsSeen=0, PushedFrames=1, Codec=hevc
+[2026-04-20 23:38:41] [WARN] [Video] (VideoStreamService.cs:635) [VideoStreamService][看门狗] 重发参数集以促进入场
+[2026-04-20 23:38:41] [WARN] [Network] (NetworkManager.cs:418) [NetworkManager] 被动观察模式已拦截发送: topic=KeyboardMouseControl
+[2026-04-20 23:38:41] [WARN] [Decoder] (FfmpegPipeDecoder.cs:863) [FfmpegPipeDecoder] 看门狗检测到超时无帧输出(1/5)，保持硬解重启
+[2026-04-20 23:38:41] [WARN] [Decoder] (FfmpegPipeDecoder.cs:271) [FfmpegPipeDecoder] 硬件解码连续 1 次崩溃无帧输出，自动回退到软件解码
+[2026-04-20 23:38:41] [WARN] [Decoder] (FfmpegPipeDecoder.cs:276) [FfmpegPipeDecoder] 重启ffmpeg进程: 无帧输出超时
+[2026-04-20 23:38:41] [WARN] [Log] 日志节流：后续相同消息在本窗口内被抑制 (hash=-112038074)
+[2026-04-20 23:38:42] [WARN] [Log] 日志节流：后续相同消息在本窗口内被抑制 (hash=-674696986)
+[2026-04-20 23:38:42] [WARN] [Network] (MessageDispatcher.cs:35) [MessageDispatcher] 日志节流: topic=VideoStream, 上一秒抑制=593
+[2026-04-20 23:38:42] [WARN] [Video] (VideoStreamService.cs:632) [VideoStreamService][诊断] 未入场: HasParamSets=False, IdrsSeen=0, PushedFrames=52, Codec=hevc
+[2026-04-20 23:38:42] [WARN] [Video] (VideoStreamService.cs:635) [VideoStreamService][看门狗] 重发参数集以促进入场
+[2026-04-20 23:38:42] [WARN] [Log] 日志节流：后续相同消息在本窗口内被抑制 (hash=-112038074)
+[2026-04-20 23:38:43] [WARN] [Log] 日志节流：后续相同消息在本窗口内被抑制 (hash=-674696986)
+[2026-04-20 23:38:43] [WARN] [Network] (MessageDispatcher.cs:35) [MessageDispatcher] 日志节流: topic=VideoStream, 上一秒抑制=682
+[2026-04-20 23:38:43] [WARN] [Network] (NetworkManager.cs:418) [NetworkManager] 被动观察模式已拦截发送: topic=KeyboardMouseControl
+[2026-04-20 23:38:44] [WARN] [Log] 日志节流：后续相同消息在本窗口内被抑制 (hash=-112038074)
+[2026-04-20 23:38:44] [WARN] [Log] 日志节流：后续相同消息在本窗口内被抑制 (hash=-674696986)
+[2026-04-20 23:38:44] [WARN] [Network] (MessageDispatcher.cs:35) [MessageDispatcher] 日志节流: topic=VideoStream, 上一秒抑制=681
+[2026-04-20 23:38:45] [WARN] [Log] 日志节流：后续相同消息在本窗口内被抑制 (hash=-112038074)
+[2026-04-20 23:38:45] [WARN] [Network] (MessageDispatcher.cs:35) [MessageDispatcher] 日志节流: topic=VideoStream, 上一秒抑制=687
+[2026-04-20 23:38:45] [WARN] [Log] 日志节流：后续相同消息在本窗口内被抑制 (hash=-674696986)
+[2026-04-20 23:38:45] [WARN] [Network] (NetworkManager.cs:418) [NetworkManager] 被动观察模式已拦截发送: topic=KeyboardMouseControl
+[2026-04-20 23:38:46] [WARN] [Log] 日志节流：后续相同消息在本窗口内被抑制 (hash=-112038074)
+[2026-04-20 23:38:46] [WARN] [Network] (MessageDispatcher.cs:35) [MessageDispatcher] 日志节流: topic=VideoStream, 上一秒抑制=680
+[2026-04-20 23:38:46] [WARN] [Log] 日志节流：后续相同消息在本窗口内被抑制 (hash=-674696986)
+[2026-04-20 23:38:47] [WARN] [Log] 日志节流：后续相同消息在本窗口内被抑制 (hash=-112038074)
+[2026-04-20 23:38:47] [WARN] [Network] (NetworkManager.cs:418) [NetworkManager] 被动观察模式已拦截发送: topic=KeyboardMouseControl
+[2026-04-20 23:38:47] [WARN] [Log] 日志节流：后续相同消息在本窗口内被抑制 (hash=-674696986)
+[2026-04-20 23:38:48] [WARN] [Log] 日志节流：后续相同消息在本窗口内被抑制 (hash=-112038074)
+[2026-04-20 23:38:48] [WARN] [Log] 日志节流：后续相同消息在本窗口内被抑制 (hash=-674696986)
+[2026-04-20 23:38:49] [WARN] [Network] (MessageDispatcher.cs:35) [MessageDispatcher] 日志节流: topic=VideoStream, 上一秒抑制=255
+[2026-04-20 23:38:49] [WARN] [Log] 日志节流：后续相同消息在本窗口内被抑制 (hash=-112038074)
+[2026-04-20 23:38:49] [WARN] [Network] (NetworkManager.cs:418) [NetworkManager] 被动观察模式已拦截发送: topic=KeyboardMouseControl
+[2026-04-20 23:38:49] [WARN] [Decoder] (AnnexBFrameAssembler.cs:227) [AnnexBFrameAssembler] 缓冲超时移除: frame=45316
+[2026-04-20 23:38:49] [WARN] [Decoder] (AnnexBFrameAssembler.cs:227) [AnnexBFrameAssembler] 缓冲超时移除: frame=45330
+[2026-04-20 23:38:50] [WARN] [Log] 日志节流：后续相同消息在本窗口内被抑制 (hash=-674696986)
+[2026-04-20 23:38:50] [WARN] [Network] (MessageDispatcher.cs:35) [MessageDispatcher] 日志节流: topic=VideoStream, 上一秒抑制=217
+[2026-04-20 23:38:50] [WARN] [Log] 日志节流：后续相同消息在本窗口内被抑制 (hash=-112038074)
+[2026-04-20 23:38:50] [WARN] [Decoder] (AnnexBFrameAssembler.cs:227) [AnnexBFrameAssembler] 缓冲超时移除: frame=45358
+[2026-04-20 23:38:50] [WARN] [Decoder] (AnnexBFrameAssembler.cs:227) [AnnexBFrameAssembler] 缓冲超时移除: frame=45386
+[2026-04-20 23:38:51] [WARN] [Log] 日志节流：后续相同消息在本窗口内被抑制 (hash=-674696986)
+[2026-04-20 23:38:51] [WARN] [Log] 日志节流：后续相同消息在本窗口内被抑制 (hash=-112038074)
+[2026-04-20 23:38:51] [WARN] [Network] (MessageDispatcher.cs:35) [MessageDispatcher] 日志节流: topic=VideoStream, 上一秒抑制=285
+[2026-04-20 23:38:51] [WARN] [Decoder] (AnnexBFrameAssembler.cs:227) [AnnexBFrameAssembler] 缓冲超时移除: frame=45390
+[2026-04-20 23:38:51] [WARN] [Decoder] (AnnexBFrameAssembler.cs:227) [AnnexBFrameAssembler] 缓冲超时移除: frame=45406
+[2026-04-20 23:38:51] [WARN] [Network] (NetworkManager.cs:418) [NetworkManager] 被动观察模式已拦截发送: topic=KeyboardMouseControl
+[2026-04-20 23:38:51] [WARN] [Decoder] (AnnexBFrameAssembler.cs:227) [AnnexBFrameAssembler] 缓冲超时移除: frame=45449
+[2026-04-20 23:38:51] [WARN] [Decoder] (AnnexBFrameAssembler.cs:227) [AnnexBFrameAssembler] 缓冲超时移除: frame=45439
+[2026-04-20 23:38:52] [WARN] [Log] 日志节流：后续相同消息在本窗口内被抑制 (hash=-674696986)
+[2026-04-20 23:38:52] [WARN] [Decoder] (AnnexBFrameAssembler.cs:227) [AnnexBFrameAssembler] 缓冲超时移除: frame=45453
+[2026-04-20 23:38:52] [WARN] [Network] (MessageDispatcher.cs:35) [MessageDispatcher] 日志节流: topic=VideoStream, 上一秒抑制=460
+[2026-04-20 23:38:52] [WARN] [Log] 日志节流：后续相同消息在本窗口内被抑制 (hash=-112038074)
+[2026-04-20 23:38:53] [WARN] [Log] 日志节流：后续相同消息在本窗口内被抑制 (hash=-674696986)
+[2026-04-20 23:38:53] [WARN] [Log] 日志节流：后续相同消息在本窗口内被抑制 (hash=-112038074)
+[2026-04-20 23:38:53] [WARN] [Network] (NetworkManager.cs:418) [NetworkManager] 被动观察模式已拦截发送: topic=KeyboardMouseControl
+[2026-04-20 23:38:54] [WARN] [Log] 日志节流：后续相同消息在本窗口内被抑制 (hash=-674696986)
+[2026-04-20 23:38:54] [WARN] [Log] 日志节流：后续相同消息在本窗口内被抑制 (hash=-112038074)
+[2026-04-20 23:38:55] [WARN] [Log] 日志节流：后续相同消息在本窗口内被抑制 (hash=-674696986)
+[2026-04-20 23:38:55] [WARN] [Network] (NetworkManager.cs:418) [NetworkManager] 被动观察模式已拦截发送: topic=KeyboardMouseControl
+[2026-04-20 23:38:55] [WARN] [Log] 日志节流：后续相同消息在本窗口内被抑制 (hash=-112038074)
+[2026-04-20 23:38:55] [WARN] [Network] (MessageDispatcher.cs:35) [MessageDispatcher] 日志节流: topic=VideoStream, 上一秒抑制=114
+[2026-04-20 23:38:55] [WARN] [Decoder] (AnnexBFrameAssembler.cs:227) [AnnexBFrameAssembler] 缓冲超时移除: frame=45503
+[2026-04-20 23:38:56] [WARN] [Decoder] (AnnexBFrameAssembler.cs:227) [AnnexBFrameAssembler] 缓冲超时移除: frame=45673
+[2026-04-20 23:38:56] [WARN] [Log] 日志节流：后续相同消息在本窗口内被抑制 (hash=-674696986)
+[2026-04-20 23:38:56] [WARN] [Log] 日志节流：后续相同消息在本窗口内被抑制 (hash=-112038074)
+[2026-04-20 23:38:56] [WARN] [Network] (MessageDispatcher.cs:35) [MessageDispatcher] 日志节流: topic=VideoStream, 上一秒抑制=690
+[2026-04-20 23:38:57] [WARN] [Log] 日志节流：后续相同消息在本窗口内被抑制 (hash=-674696986)
+[2026-04-20 23:38:57] [WARN] [Network] (NetworkManager.cs:418) [NetworkManager] 被动观察模式已拦截发送: topic=KeyboardMouseControl
+[2026-04-20 23:38:57] [WARN] [Log] 日志节流：后续相同消息在本窗口内被抑制 (hash=-112038074)
+[2026-04-20 23:38:57] [WARN] [Network] (MessageDispatcher.cs:35) [MessageDispatcher] 日志节流: topic=VideoStream, 上一秒抑制=451
+[2026-04-20 23:38:57] [WARN] [Decoder] (AnnexBFrameAssembler.cs:227) [AnnexBFrameAssembler] 缓冲超时移除: frame=45755
+[2026-04-20 23:38:58] [WARN] [Log] 日志节流：后续相同消息在本窗口内被抑制 (hash=-674696986)
+[2026-04-20 23:38:58] [WARN] [Decoder] (AnnexBFrameAssembler.cs:227) [AnnexBFrameAssembler] 缓冲超时移除: frame=45777
+[2026-04-20 23:38:58] [WARN] [Decoder] (AnnexBFrameAssembler.cs:227) [AnnexBFrameAssembler] 缓冲超时移除: frame=45805
+[2026-04-20 23:38:58] [WARN] [Log] 日志节流：后续相同消息在本窗口内被抑制 (hash=-112038074)
+[2026-04-20 23:38:58] [WARN] [Network] (MessageDispatcher.cs:35) [MessageDispatcher] 日志节流: topic=VideoStream, 上一秒抑制=536
+[2026-04-20 23:38:59] [WARN] [Log] 日志节流：后续相同消息在本窗口内被抑制 (hash=-674696986)
+[2026-04-20 23:38:59] [WARN] [Network] (MessageDispatcher.cs:35) [MessageDispatcher] 日志节流: topic=RobotDynamicStatus, 上一秒抑制=1
+[2026-04-20 23:38:59] [WARN] [Network] (NetworkManager.cs:418) [NetworkManager] 被动观察模式已拦截发送: topic=KeyboardMouseControl
+[2026-04-20 23:38:59] [WARN] [Log] 日志节流：后续相同消息在本窗口内被抑制 (hash=-112038074)
+[2026-04-20 23:38:59] [WARN] [Network] (MessageDispatcher.cs:35) [MessageDispatcher] 日志节流: topic=VideoStream, 上一秒抑制=410
+[2026-04-20 23:39:00] [WARN] [Decoder] (AnnexBFrameAssembler.cs:227) [AnnexBFrameAssembler] 缓冲超时移除: frame=45870
+[2026-04-20 23:39:00] [WARN] [Log] 日志节流：后续相同消息在本窗口内被抑制 (hash=-674696986)
+[2026-04-20 23:39:00] [WARN] [Network] (MessageDispatcher.cs:35) [MessageDispatcher] 日志节流: topic=VideoStream, 上一秒抑制=635
+[2026-04-20 23:39:01] [WARN] [Log] 日志节流：后续相同消息在本窗口内被抑制 (hash=-112038074)
+[2026-04-20 23:39:01] [WARN] [Log] 日志节流：后续相同消息在本窗口内被抑制 (hash=-674696986)
+[2026-04-20 23:39:01] [WARN] [Network] (NetworkManager.cs:418) [NetworkManager] 被动观察模式已拦截发送: topic=KeyboardMouseControl
+[2026-04-20 23:39:01] [WARN] [Network] (MessageDispatcher.cs:35) [MessageDispatcher] 日志节流: topic=VideoStream, 上一秒抑制=635
+[2026-04-20 23:39:02] [WARN] [Log] 日志节流：后续相同消息在本窗口内被抑制 (hash=-112038074)
+[2026-04-20 23:39:02] [WARN] [Log] 日志节流：后续相同消息在本窗口内被抑制 (hash=-674696986)
+[2026-04-20 23:39:02] [WARN] [Network] (MessageDispatcher.cs:35) [MessageDispatcher] 日志节流: topic=VideoStream, 上一秒抑制=683
+[2026-04-20 23:39:03] [WARN] [Log] 日志节流：后续相同消息在本窗口内被抑制 (hash=-112038074)
+[2026-04-20 23:39:03] [WARN] [Log] 日志节流：后续相同消息在本窗口内被抑制 (hash=-674696986)
+[2026-04-20 23:39:03] [WARN] [Network] (NetworkManager.cs:418) [NetworkManager] 被动观察模式已拦截发送: topic=KeyboardMouseControl
+[2026-04-20 23:39:04] [WARN] [Log] 日志节流：后续相同消息在本窗口内被抑制 (hash=-112038074)
+[2026-04-20 23:39:04] [WARN] [Network] (MqttClientService.cs:334) [MqttClientService] ConnectionClosed 事件触发 (attempt #4)
+[2026-04-20 23:39:04] [WARN] [Network] (UdpClientService.cs:155) [UdpClientService] Receive异常: 一个封锁操作被对 WSACancelBlockingCall 的调用中断。
+                                                                                                                                                                                                                          (code=10004)

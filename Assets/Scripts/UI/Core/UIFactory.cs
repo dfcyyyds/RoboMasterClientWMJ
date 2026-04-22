@@ -15,6 +15,16 @@ namespace UI.Core
         private static TMP_FontAsset _cachedFont;
         private static bool _fontSearched;
 
+        /// <summary>获取预加载的中文字体 — 供外部手动创建的 TMP 组件使用</summary>
+        public static TMP_FontAsset CachedFont
+        {
+            get
+            {
+                if (!_fontSearched) PreloadFont();
+                return _cachedFont;
+            }
+        }
+
         /// <summary>
         /// 应用启动时预加载字体，避免首次创建 Text 时卡顿
         /// </summary>

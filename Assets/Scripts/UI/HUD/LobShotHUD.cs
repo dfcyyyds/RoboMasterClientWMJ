@@ -578,6 +578,7 @@ namespace UI.HUD
             waitingHintText.color = new Color(0.7f, 0.8f, 0.95f, 0.85f);
             waitingHintText.alignment = TextAlignmentOptions.Center;
             waitingHintText.raycastTarget = false;
+            if (UIFactory.CachedFont != null) waitingHintText.font = UIFactory.CachedFont;
             var hintRt = waitingHintText.rectTransform;
             hintRt.anchorMin = new Vector2(0.5f, 0.5f);
             hintRt.anchorMax = new Vector2(0.5f, 0.5f);
