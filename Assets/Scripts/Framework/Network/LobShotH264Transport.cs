@@ -81,6 +81,9 @@ namespace Framework.Network
         /// <summary>当前输出队列帧数</summary>
         public int PendingFrameCount => Volatile.Read(ref outputFrameCount);
 
+        /// <summary>自 Reset 以来累计接收的数据包数（协议帧 + 仿真 UDP 分块），供入场 HUD 判断"数据是否已到达"</summary>
+        public int TotalPacketsReceived => diagProtocolPackets + diagSimUdpChunks;
+
         /// <summary>获取诊断统计</summary>
         public string GetDiagnostics()
         {

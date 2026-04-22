@@ -22,6 +22,16 @@ namespace UI.HUD
         private bool isHero;
         private bool localManualToggle; // 用户通过 Shift 手动切换（区分于远程同步）
 
+        // ─── 手动覆盖冷却（防止被动观察模式下远程 DeployModeStatusSync 与本地切换震荡） ───
+        // 在此窗口内，远程同步不得改变当前 isActive 状态（双向对称）
+        private float lastManualToggleTime = -999f;
+        private const float MANUAL_OVERRIDE_COOLDOWN = 5f;
+
+        // ─── 模式切换节流（防止短时间内反复 Enter/Exit 导致 ffmpeg 反复重启卡顿） ───
+        private float lastModeChangeTime = -999f;
+        private const float MODE_CHANGE_MIN_INTERVAL = 0.3f;
+        private bool remoteOverrideLoggedOnce;
+
         // ─── 射击冷却(本地预判) ───
         private float fireCooldown;
         private const float FIRE_INTERVAL = 2.0f; // 与服务器 LOBSHOT_42MM_INTERVAL 一致
@@ -75,6 +85,8 @@ namespace UI.HUD
             if (isActive && Input.GetKeyDown(KeyCode.Escape))
             {
                 localManualToggle = false;
+                lastManualToggleTime = Time.unscaledTime;
+                remoteOverrideLoggedOnce = false;
                 ExitDeployMode(sendCommand: !IsPassiveObserverMode());
             }
 
@@ -89,7 +101,13 @@ namespace UI.HUD
         {
             if (Input.GetKeyDown(KeyCode.LeftShift) || Input.GetKeyDown(KeyCode.RightShift))
             {
+                // 节流：防止极端情况下的连续触发或远程刚改完又被覆盖
+                if (Time.unscaledTime - lastModeChangeTime < MODE_CHANGE_MIN_INTERVAL)
+                    return;
+
                 bool sendCmd = !IsPassiveObserverMode();
+                lastManualToggleTime = Time.unscaledTime;
+                remoteOverrideLoggedOnce = false;
                 if (isActive)
                 {
                     localManualToggle = false;
@@ -114,6 +132,7 @@ namespace UI.HUD
         {
             if (isActive) return;
             isActive = true;
+            lastModeChangeTime = Time.unscaledTime;
 
             // 发送部署进入指令
             if (sendCommand)
@@ -148,6 +167,7 @@ namespace UI.HUD
         {
             if (!isActive) return;
             isActive = false;
+            lastModeChangeTime = Time.unscaledTime;
 
             // 发送部署退出指令
             if (sendCommand)
@@ -188,7 +208,8 @@ namespace UI.HUD
         /// <summary>
         /// 在主线程应用服务器下发的部署状态：
         /// status!=0 视为进入吊射，status=0 视为退出吊射。
-        /// 被动观察模式下若用户已手动进入(localManualToggle)，不因远程 status=0 强制退出。
+        /// 被动观察模式下若用户最近手动切换过(在 MANUAL_OVERRIDE_COOLDOWN 内)，
+        /// 对称地忽略与当前状态冲突的远程同步，避免 Enter/Exit 来回震荡导致 ffmpeg 反复重启。
         /// </summary>
         private void ApplyRemoteDeployStatusIfNeeded()
         {
@@ -198,8 +219,20 @@ namespace UI.HUD
             bool shouldActive = remoteDeployStatus != 0;
             if (shouldActive == isActive) return;
 
-            // 被动观察模式：用户手动进入的吊射视图不被远程 status=0 覆盖
-            if (IsPassiveObserverMode() && localManualToggle && !shouldActive)
+            // 被动观察模式下：用户最近手动切换过 → 忽略远程同步（双向对称）
+            if (IsPassiveObserverMode()
+                && Time.unscaledTime - lastManualToggleTime < MANUAL_OVERRIDE_COOLDOWN)
+            {
+                if (!remoteOverrideLoggedOnce)
+                {
+                    remoteOverrideLoggedOnce = true;
+                    wmj.Log.I($"[LobShotService] 手动覆盖生效，忽略远程部署状态 (remote={remoteDeployStatus}, local={isActive})", wmj.Log.Tag.UI);
+                }
+                return;
+            }
+
+            // 节流：冷却期内不允许远程驱动的模式切换
+            if (Time.unscaledTime - lastModeChangeTime < MODE_CHANGE_MIN_INTERVAL)
                 return;
 
             if (shouldActive)

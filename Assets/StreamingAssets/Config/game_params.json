@@ -1,19 +1,10 @@
 {
-    // ═══════════════════ 运行模式 ═══════════════════
-    // 比赛模式: true=连接官方裁判系统服务器, false=连接本地仿真MockServer
-    "isCompetitionMode": true,
-    // 比赛模式下官方服务器IP（V1.3.0协议: 固定192.168.12.1）
+    "isCompetitionMode": false,
     "competitionServerIp": "192.168.12.1",
-    // 比赛模式下官方服务器端口
     "competitionServerPort": 3333,
-
-    // MQTT clientId 覆盖（留空=按兵种自动生成；若官方要求特定格式如"101"可在此直接写入）
     "mqttClientIdOverride": "",
-    // MQTT 鉴权（官方若要求用户名/密码时填写，留空=不鉴权）
     "mqttUsername": "",
     "mqttPassword": "",
-
-    // ═══════════════════ 弹药经济 ═══════════════════
     "ammo17mmCostPerBatch": 10,
     "ammo17mmPerBatch": 10,
     "ammo17mmTeamLimit": 1000,
@@ -21,8 +12,6 @@
     "ammo42mmPerBatch": 1,
     "ammo42mmTeamLimit": 100,
     "buybackBaseCost": 50,
-
-    // ═══════════════════ 自动补给 ═══════════════════
     "autoResupplyInterval": 2.0,
     "autoResupplyCombatWindow": 3.0,
     "autoResupplyEmergencyThreshold": 20,
@@ -30,37 +19,22 @@
     "autoResupplyGoldReserve": 100,
     "autoResupplyFireRateWindow": 5.0,
     "autoResupplyPredictiveLeadTime": 2.0,
-
-    // ═══════════════════ 性能体系 ═══════════════════
     "perfSyncCheckTimeout": 3.0,
     "perfSyncCheckInterval": 0.5,
-
-    // ═══════════════════ 事件通知 ═══════════════════
-    "eventDefaultCooldown": 0.3,
+    "eventDefaultCooldown": 0.30000001192092898,
     "eventSpamCooldown": 2.0,
     "maxEventsPerFrame": 8,
-
-    // ═══════════════════ BUFF 系统 ═══════════════════
-    "buffFlashDuration": 0.4,
+    "buffFlashDuration": 0.4000000059604645,
     "buffBarHeight": 72.0,
     "buffBarGap": 5.0,
-
-    // ═══════════════════ 战斗参数 ═══════════════════
     "baseMaxHealth": 5000,
     "heroAmmoDisplayMax": 100,
     "normalAmmoDisplayMax": 500,
-
-    // ═══════════════════ 远程操作 ═══════════════════
     "remoteHealCost": 100,
     "remoteHealCooldown": 10.0,
     "remoteAmmoCost": 50,
-
-    // ═══════════════════ 吊射图传 ═══════════════════
-    // 吊射 UDP 中继参数（仅仿真模式有效；比赛模式吊射只走 CustomByteBlock/MQTT）
     "lobShotUdpIp": "0.0.0.0",
     "lobShotUdpPort": 8888,
-    // 收到吊射 CustomByteBlock 数据帧时自动弹出 LobShotHUD
-    // （比赛模式：观察己方/队友机器人吊射画面，本机不需进入 deploy 模式）
     "autoShowLobShotOnIncomingFrame": true,
     "competitionPassiveObserverMode": true,
     "allowCustomPerformanceSelectionCommandInCompetition": false,

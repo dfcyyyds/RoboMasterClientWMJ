@@ -143,7 +143,43 @@ namespace UI.HUD
         private GlobalUnitStatusViewModel unitVM;
         private bool isShowing;
         private int frameCount;
-        private TextMeshProUGUI waitingHintText; // "等待吊射图传数据..."提示
+        private TextMeshProUGUI waitingHintText; // 兼容字段（入场 HUD 现已替代其职责，保留防止外部引用）
+
+        // ─── 入场 HUD（Shift→首帧显示期间的进度卡片，风格与 SettingsPanel 一致） ───
+        private CanvasGroup enterOverlayGroup;
+        private GameObject enterOverlayGO;
+        private TextMeshProUGUI enterTitleText;
+        private TextMeshProUGUI enterFooterText;
+        private RectTransform enterProgressFillRt;
+        private Image enterProgressFill;
+        private Image[] enterStageBadges;
+        private TextMeshProUGUI[] enterStageLabels;
+        private static readonly string[] EnterStageTitles = {
+            "发送部署指令",
+            "启动图传解码器",
+            "等待机甲进入部署模式",
+            "接收首帧图传",
+        };
+        private const int ENTER_STAGE_COUNT = 4;
+        private int enterStageIndex;           // 当前活动阶段（0..4；4=全部完成）
+        private float enterStageStartTime;     // 当前阶段开始时间
+        private bool enterDecoderReady;        // 由 StartH264Decoder 完成后置位
+        private float enterHideStartTime = -1f;// >=0 表示正在淡出
+        private const float ENTER_FADE_OUT_SEC = 0.35f;
+
+        // ─── 入场 HUD 配色（与 SettingsPanel 保持一致） ───
+        private static readonly Color ENTER_PANEL_BG    = new Color(0.04f, 0.05f, 0.10f, 0.94f);
+        private static readonly Color ENTER_TITLE_BG    = new Color(0.03f, 0.04f, 0.08f, 0.95f);
+        private static readonly Color ENTER_ACCENT      = new Color(0.35f, 0.72f, 0.98f, 1f);
+        private static readonly Color ENTER_TRACK_BG    = new Color(0.08f, 0.08f, 0.16f, 0.95f);
+        private static readonly Color ENTER_FILL        = new Color(0.22f, 0.55f, 0.95f, 0.85f);
+        private static readonly Color ENTER_BADGE_DONE  = new Color(0.22f, 0.80f, 0.55f, 0.95f);
+        private static readonly Color ENTER_BADGE_ACTIVE= new Color(0.35f, 0.72f, 0.98f, 0.95f);
+        private static readonly Color ENTER_BADGE_IDLE  = new Color(0.18f, 0.22f, 0.32f, 0.75f);
+        private static readonly Color ENTER_TEXT_ACTIVE = new Color(0.92f, 0.95f, 1f, 1f);
+        private static readonly Color ENTER_TEXT_IDLE   = new Color(0.55f, 0.62f, 0.75f, 0.85f);
+        private static readonly Color ENTER_TEXT_DONE   = new Color(0.70f, 0.85f, 0.78f, 0.95f);
+
 
         // ─── 诊断 ───
         private int diagDecodeReject;
@@ -245,6 +281,7 @@ namespace UI.HUD
             BuildCrosshairOverlay();
             BuildTrailOverlay();
             BuildBaseHealthBar();
+            BuildEnterOverlay();
 
             // 订阅 CustomByteBlock 数据
             ProtobufManager.Instance.OnDataUpdated += OnProtoDataUpdated;
@@ -336,6 +373,7 @@ namespace UI.HUD
             }
 
             UpdateV2DisplayLayout();
+            enterDecoderReady = true;
         }
 
         /// <summary>释放解码器资源（退出吊射模式时）。SR 模块持久，不在此释放。</summary>
@@ -407,13 +445,14 @@ namespace UI.HUD
             for (int i = 0; i < recentFrameTimes.Length; i++) recentFrameTimes[i] = 0f;
 
             if (lobCanvas != null) lobCanvas.gameObject.SetActive(true);
-            if (waitingHintText != null) waitingHintText.gameObject.SetActive(true);
+            ShowEnterOverlay();
             wmj.Log.I($"[LobShotHUD] 显示吊射画面 (v2 彩色 H.264, 拉伸={stretchToFullHD}, SR={srEnabled})", wmj.Log.Tag.UI);
         }
 
         public void Hide()
         {
             isShowing = false;
+            HideEnterOverlayImmediate();
             LobShotUdpReceiver.ActiveH264Transport = null;
             DisposeDecoder();
 
@@ -568,23 +607,285 @@ namespace UI.HUD
             rt.sizeDelta = new Vector2(DISPLAY_W, DISPLAY_H);
             UpdateV2DisplayLayout();
 
-            // "等待吊射图传数据..."提示（居中显示，首帧到达后隐藏）
-            var hintGO = new GameObject("WaitingHint");
-            hintGO.transform.SetParent(root, false);
-            waitingHintText = hintGO.AddComponent<TextMeshProUGUI>();
-            waitingHintText.text = "等待吊射图传数据…\n\n<size=14><color=#8899BB>需要英雄机器人进入部署模式后，数据才会到达\n按 Escape 可退出吊射视图</color></size>";
-            waitingHintText.fontSize = 22;
-            waitingHintText.fontStyle = FontStyles.Normal;
-            waitingHintText.color = new Color(0.7f, 0.8f, 0.95f, 0.85f);
-            waitingHintText.alignment = TextAlignmentOptions.Center;
-            waitingHintText.raycastTarget = false;
-            if (UIFactory.CachedFont != null) waitingHintText.font = UIFactory.CachedFont;
-            var hintRt = waitingHintText.rectTransform;
-            hintRt.anchorMin = new Vector2(0.5f, 0.5f);
-            hintRt.anchorMax = new Vector2(0.5f, 0.5f);
-            hintRt.pivot = new Vector2(0.5f, 0.5f);
-            hintRt.sizeDelta = new Vector2(600, 200);
-            hintRt.anchoredPosition = Vector2.zero;
+            // 旧版"等待数据..."提示由 EnterOverlay 取代（见 BuildEnterOverlay）
+        }
+
+        // ═══════════════════════════════ 入场 HUD（进度卡片） ═══════════════════════════════
+
+        /// <summary>构建"进入吊射模式"进度卡片，风格与 SettingsPanel 一致</summary>
+        private void BuildEnterOverlay()
+        {
+            var root = lobCanvas.transform;
+
+            // 容器（居中固定尺寸）
+            enterOverlayGO = new GameObject("EnterOverlay");
+            enterOverlayGO.transform.SetParent(root, false);
+            var rootRt = enterOverlayGO.AddComponent<RectTransform>();
+            rootRt.anchorMin = new Vector2(0.5f, 0.5f);
+            rootRt.anchorMax = new Vector2(0.5f, 0.5f);
+            rootRt.pivot = new Vector2(0.5f, 0.5f);
+            rootRt.sizeDelta = new Vector2(460f, 300f);
+            rootRt.anchoredPosition = Vector2.zero;
+            enterOverlayGroup = enterOverlayGO.AddComponent<CanvasGroup>();
+            enterOverlayGroup.alpha = 0f;
+            enterOverlayGroup.interactable = false;
+            enterOverlayGroup.blocksRaycasts = false;
+
+            // 面板底色
+            var bg = UIFactory.CreateImage(enterOverlayGO.transform, "Bg", ENTER_PANEL_BG);
+            var bgRt = bg.rectTransform;
+            bgRt.anchorMin = Vector2.zero; bgRt.anchorMax = Vector2.one;
+            bgRt.offsetMin = Vector2.zero; bgRt.offsetMax = Vector2.zero;
+
+            // 顶部 AccentStrip（3px 蓝色条）
+            var accent = UIFactory.CreateImage(enterOverlayGO.transform, "AccentStrip", ENTER_ACCENT);
+            var accRt = accent.rectTransform;
+            accRt.anchorMin = new Vector2(0f, 1f);
+            accRt.anchorMax = new Vector2(1f, 1f);
+            accRt.pivot = new Vector2(0.5f, 1f);
+            accRt.sizeDelta = new Vector2(0f, 3f);
+            accRt.anchoredPosition = Vector2.zero;
+
+            // 顶部标题栏（深色）
+            var titleBar = UIFactory.CreateImage(enterOverlayGO.transform, "TitleBar", ENTER_TITLE_BG);
+            var tbRt = titleBar.rectTransform;
+            tbRt.anchorMin = new Vector2(0f, 1f);
+            tbRt.anchorMax = new Vector2(1f, 1f);
+            tbRt.pivot = new Vector2(0.5f, 1f);
+            tbRt.sizeDelta = new Vector2(0f, 46f);
+            tbRt.anchoredPosition = new Vector2(0f, -3f);
+
+            enterTitleText = UIFactory.CreateText(titleBar.transform, "Title",
+                "进入吊射模式", 20, TextAlignmentOptions.Left, ENTER_TEXT_ACTIVE, FontStyles.Bold);
+            var titleRt = enterTitleText.rectTransform;
+            titleRt.anchorMin = new Vector2(0f, 0f);
+            titleRt.anchorMax = new Vector2(1f, 1f);
+            titleRt.offsetMin = new Vector2(18f, 0f);
+            titleRt.offsetMax = new Vector2(-18f, 0f);
+
+            // 阶段列表
+            enterStageBadges = new Image[ENTER_STAGE_COUNT];
+            enterStageLabels = new TextMeshProUGUI[ENTER_STAGE_COUNT];
+            float rowH = 34f;
+            float listTop = -60f; // 距离容器顶部
+            for (int i = 0; i < ENTER_STAGE_COUNT; i++)
+            {
+                var rowGO = new GameObject($"Stage{i}");
+                rowGO.transform.SetParent(enterOverlayGO.transform, false);
+                var rowRt = rowGO.AddComponent<RectTransform>();
+                rowRt.anchorMin = new Vector2(0f, 1f);
+                rowRt.anchorMax = new Vector2(1f, 1f);
+                rowRt.pivot = new Vector2(0.5f, 1f);
+                rowRt.sizeDelta = new Vector2(0f, rowH);
+                rowRt.anchoredPosition = new Vector2(0f, listTop - i * rowH);
+
+                // 序号徽标（圆角方块）
+                var badge = UIFactory.CreateImage(rowGO.transform, "Badge", ENTER_BADGE_IDLE);
+                var bRt = badge.rectTransform;
+                bRt.anchorMin = new Vector2(0f, 0.5f);
+                bRt.anchorMax = new Vector2(0f, 0.5f);
+                bRt.pivot = new Vector2(0f, 0.5f);
+                bRt.sizeDelta = new Vector2(20f, 20f);
+                bRt.anchoredPosition = new Vector2(24f, 0f);
+                enterStageBadges[i] = badge;
+
+                // 阶段文字
+                var label = UIFactory.CreateText(rowGO.transform, "Label",
+                    $"{i + 1}. {EnterStageTitles[i]}", 16, TextAlignmentOptions.Left,
+                    ENTER_TEXT_IDLE, FontStyles.Normal);
+                var lRt = label.rectTransform;
+                lRt.anchorMin = new Vector2(0f, 0f);
+                lRt.anchorMax = new Vector2(1f, 1f);
+                lRt.offsetMin = new Vector2(56f, 0f);
+                lRt.offsetMax = new Vector2(-24f, 0f);
+                enterStageLabels[i] = label;
+            }
+
+            // 进度条容器
+            float barY = listTop - ENTER_STAGE_COUNT * rowH - 18f;
+            var track = UIFactory.CreateImage(enterOverlayGO.transform, "ProgressTrack", ENTER_TRACK_BG);
+            var tRt = track.rectTransform;
+            tRt.anchorMin = new Vector2(0f, 1f);
+            tRt.anchorMax = new Vector2(1f, 1f);
+            tRt.pivot = new Vector2(0.5f, 1f);
+            tRt.sizeDelta = new Vector2(-48f, 4f);
+            tRt.anchoredPosition = new Vector2(0f, barY);
+
+            enterProgressFill = UIFactory.CreateImage(track.transform, "ProgressFill", ENTER_FILL);
+            enterProgressFillRt = enterProgressFill.rectTransform;
+            enterProgressFillRt.anchorMin = new Vector2(0f, 0f);
+            enterProgressFillRt.anchorMax = new Vector2(0f, 1f);
+            enterProgressFillRt.pivot = new Vector2(0f, 0.5f);
+            enterProgressFillRt.sizeDelta = new Vector2(0f, 0f);
+            enterProgressFillRt.anchoredPosition = Vector2.zero;
+
+            // 底部脚注
+            enterFooterText = UIFactory.CreateText(enterOverlayGO.transform, "Footer",
+                "按 Shift 再次可取消 · 预计 5–8 秒", 13,
+                TextAlignmentOptions.Center, ENTER_TEXT_IDLE, FontStyles.Normal);
+            var fRt = enterFooterText.rectTransform;
+            fRt.anchorMin = new Vector2(0f, 0f);
+            fRt.anchorMax = new Vector2(1f, 0f);
+            fRt.pivot = new Vector2(0.5f, 0f);
+            fRt.sizeDelta = new Vector2(0f, 22f);
+            fRt.anchoredPosition = new Vector2(0f, 14f);
+
+            enterOverlayGO.SetActive(false);
+        }
+
+        /// <summary>开始入场流程：重置状态并显示卡片</summary>
+        private void ShowEnterOverlay()
+        {
+            if (enterOverlayGO == null) return;
+            enterStageIndex = 0;
+            enterStageStartTime = Time.unscaledTime;
+            enterDecoderReady = false;
+            enterHideStartTime = -1f;
+            if (enterProgressFillRt != null) enterProgressFillRt.sizeDelta = new Vector2(0f, 0f);
+            for (int i = 0; i < ENTER_STAGE_COUNT; i++)
+            {
+                if (enterStageBadges[i] != null) enterStageBadges[i].color = ENTER_BADGE_IDLE;
+                if (enterStageLabels[i] != null) enterStageLabels[i].color = ENTER_TEXT_IDLE;
+            }
+            if (enterTitleText != null) enterTitleText.text = "进入吊射模式";
+            if (enterFooterText != null)
+            {
+                enterFooterText.text = "按 Shift 再次可取消 · 预计 5–8 秒";
+                enterFooterText.color = ENTER_TEXT_IDLE;
+            }
+            if (enterOverlayGroup != null) enterOverlayGroup.alpha = 1f;
+            enterOverlayGO.SetActive(true);
+        }
+
+        /// <summary>隐藏时无条件关闭（Hide() 调用）</summary>
+        private void HideEnterOverlayImmediate()
+        {
+            if (enterOverlayGO != null) enterOverlayGO.SetActive(false);
+            if (enterOverlayGroup != null) enterOverlayGroup.alpha = 0f;
+            enterHideStartTime = -1f;
+        }
+
+        /// <summary>首包协议数据到达（CustomByteBlock 路径触发）</summary>
+        private void OnEnterOverlayDataReceived()
+        {
+            // 阶段 2 "等待机甲进入部署模式" 视作完成，Tick 会推进
+        }
+
+        /// <summary>每帧更新入场 HUD 状态（由 Update 驱动）</summary>
+        private void TickEnterOverlay()
+        {
+            if (enterOverlayGO == null || !enterOverlayGO.activeSelf) return;
+
+            // ─── 淡出阶段 ───
+            if (enterHideStartTime >= 0f)
+            {
+                float t = (Time.unscaledTime - enterHideStartTime) / ENTER_FADE_OUT_SEC;
+                if (t >= 1f) { HideEnterOverlayImmediate(); return; }
+                if (enterOverlayGroup != null) enterOverlayGroup.alpha = 1f - t;
+                return;
+            }
+
+            // ─── 推进阶段 ───
+            bool dataArrived = (h264Transport != null && h264Transport.TotalPacketsReceived > 0) || frameCount > 0;
+            bool firstFrameDisplayed = v2FrameCount > 0 || frameCount > 0;
+
+            // 阶段 0 → 1：指令发送的视觉确认时间
+            if (enterStageIndex == 0 && Time.unscaledTime - enterStageStartTime >= 0.35f)
+                AdvanceEnterStage();
+            // 阶段 1 → 2：解码器启动完成
+            if (enterStageIndex == 1 && enterDecoderReady && Time.unscaledTime - enterStageStartTime >= 0.25f)
+                AdvanceEnterStage();
+            // 阶段 2 → 3：第一包数据到达
+            if (enterStageIndex == 2 && dataArrived)
+                AdvanceEnterStage();
+            // 阶段 3 → 完成：首帧已显示
+            if (enterStageIndex == 3 && firstFrameDisplayed)
+            {
+                AdvanceEnterStage();
+                // 标题切到"已建立"，短暂停留后淡出
+                if (enterTitleText != null) enterTitleText.text = "吊射图传已建立";
+                if (enterFooterText != null)
+                {
+                    enterFooterText.text = "连接完成，进入战斗视角…";
+                    enterFooterText.color = ENTER_TEXT_DONE;
+                }
+                enterHideStartTime = Time.unscaledTime + 0.4f - ENTER_FADE_OUT_SEC; // 0.4s 停留 + 淡出
+            }
+
+            // ─── 刷新视觉 ───
+            RefreshEnterOverlayVisuals();
+
+            // ─── 保护：长时间卡在某阶段时提示 ───
+            if (enterStageIndex < ENTER_STAGE_COUNT && enterFooterText != null)
+            {
+                float stuck = Time.unscaledTime - enterStageStartTime;
+                if (enterStageIndex == 2 && stuck > 6f)
+                    enterFooterText.text = "等待时间较长：请确认英雄已就位并启动吊射";
+                else if (enterStageIndex == 3 && stuck > 4f)
+                    enterFooterText.text = "解码器等待首帧…若持续无画面请检查网络";
+            }
+        }
+
+        private void AdvanceEnterStage()
+        {
+            if (enterStageIndex >= ENTER_STAGE_COUNT) return;
+            enterStageIndex++;
+            enterStageStartTime = Time.unscaledTime;
+        }
+
+        private void RefreshEnterOverlayVisuals()
+        {
+            // 徽标 / 文字颜色
+            for (int i = 0; i < ENTER_STAGE_COUNT; i++)
+            {
+                if (enterStageBadges[i] == null || enterStageLabels[i] == null) continue;
+                if (i < enterStageIndex)
+                {
+                    enterStageBadges[i].color = ENTER_BADGE_DONE;
+                    enterStageLabels[i].color = ENTER_TEXT_DONE;
+                }
+                else if (i == enterStageIndex)
+                {
+                    // 活动阶段：脉冲
+                    float pulse = 0.55f + 0.45f * Mathf.Abs(Mathf.Sin(Time.unscaledTime * 4.2f));
+                    var c = ENTER_BADGE_ACTIVE; c.a = pulse;
+                    enterStageBadges[i].color = c;
+                    enterStageLabels[i].color = ENTER_TEXT_ACTIVE;
+                }
+                else
+                {
+                    enterStageBadges[i].color = ENTER_BADGE_IDLE;
+                    enterStageLabels[i].color = ENTER_TEXT_IDLE;
+                }
+            }
+
+            // 标题尾部 spinner（… 动画）
+            if (enterTitleText != null && enterStageIndex < ENTER_STAGE_COUNT)
+            {
+                int dots = Mathf.FloorToInt(Time.unscaledTime * 2f) % 4;
+                string suffix = dots == 0 ? "" : new string('·', dots);
+                enterTitleText.text = $"进入吊射模式 {suffix}";
+            }
+
+            // 进度条：已完成阶段贡献满格，活动阶段按时间推入 70% 再等事件
+            if (enterProgressFillRt != null)
+            {
+                float done = enterStageIndex;
+                if (enterStageIndex < ENTER_STAGE_COUNT)
+                {
+                    // 每个阶段预期最长时间（仅用于视觉推进，不影响实际等待）
+                    float expected = enterStageIndex switch
+                    {
+                        0 => 0.35f, 1 => 0.5f, 2 => 5f, 3 => 1.2f, _ => 1f,
+                    };
+                    float partial = Mathf.Clamp01((Time.unscaledTime - enterStageStartTime) / expected) * 0.85f;
+                    done += partial;
+                }
+                float progress = done / ENTER_STAGE_COUNT;
+                // 容器宽度由锚点填满；取 rect 宽度
+                float barWidth = enterProgressFillRt.parent is RectTransform prt ? prt.rect.width : 380f;
+                enterProgressFillRt.sizeDelta = new Vector2(barWidth * progress, 0f);
+            }
         }
 
         private void BuildCrosshairOverlay()
@@ -910,9 +1211,8 @@ namespace UI.HUD
 
             int fc = System.Threading.Interlocked.Increment(ref frameCount);
 
-            // 首帧到达：隐藏"等待数据"提示
-            if (fc == 1 && waitingHintText != null)
-                waitingHintText.gameObject.SetActive(false);
+            // 首帧到达：推进入场 HUD 进度（淡出由 TickEnterOverlay 处理）
+            if (fc == 1) OnEnterOverlayDataReceived();
             if (fc <= 5)
             {
                 string hexHead = "";
@@ -1489,6 +1789,8 @@ namespace UI.HUD
         void Update()
         {
             if (!isShowing) return;
+
+            TickEnterOverlay();
 
             updateStopwatch.Restart();
             float frameStart = Time.realtimeSinceStartup;

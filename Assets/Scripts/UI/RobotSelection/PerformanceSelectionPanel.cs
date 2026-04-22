@@ -131,6 +131,9 @@ namespace UI.RobotSelection
 
         private void HandleKeyboard()
         {
+            // 热更新面板显示期间禁止本面板响应键盘
+            if (!StartupUpdateChecker.Completed) return;
+
             var kb = Keyboard.current;
             if (kb == null) return;
 

@@ -151,6 +151,9 @@ namespace UI.RobotSelection
 
         private void HandleKeyboard()
         {
+            // 热更新面板显示期间禁止本面板响应键盘（遮罩只拦截鼠标射线，键盘轮询需手动门控）
+            if (!StartupUpdateChecker.Completed) return;
+
             var kb = Keyboard.current;
             if (kb == null) return;
 

@@ -1,5 +1,6 @@
 using UnityEngine;
 using System;
+using System.Collections;
 using System.Collections.Generic;
 using uPLibrary.Networking.M2Mqtt;
 using uPLibrary.Networking.M2Mqtt.Messages;
@@ -238,10 +239,16 @@ public class NetworkManager : MonoBehaviour
     }
 
     // Start is called once before the first execution of Update after the MonoBehaviour is created
-    void Start()
+    IEnumerator Start()
     {
         // 创建自检状态 UI（右下角）
         EnsureConnectionStatusHUD();
+        UpdateStatus("等待模式选择...");
+
+        // 等待模式选择完成（比赛 / 仿真），确保 GameParamsConfig.isCompetitionMode 已由用户确认
+        while (!ModeSelectionPanel.IsCompleted)
+            yield return null;
+
         UpdateStatus("等待兵种选择...");
 
         // 仿真模式允许先用随机 GUID 连接（MockServer 不校验 clientId）
@@ -256,7 +263,7 @@ public class NetworkManager : MonoBehaviour
             // 兵种选完后用正确 ID 重连
             if (!RobotSelectionBootstrap.IsSelectionCompleted)
                 RobotSelectionBootstrap.OnSelectionCompleted += OnRobotSelectionCompleted;
-            return;
+            yield break;
         }
 
         // ═══ 比赛模式: 必须等兵种选择完成才连接 ═══

@@ -81,7 +81,27 @@ namespace Framework.Video
                     return candidate;
                 }
 
-                UnityEngine.Debug.LogWarning($"[FfmpegLocator] 未找到内置 ffmpeg ({candidate})，回退系统 PATH");
+                UnityEngine.Debug.LogWarning($"[FfmpegLocator] 未找到内置 ffmpeg ({candidate})，尝试系统路径");
+
+                // 显式探测常见系统安装位置（Unity 编辑器进程 PATH 可能不含 /usr/bin）
+#if !UNITY_STANDALONE_WIN && !UNITY_EDITOR_WIN
+                string[] systemPaths = {
+                    "/usr/bin/ffmpeg",
+                    "/usr/local/bin/ffmpeg",
+                    "/opt/homebrew/bin/ffmpeg",  // macOS Homebrew arm64/x86
+                    "/snap/bin/ffmpeg",
+                };
+                foreach (var sp in systemPaths)
+                {
+                    if (File.Exists(sp))
+                    {
+                        EnsureExecutable(sp);
+                        UnityEngine.Debug.Log($"[FfmpegLocator] 使用系统 ffmpeg: {sp}");
+                        return sp;
+                    }
+                }
+#endif
+                UnityEngine.Debug.LogWarning($"[FfmpegLocator] 系统路径亦未找到 ffmpeg，回退命令名 \"ffmpeg\"");
                 return "ffmpeg";
             }
             catch (Exception ex)

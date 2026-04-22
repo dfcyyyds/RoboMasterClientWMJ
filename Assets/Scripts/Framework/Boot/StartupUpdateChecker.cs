@@ -5,6 +5,8 @@ using System.Diagnostics;
 using System.IO;
 using System.Text;
 using UnityEngine;
+using UnityEngine.EventSystems;
+using UnityEngine.InputSystem.UI;
 using UnityEngine.Networking;
 using UnityEngine.UI;
 using TMPro;
@@ -58,6 +60,9 @@ public class StartupUpdateChecker : MonoBehaviour
     private const string DEFAULT_BASE = "https://antientropy.xin/robomaster/";
     private const string MANIFEST_NAME = "manifest.json";
     private const string LOCAL_MANIFEST = "manifest.local.json";
+    // 更新后用的待提交 manifest 名：swap 脚本在替换完所有其他文件后，
+    // 才将其原子重命名为 manifest.local.json，避免部分替换成功导致的状态错乱
+    private const string LOCAL_MANIFEST_PENDING = "manifest.local.json.pending";
     private const string STAGING_DIR = ".update_staging";
     private const string DISABLE_FLAG = ".wmj_disable_auto_check";
     private const int HTTP_TIMEOUT = 12;
@@ -84,6 +89,12 @@ public class StartupUpdateChecker : MonoBehaviour
     private Canvas canvas;
     private GameObject promptPage;
     private GameObject progressPage;
+    // EventSystem 在 BeforeSceneLoad 时场景内通常还不存在，需自己创建以保证按钮可点击
+    private GameObject ownedEventSystem;
+    // 若需要附着到现有 EventSystem 上以保证鼠标点击有效，记录下来在 OnDestroy 时回滚
+    private EventSystem attachedEventSystem;
+    private InputSystemUIInputModule attachedInputModule;
+    private readonly List<BaseInputModule> disabledInputModules = new List<BaseInputModule>();
 
     // 进度 UI 引用
     private TextMeshProUGUI tProgPctTxt;
@@ -111,7 +122,6 @@ public class StartupUpdateChecker : MonoBehaviour
     [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.BeforeSceneLoad)]
     private static void AutoCreate()
     {
-        if (Application.isEditor) { Completed = true; return; }
         if (IsDisabledByEnv())     { Completed = true; Debug.Log("[WMJ-Update] 已禁用（环境变量）"); return; }
         try
         {
@@ -200,14 +210,47 @@ public class StartupUpdateChecker : MonoBehaviour
         {
             if (localMap.TryGetValue(r.path, out var l) && l.size == r.size && l.sha256 == r.sha256)
                 continue;
+
+            // 兜底：本地 manifest 缺失或不匹配时，再按实际磁盘文件 size+sha256 比对一次。
+            // 这样即使 manifest 由于 swap 中途失败而未能提交，只要文件内容与 remote 一致，就不会触发"幽灵更新"。
+            // 仅对小于 32MB 的文件做此昂贵比对，避免大包上多算 sha。
+            try
+            {
+                string abs = Path.Combine(installDir, r.path);
+                if (File.Exists(abs))
+                {
+                    var fi = new FileInfo(abs);
+                    if (fi.Length == r.size && r.size <= 32L * 1024 * 1024)
+                    {
+                        if (Sha256(abs) == r.sha256) continue;
+                    }
+                }
+            }
+            catch { /* ignore */ }
+
             needDownload.Add(r);
             totalNeedBytes += r.size;
+        }
+
+        // 若经过磁盘校验确认所有文件完好，但 manifest.local.json 仍不一致，此处提前补写 manifest，
+        // 彻底避免下次启动再触发更新提示（对"总是错误显示有可用更新"这类残留态非常必要）。
+        if (needDownload.Count == 0 && !string.IsNullOrEmpty(remoteManifestRaw))
+        {
+            try
+            {
+                string path = Path.Combine(installDir, LOCAL_MANIFEST);
+                File.WriteAllText(path, remoteManifestRaw, new UTF8Encoding(false));
+                Debug.Log("[WMJ-Update] 磁盘内容与远端一致，已同步 manifest.local.json");
+            }
+            catch (Exception ex) { Debug.LogWarning($"[WMJ-Update] 回写 manifest 失败: {ex.Message}"); }
         }
     }
 
     // ═══════════════════ Canvas / 通用样式 ═══════════════════
     private void BuildCanvas()
     {
+        EnsureEventSystem();
+
         var go = new GameObject("[WMJ-UpdateCanvas]");
         go.transform.SetParent(transform, false);
         canvas = go.AddComponent<Canvas>();
@@ -222,6 +265,41 @@ public class StartupUpdateChecker : MonoBehaviour
         var overlay = NewImage(go.transform, "Overlay", new Color(0, 0, 0, 0.70f));
         Stretch(overlay.rectTransform);
         overlay.raycastTarget = true;
+    }
+
+    /// <summary>确保存在可用的 EventSystem + InputSystemUIInputModule。
+    /// 在 BeforeSceneLoad 之后我们的 UI 往往与场景 EventSystem 共存；
+    /// 若场景 EventSystem 只有旧版 StandaloneInputModule，在使用 "Input System Package (New)"
+    /// 的项目下鼠标事件不会路由——此时我们动态禁用旧模块并补上 InputSystemUIInputModule。</summary>
+    private void EnsureEventSystem()
+    {
+        var es = EventSystem.current;
+        if (es == null)
+        {
+            var go = new GameObject("[WMJ-UpdateEventSystem]");
+            go.transform.SetParent(transform, false);
+            es = go.AddComponent<EventSystem>();
+            go.AddComponent<InputSystemUIInputModule>();
+            ownedEventSystem = go;
+            Debug.Log("[WMJ-Update] 已临时创建 EventSystem（场景无 EventSystem）");
+            return;
+        }
+
+        // 已有 EventSystem：若没有 InputSystemUIInputModule，就禁用其它 BaseInputModule 并补一个
+        var ism = es.GetComponent<InputSystemUIInputModule>();
+        if (ism == null)
+        {
+            foreach (var m in es.GetComponents<BaseInputModule>())
+            {
+                if (!m.enabled) continue;
+                m.enabled = false;
+                disabledInputModules.Add(m);
+            }
+            ism = es.gameObject.AddComponent<InputSystemUIInputModule>();
+            attachedEventSystem = es;
+            attachedInputModule = ism;
+            Debug.Log($"[WMJ-Update] 已在现有 EventSystem 上启用 InputSystemUIInputModule（禁用旧模块 {disabledInputModules.Count} 个）");
+        }
     }
 
     /// <summary>构造 SettingsPanel 风格的主面板骨架（标题栏 + Logo + 主体 + 帮助栏），返回内容区父 RectTransform</summary>
@@ -647,7 +725,27 @@ public class StartupUpdateChecker : MonoBehaviour
                 if (albumTextures[i] != null) { Destroy(albumTextures[i]); albumTextures[i] = null; }
     }
 
-    void OnDestroy() { CleanupAlbum(); }
+    void OnDestroy()
+    {
+        CleanupAlbum();
+        if (ownedEventSystem != null)
+        {
+            Destroy(ownedEventSystem);
+            ownedEventSystem = null;
+        }
+        // 回滚我们对现有 EventSystem 做的改动（禁用的旧模块恢复、移除我们添加的新模块）
+        if (attachedInputModule != null)
+        {
+            Destroy(attachedInputModule);
+            attachedInputModule = null;
+        }
+        for (int i = 0; i < disabledInputModules.Count; i++)
+        {
+            if (disabledInputModules[i] != null) disabledInputModules[i].enabled = true;
+        }
+        disabledInputModules.Clear();
+        attachedEventSystem = null;
+    }
 
     // ═══════════════════ 按键 ═══════════════════
     void Update()
@@ -868,9 +966,9 @@ public class StartupUpdateChecker : MonoBehaviour
             yield break;
         }
 
-        // 写新 manifest.local.json 到 staging
-        try { File.WriteAllText(Path.Combine(staging, LOCAL_MANIFEST), remoteManifestRaw, new UTF8Encoding(false)); }
-        catch (Exception ex) { ShowFatal($"写 manifest.local.json 失败: {ex.Message}"); yield break; }
+        // 先以 .pending 名义写入 staging，current 名请 swap 脚本在所有其他文件替换完毕后原子重命名
+        try { File.WriteAllText(Path.Combine(staging, LOCAL_MANIFEST_PENDING), remoteManifestRaw, new UTF8Encoding(false)); }
+        catch (Exception ex) { ShowFatal($"写 {LOCAL_MANIFEST_PENDING} 失败: {ex.Message}"); yield break; }
 
         tCurrentFile.text = $"<color=#6ACB7E>✓ 下载完成</color>   {FormatBytes(totalNeedBytes)}   用时 {(DateTime.Now - startTime).TotalSeconds:F1}s";
         tSpeed.text = "准备替换并重启...";
@@ -930,12 +1028,24 @@ public class StartupUpdateChecker : MonoBehaviour
             string content =
                 "@echo off\r\n" +
                 "chcp 65001 >nul\r\n" +
+                "setlocal EnableDelayedExpansion\r\n" +
                 "timeout /t 2 /nobreak >nul\r\n" +
                 $"cd /d \"{installDir}\"\r\n" +
-                "echo [WMJ-Swap] 替换更新文件...\r\n" +
-                $"xcopy /s /y /e /q \"{STAGING_DIR}\\*\" . >nul\r\n" +
-                $"rmdir /s /q \"{STAGING_DIR}\"\r\n" +
-                "echo [WMJ-Swap] 重新启动客户端...\r\n" +
+                $"set LOG=\"{installDir}\\.wmj_swap.log\"\r\n" +
+                "echo [WMJ-Swap] %DATE% %TIME% 开始替换 >%LOG%\r\n" +
+                // 第 1 步：先排除 pending 文件同步其他所有文件（robocopy 的 /XF 可排除）
+                $"robocopy \"{STAGING_DIR}\" . /E /MOVE /NFL /NDL /NJH /NJS /NC /NS /NP /XF \"{LOCAL_MANIFEST_PENDING}\" >>%LOG%\r\n" +
+                "set RCERR=%errorlevel%\r\n" +
+                // robocopy 退出码 <8 均视为成功；>=8 视为失败，不提交 manifest，启动旧版让用户下次重试
+                "if %RCERR% GEQ 8 ( echo [WMJ-Swap] robocopy 失败 errorlevel=%RCERR% 跳过 manifest 提交 >>%LOG% & goto :restart )\r\n" +
+                // 第 2 步：所有其他文件已落地，最后原子重命名 manifest——此步做到才算更新成功
+                $"if exist \"{STAGING_DIR}\\{LOCAL_MANIFEST_PENDING}\" (\r\n" +
+                $"  move /Y \"{STAGING_DIR}\\{LOCAL_MANIFEST_PENDING}\" \"{LOCAL_MANIFEST}\" >>%LOG%\r\n" +
+                "  if errorlevel 1 ( echo [WMJ-Swap] manifest 提交失败 >>%LOG% ) else ( echo [WMJ-Swap] manifest 已提交 >>%LOG% )\r\n" +
+                $") else ( echo [WMJ-Swap] 警告: 未找到 {LOCAL_MANIFEST_PENDING} >>%LOG% )\r\n" +
+                $"rmdir /s /q \"{STAGING_DIR}\" 2>nul\r\n" +
+                ":restart\r\n" +
+                "echo [WMJ-Swap] 重新启动客户端... >>%LOG%\r\n" +
                 "set ROBOMASTER_SKIP_UPDATE=1\r\n" +
                 "if exist launch.bat ( call launch.bat ) else ( start \"\" RoboMasterClient.exe )\r\n";
             File.WriteAllText(scriptPath, content, new UTF8Encoding(false));
@@ -951,26 +1061,61 @@ public class StartupUpdateChecker : MonoBehaviour
         else
         {
             scriptPath = Path.Combine(installDir, ".wmj_swap.sh");
+            // ⚠️ 不使用 `find | while` 管道——它的 while 体在子 shell 中，`exit` 无法终止主脚本，
+            //    任意 mv 失败会被静默放过然后依然提交 manifest，造成"看似更新成功实则缺文件"。
+            //    改用 process substitution `< <(find ...)` + ok 标志，仅在全部成功后才提交 manifest 并重启。
+            //    另外显式给 RoboMasterClient / launch.sh 打 +x（DownloadHandlerFile 写出的文件默认无执行位）。
             string sb =
                 "#!/bin/bash\n" +
-                "set -e\n" +
+                "set -u\n" +
+                $"LOG=\"{installDir}/.wmj_swap.log\"\n" +
+                "exec >>\"$LOG\" 2>&1\n" +
+                "echo \"[WMJ-Swap] $(date -Iseconds) 启动交换脚本\"\n" +
                 "sleep 2\n" +
-                $"cd \"{installDir}\"\n" +
-                "echo \"[WMJ-Swap] 替换更新文件...\"\n" +
-                $"cd \"{STAGING_DIR}\"\n" +
-                "find . -type f | while read f; do\n" +
+                $"cd \"{installDir}\" || {{ echo '[WMJ-Swap] cd installDir 失败'; exit 1; }}\n" +
+                "ok=1\n" +
+                "moved=0\n" +
+                // process substitution 让 while 运行在主 shell，ok=0 能真正中断后续提交步骤
+                "while IFS= read -r -d '' f; do\n" +
                 "  rel=\"${f#./}\"\n" +
-                "  mkdir -p \"../$(dirname \"$rel\")\"\n" +
-                "  mv -f \"$f\" \"../$rel\"\n" +
+                $"  if [ \"$rel\" = \"{LOCAL_MANIFEST_PENDING}\" ]; then continue; fi\n" +
+                "  dir=\"$(dirname \"$rel\")\"\n" +
+                "  if ! mkdir -p \"$dir\"; then\n" +
+                "    echo \"[WMJ-Swap] mkdir 失败: $dir\"; ok=0; break\n" +
+                "  fi\n" +
+                $"  if ! mv -f \"{STAGING_DIR}/$rel\" \"$rel\"; then\n" +
+                "    echo \"[WMJ-Swap] mv 失败: $rel\"; ok=0; break\n" +
+                "  fi\n" +
+                "  moved=$((moved+1))\n" +
+                $"done < <(cd \"{STAGING_DIR}\" && find . -type f -print0)\n" +
+                "echo \"[WMJ-Swap] 移动文件数=$moved ok=$ok\"\n" +
+                // 无论 ok 如何，尝试给主执行档补上执行位（下载出来默认没有 +x，否则双击启动不起来）
+                "for bin in RoboMasterClient launch.sh; do\n" +
+                "  if [ -f \"$bin\" ]; then chmod +x \"$bin\" 2>/dev/null || true; fi\n" +
                 "done\n" +
-                "cd ..\n" +
-                $"rm -rf \"{STAGING_DIR}\"\n" +
-                "echo \"[WMJ-Swap] 重新启动客户端...\"\n" +
+                // 仅当所有文件都成功落位时才提交 manifest 并清理 staging
+                "if [ \"$ok\" = \"1\" ]; then\n" +
+                $"  if [ -f \"{STAGING_DIR}/{LOCAL_MANIFEST_PENDING}\" ]; then\n" +
+                $"    if mv -f \"{STAGING_DIR}/{LOCAL_MANIFEST_PENDING}\" \"{LOCAL_MANIFEST}\"; then\n" +
+                "      echo \"[WMJ-Swap] manifest 已提交\"\n" +
+                "    else\n" +
+                "      echo \"[WMJ-Swap] manifest 提交失败\"; ok=0\n" +
+                "    fi\n" +
+                "  else\n" +
+                $"    echo \"[WMJ-Swap] 警告: 未找到 {LOCAL_MANIFEST_PENDING}\"; ok=0\n" +
+                "  fi\n" +
+                $"  rm -rf \"{STAGING_DIR}\"\n" +
+                "else\n" +
+                $"  echo \"[WMJ-Swap] 保留 {STAGING_DIR}，下次启动可断点续传\"\n" +
+                "fi\n" +
+                "echo \"[WMJ-Swap] 重新启动客户端... (ok=$ok)\"\n" +
                 "export ROBOMASTER_SKIP_UPDATE=1\n" +
                 "if [ -x ./launch.sh ]; then\n" +
                 "  exec ./launch.sh\n" +
                 "elif [ -x ./RoboMasterClient ]; then\n" +
                 "  exec ./RoboMasterClient\n" +
+                "else\n" +
+                "  echo \"[WMJ-Swap] 警告: 找不到可执行的启动入口\"\n" +
                 "fi\n";
             File.WriteAllText(scriptPath, sb, new UTF8Encoding(false));
             try

@@ -209,6 +209,7 @@
     <Compile Include="Assets/Scripts/UI/HUD/HexPopupHUD.cs" />
     <Compile Include="Assets/Scripts/UI/HUD/DamageVignetteHUD.cs" />
     <Compile Include="Assets/Scripts/UI/RobotSelection/RobotSelectionViewModel.cs" />
+    <Compile Include="Assets/Scripts/Framework/Boot/ModeSelectionPanel.cs" />
     <Compile Include="Assets/TextMesh Pro/Examples &amp; Extras/Scripts/ObjectSpin.cs" />
     <Compile Include="Assets/Scripts/UI/RobotSelection/PerformanceSelectionPanel.cs" />
     <Compile Include="Assets/TextMesh Pro/Examples &amp; Extras/Scripts/TMP_PhoneNumberValidator.cs" />

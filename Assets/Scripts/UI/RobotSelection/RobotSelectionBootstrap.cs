@@ -1,3 +1,4 @@
+using System.Collections;
 using UnityEngine;
 
 namespace UI.RobotSelection
@@ -6,6 +7,8 @@ namespace UI.RobotSelection
     /// 兵种选择启动器 - 在应用启动时自动显示选择界面
     /// 在 ConfigLoader 之前运行，将 RobotID 写入配置
     /// 支持体系选择流程：兵种确认 → 体系选择 → HUD 初始化
+    ///
+    /// 执行时等待 ModeSelectionPanel.IsCompleted（比赛/仿真模式选择）后再启动兵种选择流程
     /// </summary>
     [DefaultExecutionOrder(-2000)] // 在 RuntimeTuner (-1000) 和 ConfigLoader 之前运行
     public class RobotSelectionBootstrap : MonoBehaviour
@@ -42,14 +45,20 @@ namespace UI.RobotSelection
         /// </summary>
         public static event System.Action<RobotSelectionResult> OnSelectionCompleted;
 
-        private void Start()
+        private IEnumerator Start()
         {
             Debug.Log("[RobotSelectionBootstrap] ===== Start() 开始执行 =====");
+
+            // 等待模式选择完成（比赛模式 / 仿真模式）——ModeSelectionPanel 在编辑器下立即完成
+            while (!ModeSelectionPanel.IsCompleted)
+                yield return null;
+
+            Debug.Log($"[RobotSelectionBootstrap] 模式选择已完成，isCompetitionMode={GameParamsConfig.Get.isCompetitionMode}");
 
             if (!autoShowOnStart)
             {
                 Debug.Log("[RobotSelectionBootstrap] autoShowOnStart=false, 跳过");
-                return;
+                yield break;
             }
 
             if (skipSelection)
@@ -61,7 +70,7 @@ namespace UI.RobotSelection
                     Robot = debugRobot
                 };
                 CompleteSelection(result, null);
-                return;
+                yield break;
             }
 
             // 显示选择界面

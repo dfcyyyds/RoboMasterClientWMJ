@@ -73,6 +73,14 @@ public class MqttClientService
     private float lastDropWarnTime = -999f;
     private int dropWarnCount = 0;
 
+    // ── 线程安全计时器：替代 Time.realtimeSinceStartup ──
+    // Time.realtimeSinceStartup 只能在主线程调用，而 TryConnect / MqttMsgPublishReceived
+    // 运行在 ThreadPool 线程，直接调用会抛 UnityException。
+    // Stopwatch 是纯托管代码，任意线程安全。
+    private static readonly System.Diagnostics.Stopwatch _wallClock =
+        System.Diagnostics.Stopwatch.StartNew();
+    private static float WallTime => (float)_wallClock.Elapsed.TotalSeconds;
+
     // ══════════════════════════════════════════════════════
     //  公共 API
     // ══════════════════════════════════════════════════════
@@ -261,7 +269,7 @@ public class MqttClientService
     {
         while (!isShuttingDown)
         {
-            float now = Time.realtimeSinceStartup;
+            float now = WallTime;
 
             // ── 首包看门狗：连接已建立但长时间未收到消息 → 判定静默连接 ──
             var c = client;
@@ -323,7 +331,7 @@ public class MqttClientService
 
             newClient.MqttMsgPublishReceived += (sender, e) =>
             {
-                lastMessageTime = Time.realtimeSinceStartup;
+                lastMessageTime = WallTime;
                 wmj.Log.I($"[MqttClientService] 收到消息: Topic={e.Topic}, Length={e.Message.Length}", wmj.Log.Tag.Network);
                 try { OnMessageReceived?.Invoke(e.Topic, e.Message); }
                 catch (Exception exInvoke) { wmj.Log.F($"[MqttClientService] 消息处理回调异常: {exInvoke.Message}", wmj.Log.Tag.Network); }
@@ -368,7 +376,7 @@ public class MqttClientService
             }
 
             client = newClient;
-            lastConnectedTime = Time.realtimeSinceStartup;
+            lastConnectedTime = WallTime;
             lastMessageTime = lastConnectedTime; // 重置看门狗基准
             wmj.Log.I($"[MqttClientService] ✅ MQTT 连接成功 #{attempt} | clientId={currentId} 协议={protocolVersion} keep-alive={KEEP_ALIVE_PERIOD}s", wmj.Log.Tag.Network);
             try { OnConnected?.Invoke(); } catch { /* ignore */ }
@@ -441,7 +449,7 @@ public class MqttClientService
                 {
                     // 发布丢弃告警节流：同类型每 2 秒最多一条，统计总数
                     dropWarnCount++;
-                    float nowSec = Time.realtimeSinceStartup;
+                    float nowSec = WallTime;
                     if (nowSec - lastDropWarnTime >= 2f)
                     {
                         wmj.Log.W($"[MqttClientService] 发布时未连接，已丢弃 {dropWarnCount} 条 (最近: {topic})", wmj.Log.Tag.Network);
